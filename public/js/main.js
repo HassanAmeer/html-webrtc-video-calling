@@ -1,10 +1,29 @@
+
+
+
+
+// from public fodler
+// 2.
 const createUserBtn = document.getElementById("create-user");
 const username = document.getElementById("username");
 const allusersHtml = document.getElementById("allusers");
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const endCallBtn = document.getElementById("end-call-btn");
+
+
 const socket = io();
+
+// const socket = io("https://any-get.web.app");
+// const socket = io("https://us-central1-any-get.cloudfunctions.net/app", {
+//     path: "/socket.io",
+// });
+
+// const socket = io('https://any-get.onrender.com', {
+//     transports: ['websocket', 'polling'],
+//     path: '/socket.io'
+// });
+
 let localStream;
 let caller = [];
 
@@ -280,11 +299,11 @@ toggleScreen.addEventListener('click', async () => {
 
 // Side panel toggle
 const sidePanel = document.querySelector('.side-panel');
-const togglePanel = document.querySelector('.toggle-panel');
+// const togglePanel = document.querySelector('.toggle-panel');
 
-togglePanel.addEventListener('click', () => {
-    sidePanel.classList.toggle('expanded');
-});
+// togglePanel.addEventListener('click', () => {
+//     sidePanel.classList.toggle('expanded');
+// });
 
 // Update user list item creation with icons
 function createUserListItem(username, isCurrentUser = false) {
