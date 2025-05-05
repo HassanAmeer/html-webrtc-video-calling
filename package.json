@@ -1,20 +1,21 @@
 {
-  "name": "video-calling-app",
+  "name": "wemeet",
   "version": "1.0.0",
-  "description": "",
+  "description": "audio video call app",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon server"
   },
-  "author": "",
+  "author": "Hasan",
   "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.4"
   },
   "devDependencies": {
+    "firebase-tools": "^14.2.2",
     "nodemon": "^3.0.3"
   }
 }
