@@ -1,4 +1,9 @@
-plan: starter 
-buildCommand: "npm i"
-startCommand: "npm run dev"
-
+services:
+  - type: web
+    name: html-webrtc-video-calling
+    env: node
+    plan: Starter Plus
+    buildCommand: "npm i"
+    startCommand: "npm run dev"
+    repo: https://github.com/HassanAmeer/html-webrtc-video-calling.git
+    branch: main
