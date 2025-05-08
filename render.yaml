@@ -1,0 +1,4 @@
+plan: starter 
+buildCommand: "npm i"
+startCommand: "npm run dev"
+
