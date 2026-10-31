@@ -2381,13 +2381,16 @@ html.bypass-lock .security-lock-overlay {
 }
 
 .chat-video-player {
-    max-width: 250px;
-    max-height: 210px;
+    max-width: 260px;
+    max-height: 220px;
+    min-width: 190px;
+    min-height: 130px;
     border-radius: 10px;
     background: #000;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
     outline: none;
     display: block;
+    object-fit: contain;
 }
 
 .chat-doc-card {

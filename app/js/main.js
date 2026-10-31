@@ -3773,14 +3773,22 @@ function clearPendingAttachment() {
 function dataURLToBlob(dataurl) {
     if (!dataurl || typeof dataurl !== "string") return null;
     try {
-        const parts = dataurl.split(',');
-        if (parts.length < 2) return null;
-        const mimeMatch = parts[0].match(/:(.*?);/);
-        let mime = mimeMatch ? mimeMatch[1] : 'video/webm';
-        if (mime.includes('codecs=')) {
-            mime = mime.split(';')[0];
+        const marker = ";base64,";
+        const markerIndex = dataurl.indexOf(marker);
+        if (markerIndex === -1) return null;
+
+        const header = dataurl.substring(0, markerIndex);
+        const base64Data = dataurl.substring(markerIndex + marker.length);
+
+        let mime = "video/webm";
+        if (header.startsWith("data:")) {
+            mime = header.substring(5);
         }
-        const bstr = atob(parts[1]);
+        if (mime.includes(";")) {
+            mime = mime.split(";")[0];
+        }
+
+        const bstr = atob(base64Data);
         let n = bstr.length;
         const u8arr = new Uint8Array(n);
         for (let i = 0; i < n; i++) {
@@ -3848,7 +3856,7 @@ function appendChatMessage(msg, isMine) {
             attachContainer.appendChild(wrap);
         } else if (msg.file.type && msg.file.type.startsWith("video/")) {
             const wrap = document.createElement("div");
-            wrap.className = "chat-media-wrapper";
+            wrap.className = "chat-media-wrapper chat-video-wrapper";
 
             const loader = document.createElement("div");
             loader.className = "chat-media-loader";
@@ -3861,6 +3869,8 @@ function appendChatMessage(msg, isMine) {
             const video = document.createElement("video");
             video.controls = true;
             video.playsInline = true;
+            video.setAttribute("playsinline", "");
+            video.setAttribute("webkit-playsinline", "");
             video.preload = "auto";
             video.className = "chat-video-player";
             video.style.display = "none";
@@ -3880,22 +3890,26 @@ function appendChatMessage(msg, isMine) {
 
             const setupVideoSource = async () => {
                 let playableUrl = "";
-                try {
-                    if (typeof msg.file.data === "string" && msg.file.data.startsWith("data:")) {
-                        // Native fetch conversion to blob guarantees exact binary fidelity and streamable URL
+                let blob = dataURLToBlob(msg.file.data);
+
+                if (!blob && typeof msg.file.data === "string" && msg.file.data.startsWith("data:")) {
+                    try {
                         const res = await fetch(msg.file.data);
-                        const blob = await res.blob();
+                        blob = await res.blob();
+                    } catch (_) {}
+                }
+
+                if (blob) {
+                    try {
                         playableUrl = URL.createObjectURL(blob);
-                    } else {
+                    } catch (_) {
                         playableUrl = msg.file.data;
                     }
-                } catch (e) {
-                    console.warn("fetch blob conversion fallback to direct data:", e);
+                } else {
                     playableUrl = msg.file.data;
                 }
 
                 video.src = playableUrl;
-                video.load();
 
                 let isRevealed = false;
                 const revealVideo = () => {
@@ -3909,20 +3923,30 @@ function appendChatMessage(msg, isMine) {
                 video.onloadeddata = revealVideo;
                 video.oncanplay = revealVideo;
                 video.onloadedmetadata = revealVideo;
+                video.onplay = revealVideo;
 
-                // Safety timeout: reveal video player after 1s
-                setTimeout(revealVideo, 1000);
-
-                video.addEventListener("play", () => {
-                    revealVideo();
-                });
+                // Safety reveal timeout: reveal video player after 600ms
+                setTimeout(revealVideo, 600);
 
                 video.onerror = (e) => {
-                    console.warn("Video element load error, showing play/retry button:", video.error, e);
+                    console.warn("Video element load error, checking direct fallback:", video.error, e);
+                    if (video.src !== msg.file.data && typeof msg.file.data === "string" && msg.file.data.startsWith("data:")) {
+                        video.src = msg.file.data;
+                        video.load();
+                        return;
+                    }
                     loader.innerHTML = `
-                        <button type="button" class="cvr-btn cvr-record" style="font-size:11px; padding:6px 14px; margin-top:2px;">
-                            <i class="fas fa-play"></i> Play Video
-                        </button>
+                        <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+                            <span style="font-size:12px; color:#e2e8f0;"><i class="fas fa-video"></i> Video Message</span>
+                            <div style="display:flex; gap:8px;">
+                                <button type="button" class="cvr-btn cvr-record" style="font-size:11px; padding:6px 14px;">
+                                    <i class="fas fa-play"></i> Play Video
+                                </button>
+                                <a href="${playableUrl || msg.file.data}" download="${msg.file.name || 'video.webm'}" class="cvr-btn cvr-record" style="font-size:11px; padding:6px 14px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                                    <i class="fas fa-download"></i> Save
+                                </a>
+                            </div>
+                        </div>
                     `;
                     const playBtn = loader.querySelector("button");
                     if (playBtn) {
@@ -4454,10 +4478,12 @@ function startChatVideoRecording() {
 
     let mimeType = "";
     const candidateTypes = [
-        "video/mp4",
         "video/webm;codecs=vp8,opus",
-        "video/webm;codecs=vp9,opus",
-        "video/webm"
+        "video/webm;codecs=vp8",
+        "video/webm;codecs=h264,opus",
+        "video/webm",
+        "video/mp4;codecs=avc1,mp4a.40.2",
+        "video/mp4"
     ];
     for (const t of candidateTypes) {
         if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
@@ -4541,9 +4567,10 @@ function retakeChatRecordedVideo() {
 
 function sendChatRecordedVideo() {
     if (!cvrRecordedBlob) return;
+    const blobToSend = cvrRecordedBlob;
     const reader = new FileReader();
     reader.onload = (e) => {
-        let cleanType = cvrRecordedBlob.type || "video/webm";
+        let cleanType = blobToSend.type || "video/webm";
         if (cleanType.includes(";")) {
             cleanType = cleanType.split(";")[0];
         }
@@ -4551,13 +4578,13 @@ function sendChatRecordedVideo() {
         pendingFileObj = {
             name: `video_msg_${Date.now()}.${ext}`,
             type: cleanType,
-            size: cvrRecordedBlob.size,
+            size: blobToSend.size,
             data: e.target.result
         };
         closeChatVideoRecorder();
         sendChatMessage();
     };
-    reader.readAsDataURL(cvrRecordedBlob);
+    reader.readAsDataURL(blobToSend);
 }
 
 // In-Chat Photo Capture Viewfinder Buttons
