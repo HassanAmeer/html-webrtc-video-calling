@@ -2066,6 +2066,14 @@ async function startCall(targetUser) {
 
     try {
         await ensureLocalStream(true);
+        // CRITICAL: getUserMedia hardware switch can suspend AudioContext on mobile/desktop Chrome
+        if (outgoingAudioCtx && outgoingAudioCtx.state === 'suspended') {
+            await outgoingAudioCtx.resume().catch(() => {});
+        }
+        if (callingPeer && isOutgoingWavePlaying) {
+            playSingleTransferPulse();
+        }
+
         const pc = initPeerConnection(targetUser);
 
         const offer = await pc.createOffer({
@@ -2250,176 +2258,164 @@ function showDecoyToast() {
 // CALL AUDIO SIGNALS: OUTGOING SEA WAVES & INCOMING 2-SECOND BEEP
 // ==============================================================
 
-// Helper: Procedural Pink Noise Buffer for Realistic Ocean Waves
-function createPinkNoiseBuffer(ctx, seconds = 5) {
-    const bufferSize = ctx.sampleRate * seconds;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < bufferSize; i++) {
-        const white = Math.random() * 2 - 1;
-        b0 = 0.99886 * b0 + white * 0.0555179;
-        b1 = 0.99332 * b1 + white * 0.0750759;
-        b2 = 0.96900 * b2 + white * 0.1538520;
-        b3 = 0.86650 * b3 + white * 0.3104856;
-        b4 = 0.55000 * b4 + white * 0.5329522;
-        b5 = -0.7616 * b5 - white * 0.0168980;
-        data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.12;
-        b6 = white * 0.115926;
-    }
-    return buffer;
-}
-
-let outgoingWaveNoiseNode = null;
-let outgoingWaveGainNode = null;
-let outgoingWaveFilterNode = null;
-let outgoingWaveSubOsc = null;
-let outgoingWaveSubGain = null;
-let outgoingWaveLFO = null;
-let outgoingWaveLFOGain = null;
-let outgoingWaveFilterLFOGain = null;
-let outgoingWaveMaster = null;
+// ==============================================================
+// 1. Caller Side: Rhythmic Harmonic Transfer / Loading Tone
+// Melodic, ordered, futuristic data transfer chime (A-Major ascending cascade)
+// Repeats continuously every 2.1s without cutting off until answered or hung up.
+// ==============================================================
+let outgoingToneInterval = null;
 let isOutgoingWavePlaying = false;
 
-// 1. Caller Side: Authentic Continuous Sea Waves (Hardware-clocked LFO Swells - Kabhi Kam, Kabhi Zyada)
-function startOutgoingWaveTone() {
+function ensureOutgoingAudioCtx() {
     try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtx) return;
-        if (!outgoingAudioCtx) {
+        if (!AudioCtx) return null;
+        if (!outgoingAudioCtx || outgoingAudioCtx.state === 'closed') {
             outgoingAudioCtx = new AudioCtx();
         }
         if (outgoingAudioCtx.state === 'suspended') {
             outgoingAudioCtx.resume().catch(() => {});
         }
+        outgoingAudioCtx.onstatechange = () => {
+            if (isOutgoingWavePlaying && outgoingAudioCtx && outgoingAudioCtx.state === 'suspended') {
+                outgoingAudioCtx.resume().catch(() => {});
+            }
+        };
+        return outgoingAudioCtx;
+    } catch (e) {
+        return null;
+    }
+}
 
-        stopOutgoingWaveTone();
-        isOutgoingWavePlaying = true;
+// Single rhythmic transfer cycle:
+// 1. Ascending loading swell (440Hz -> 554.37Hz)
+// 2. Clear harmonic data beacon (659.25Hz - E5)
+// 3. Crystal transfer confirmation ping (880.00Hz - A5)
+// 4. Ethereal high sparkle shimmer (1046.5Hz - C6)
+function playSingleTransferPulse() {
+    if (!isOutgoingWavePlaying || !callingPeer) return;
+    const ctx = ensureOutgoingAudioCtx();
+    if (!ctx) return;
 
-        const now = outgoingAudioCtx.currentTime;
+    if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+    }
 
-        // 1. Master Output Gain for smooth fade-in and instant fade-out
-        outgoingWaveMaster = outgoingAudioCtx.createGain();
-        outgoingWaveMaster.gain.setValueAtTime(0.001, now);
-        outgoingWaveMaster.gain.linearRampToValueAtTime(1.0, now + 0.5);
-        outgoingWaveMaster.connect(outgoingAudioCtx.destination);
+    try {
+        const now = ctx.currentTime;
 
-        // 2. Generate organic pink noise buffer for realistic ocean surf
-        const noiseBuffer = createPinkNoiseBuffer(outgoingAudioCtx, 6);
+        // Master pulse gain node for smooth soft output without clipping
+        const masterPulseGain = ctx.createGain();
+        masterPulseGain.gain.setValueAtTime(0.85, now);
+        masterPulseGain.connect(ctx.destination);
 
-        // 3. Pink Noise Buffer Source (Looping)
-        outgoingWaveNoiseNode = outgoingAudioCtx.createBufferSource();
-        outgoingWaveNoiseNode.buffer = noiseBuffer;
-        outgoingWaveNoiseNode.loop = true;
+        // 1. Ascending Loading Wave (440Hz A4 -> 554.37Hz C#5)
+        const swellOsc = ctx.createOscillator();
+        const swellGain = ctx.createGain();
+        swellOsc.type = "sine";
+        swellOsc.frequency.setValueAtTime(440, now);
+        swellOsc.frequency.exponentialRampToValueAtTime(554.37, now + 0.28);
+        swellGain.gain.setValueAtTime(0.0001, now);
+        swellGain.gain.linearRampToValueAtTime(0.06, now + 0.09);
+        swellGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        swellOsc.connect(swellGain);
+        swellGain.connect(masterPulseGain);
+        swellOsc.start(now);
+        swellOsc.stop(now + 0.38);
 
-        // 4. Low-pass resonant filter for sweeping ocean waves
-        outgoingWaveFilterNode = outgoingAudioCtx.createBiquadFilter();
-        outgoingWaveFilterNode.type = "lowpass";
-        outgoingWaveFilterNode.Q.setValueAtTime(2.2, now);
-        outgoingWaveFilterNode.frequency.setValueAtTime(580, now); // Center frequency
+        // 2. Harmonic Data Beacon 1 (659.25Hz - E5)
+        const p1Osc = ctx.createOscillator();
+        const p1Gain = ctx.createGain();
+        p1Osc.type = "sine";
+        p1Osc.frequency.setValueAtTime(659.25, now + 0.16);
+        p1Gain.gain.setValueAtTime(0.0001, now + 0.16);
+        p1Gain.gain.linearRampToValueAtTime(0.08, now + 0.19);
+        p1Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+        p1Osc.connect(p1Gain);
+        p1Gain.connect(masterPulseGain);
+        p1Osc.start(now + 0.16);
+        p1Osc.stop(now + 0.58);
 
-        // 5. Wave swell gain node
-        outgoingWaveGainNode = outgoingAudioCtx.createGain();
-        outgoingWaveGainNode.gain.setValueAtTime(0.20, now); // Base gain
+        // 3. Crystal Confirmation Ping 2 (880.00Hz - A5)
+        const p2Osc = ctx.createOscillator();
+        const p2Gain = ctx.createGain();
+        p2Osc.type = "sine";
+        p2Osc.frequency.setValueAtTime(880.0, now + 0.32);
+        p2Gain.gain.setValueAtTime(0.0001, now + 0.32);
+        p2Gain.gain.linearRampToValueAtTime(0.085, now + 0.35);
+        p2Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.78);
+        p2Osc.connect(p2Gain);
+        p2Gain.connect(masterPulseGain);
+        p2Osc.start(now + 0.32);
+        p2Osc.stop(now + 0.82);
 
-        // 6. Deep ocean sub-bass rumble (55 Hz oceanic body)
-        outgoingWaveSubOsc = outgoingAudioCtx.createOscillator();
-        outgoingWaveSubOsc.type = "sine";
-        outgoingWaveSubOsc.frequency.setValueAtTime(55, now);
-
-        outgoingWaveSubGain = outgoingAudioCtx.createGain();
-        outgoingWaveSubGain.gain.setValueAtTime(0.035, now);
-
-        // 7. Continuous Hardware-clocked LFO (Low-Frequency Oscillator)
-        // 0.28 Hz = ~3.5 seconds per natural oceanic swell cycle (never stops, never drifts!)
-        outgoingWaveLFO = outgoingAudioCtx.createOscillator();
-        outgoingWaveLFO.type = "sine";
-        outgoingWaveLFO.frequency.setValueAtTime(0.28, now);
-
-        // LFO modulates amplitude: gain rises to ~0.37 and falls to ~0.03 continuously
-        outgoingWaveLFOGain = outgoingAudioCtx.createGain();
-        outgoingWaveLFOGain.gain.setValueAtTime(0.17, now);
-        outgoingWaveLFO.connect(outgoingWaveLFOGain);
-        outgoingWaveLFOGain.connect(outgoingWaveGainNode.gain);
-
-        // LFO modulates filter: frequency sweeps between ~220 Hz and ~940 Hz continuously
-        outgoingWaveFilterLFOGain = outgoingAudioCtx.createGain();
-        outgoingWaveFilterLFOGain.gain.setValueAtTime(360, now);
-        outgoingWaveLFO.connect(outgoingWaveFilterLFOGain);
-        outgoingWaveFilterLFOGain.connect(outgoingWaveFilterNode.frequency);
-
-        // Connect audio pipeline:
-        // Noise -> Filter -> WaveGain -> Master -> Audio Destination
-        outgoingWaveNoiseNode.connect(outgoingWaveFilterNode);
-        outgoingWaveFilterNode.connect(outgoingWaveGainNode);
-        outgoingWaveGainNode.connect(outgoingWaveMaster);
-
-        // SubOsc -> SubGain -> Master -> Audio Destination
-        outgoingWaveSubOsc.connect(outgoingWaveSubGain);
-        outgoingWaveSubGain.connect(outgoingWaveMaster);
-
-        // Start all sound generators
-        outgoingWaveNoiseNode.start(now);
-        outgoingWaveSubOsc.start(now);
-        outgoingWaveLFO.start(now);
+        // 4. Ethereal High Sparkle Shimmer (1046.50Hz - C6)
+        const shimmerOsc = ctx.createOscillator();
+        const shimmerGain = ctx.createGain();
+        shimmerOsc.type = "sine";
+        shimmerOsc.frequency.setValueAtTime(1046.5, now + 0.44);
+        shimmerGain.gain.setValueAtTime(0.0001, now + 0.44);
+        shimmerGain.gain.linearRampToValueAtTime(0.03, now + 0.47);
+        shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+        shimmerOsc.connect(shimmerGain);
+        shimmerGain.connect(masterPulseGain);
+        shimmerOsc.start(now + 0.44);
+        shimmerOsc.stop(now + 0.75);
 
     } catch (e) {
-        console.warn("Outgoing ocean wave audio init error:", e);
+        console.warn("Transfer pulse error:", e);
+    }
+}
+
+function startOutgoingWaveTone() {
+    try {
+        if (outgoingToneInterval) {
+            clearInterval(outgoingToneInterval);
+            outgoingToneInterval = null;
+        }
+        isOutgoingWavePlaying = true;
+
+        const ctx = ensureOutgoingAudioCtx();
+        if (ctx && ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+        }
+
+        // Play first cycle immediately
+        playSingleTransferPulse();
+
+        // Repeat every 2.1 seconds in steady musical rhythm
+        outgoingToneInterval = setInterval(() => {
+            if (!isOutgoingWavePlaying || !callingPeer) {
+                stopOutgoingWaveTone();
+                return;
+            }
+            playSingleTransferPulse();
+        }, 2100);
+    } catch (e) {
+        console.warn("startOutgoingWaveTone error:", e);
     }
 }
 
 function stopOutgoingWaveTone() {
     isOutgoingWavePlaying = false;
-    if (outgoingWaveMaster && outgoingAudioCtx) {
-        try {
-            const now = outgoingAudioCtx.currentTime;
-            outgoingWaveMaster.gain.cancelScheduledValues(now);
-            outgoingWaveMaster.gain.linearRampToValueAtTime(0, now + 0.2);
-        } catch (_) {}
+    if (outgoingToneInterval) {
+        clearInterval(outgoingToneInterval);
+        outgoingToneInterval = null;
     }
-    setTimeout(() => {
-        try {
-            if (outgoingWaveNoiseNode) {
-                outgoingWaveNoiseNode.stop();
-                outgoingWaveNoiseNode.disconnect();
-                outgoingWaveNoiseNode = null;
+}
+
+// Global user gesture wake-up for Web Audio on mobile
+if (typeof window !== "undefined") {
+    ["click", "touchstart"].forEach(evt => {
+        window.addEventListener(evt, () => {
+            if (isOutgoingWavePlaying && outgoingAudioCtx && outgoingAudioCtx.state === "suspended") {
+                outgoingAudioCtx.resume().catch(() => {});
             }
-            if (outgoingWaveSubOsc) {
-                outgoingWaveSubOsc.stop();
-                outgoingWaveSubOsc.disconnect();
-                outgoingWaveSubOsc = null;
+            if (ringInterval && ringAudioCtx && ringAudioCtx.state === "suspended") {
+                ringAudioCtx.resume().catch(() => {});
             }
-            if (outgoingWaveLFO) {
-                outgoingWaveLFO.stop();
-                outgoingWaveLFO.disconnect();
-                outgoingWaveLFO = null;
-            }
-            if (outgoingWaveLFOGain) {
-                outgoingWaveLFOGain.disconnect();
-                outgoingWaveLFOGain = null;
-            }
-            if (outgoingWaveFilterLFOGain) {
-                outgoingWaveFilterLFOGain.disconnect();
-                outgoingWaveFilterLFOGain = null;
-            }
-            if (outgoingWaveFilterNode) {
-                outgoingWaveFilterNode.disconnect();
-                outgoingWaveFilterNode = null;
-            }
-            if (outgoingWaveGainNode) {
-                outgoingWaveGainNode.disconnect();
-                outgoingWaveGainNode = null;
-            }
-            if (outgoingWaveSubGain) {
-                outgoingWaveSubGain.disconnect();
-                outgoingWaveSubGain = null;
-            }
-            if (outgoingWaveMaster) {
-                outgoingWaveMaster.disconnect();
-                outgoingWaveMaster = null;
-            }
-        } catch (_) {}
-    }, 220);
+        }, { passive: true });
+    });
 }
 
 // 2. Callee Side: Clean Electronic Beep repeating every 2 seconds
