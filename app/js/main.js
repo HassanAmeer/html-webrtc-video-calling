@@ -446,11 +446,15 @@ socket.on("joined", (allusers) => {
 
     const userKeys = Object.keys(allusers);
     if (participantCount) {
-        participantCount.textContent = `(${userKeys.length})`;
+        participantCount.textContent = userKeys.length;
     }
     const badgeParticipantCount = document.getElementById("badge-participant-count");
     if (badgeParticipantCount) {
         badgeParticipantCount.textContent = userKeys.length;
+    }
+    const badgeParticipantCountInner = document.getElementById("badge-participant-count-inner");
+    if (badgeParticipantCountInner) {
+        badgeParticipantCountInner.textContent = `(${userKeys.length} online)`;
     }
 
     if (userKeys.length === 0) {
@@ -931,66 +935,58 @@ function revertToCameraTrack() {
     }
 }
 
-// Layout toggles
+// Participants Drawer Toggles
 const toggleParticipantsBtn = document.getElementById("toggle-participants-btn");
-const callerListWrapper = document.querySelector(".caller-list-wrapper");
+const participantsDrawer = document.getElementById("participants-drawer");
+const participantsBackdrop = document.getElementById("participants-backdrop");
 const closeParticipantsBtn = document.getElementById("close-participants-btn");
+const btnFooterCloseSheet = document.getElementById("btn-footer-close-sheet");
+
+function openParticipants() {
+    if (participantsDrawer) participantsDrawer.classList.add("open");
+    if (participantsBackdrop) participantsBackdrop.classList.add("active");
+}
+
+function closeParticipants() {
+    if (participantsDrawer) participantsDrawer.classList.remove("open");
+    if (participantsBackdrop) participantsBackdrop.classList.remove("active");
+}
+
+function toggleParticipants() {
+    if (participantsDrawer && participantsDrawer.classList.contains("open")) {
+        closeParticipants();
+    } else {
+        openParticipants();
+    }
+}
 
 if (toggleParticipantsBtn) {
     toggleParticipantsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        callerListWrapper.classList.toggle("expanded");
+        toggleParticipants();
     });
 }
 
 if (closeParticipantsBtn) {
     closeParticipantsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        callerListWrapper.classList.remove("expanded");
+        closeParticipants();
     });
 }
 
-// Quick action buttons in Settings dialog
-const btnQuickFreeze = document.getElementById("btn-quick-freeze");
-const btnQuickPip = document.getElementById("btn-quick-pip");
-const btnQuickFit = document.getElementById("btn-quick-fit");
-const btnQuickScreen = document.getElementById("btn-quick-screen");
-
-if (btnQuickFreeze) {
-    btnQuickFreeze.addEventListener("click", () => {
-        if (settingsModal) settingsModal.classList.remove("active");
-        freezeApp();
+if (btnFooterCloseSheet) {
+    btnFooterCloseSheet.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeParticipants();
     });
 }
 
-if (btnQuickPip) {
-    btnQuickPip.addEventListener("click", () => {
-        if (settingsModal) settingsModal.classList.remove("active");
-        togglePictureInPicture();
+if (participantsBackdrop) {
+    participantsBackdrop.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeParticipants();
     });
 }
-
-if (btnQuickFit) {
-    btnQuickFit.addEventListener("click", () => {
-        toggleFitMode();
-    });
-}
-
-if (btnQuickScreen) {
-    btnQuickScreen.addEventListener("click", () => {
-        if (settingsModal) settingsModal.classList.remove("active");
-        toggleScreen.click();
-    });
-}
-
-// Close participant popup when clicking anywhere outside it
-document.addEventListener("click", (e) => {
-    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
-        if (!callerListWrapper.contains(e.target) && (!toggleParticipantsBtn || !toggleParticipantsBtn.contains(e.target))) {
-            callerListWrapper.classList.remove("expanded");
-        }
-    }
-});
 
 // In-App PiP Window interaction:
 // If strict PiP is ON: clicking blank screen or typing does NOT swap or hide!

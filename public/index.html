@@ -18,7 +18,7 @@
         <div id="active-call-bar" class="active-call-bar" style="display: none;">
             <span class="call-pulse-dot"></span>
             <span id="active-call-name">Connected</span>
-            <button id="bar-quality-toggle" class="call-bar-badge hd" title="Quality: HD 1080p. Tap to switch to SD if connection is slow.">
+            <button id="bar-quality-toggle" class="call-bar-badge hd" title="Quality: HD 1080p. Tap to switch to SD for slow network.">
                 <i class="fas fa-bolt"></i>
                 <span id="bar-quality-text">HD</span>
             </button>
@@ -36,48 +36,28 @@
             </div>
         </div>
 
-        <!-- Settings & More Options Modal / Bottom Sheet -->
+        <!-- Settings Modal -->
         <div id="settings-modal" class="settings-modal">
             <div class="settings-dialog">
                 <div class="settings-header">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <i class="fas fa-sliders-h" style="color: #8ab4f8; font-size: 1.6rem;"></i>
-                        <h3>Options & Settings</h3>
+                        <i class="fas fa-cog" style="color: #8ab4f8; font-size: 1.5rem;"></i>
+                        <h3>Call & App Settings</h3>
                     </div>
                     <button id="close-settings-btn" class="close-panel-btn" title="Close Settings">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <div class="settings-body">
-                    <!-- Quick Actions Grid for Mobile/Desktop -->
-                    <div class="quick-actions-grid">
-                        <button id="btn-quick-freeze" class="quick-action-card">
-                            <i class="fas fa-snowflake" style="color: #8ab4f8;"></i>
-                            <span>Freeze App</span>
-                        </button>
-                        <button id="btn-quick-pip" class="quick-action-card">
-                            <i class="fas fa-clone" style="color: #34a853;"></i>
-                            <span>Floating PiP</span>
-                        </button>
-                        <button id="btn-quick-fit" class="quick-action-card">
-                            <i class="fas fa-expand-arrows-alt" style="color: #fbbc04;"></i>
-                            <span>Fit / Fill View</span>
-                        </button>
-                        <button id="btn-quick-screen" class="quick-action-card">
-                            <i class="fas fa-desktop" style="color: #ea4335;"></i>
-                            <span>Share Screen</span>
-                        </button>
-                    </div>
-
                     <!-- Video Quality Mode -->
                     <div class="setting-item">
                         <div class="setting-info">
-                            <span class="setting-label">Video Quality</span>
+                            <span class="setting-label">Video Quality Mode</span>
                             <span class="setting-desc">HD 1080p for fast Wi-Fi or SD for slow networks</span>
                         </div>
                         <select id="setting-quality-select" class="setting-select">
                             <option value="HD">HD (1080p 60fps)</option>
-                            <option value="SD">SD (480p Smooth)</option>
+                            <option value="SD">SD (480p Stable)</option>
                         </select>
                     </div>
 
@@ -85,19 +65,19 @@
                     <div class="setting-item">
                         <div class="setting-info">
                             <span class="setting-label">Screen Fit Mode</span>
-                            <span class="setting-desc">Fit Screen ensures full view without cropping camera edges</span>
+                            <span class="setting-desc">Fit Screen (Full View) or Fill Screen (Zoomed)</span>
                         </div>
                         <select id="setting-fit-select" class="setting-select">
-                            <option value="contain">Fit Screen (Full View)</option>
-                            <option value="cover">Fill Screen (Zoomed)</option>
+                            <option value="contain">Fit Screen (Full Camera - No Crop)</option>
+                            <option value="cover">Fill Screen (Zoomed to edge)</option>
                         </select>
                     </div>
 
-                    <!-- Strict Pin PiP Window -->
+                    <!-- Lock PiP Window -->
                     <div class="setting-item">
                         <div class="setting-info">
                             <span class="setting-label">Lock PiP Window</span>
-                            <span class="setting-desc">Lock mini video in place so accidental clicks never hide it</span>
+                            <span class="setting-desc">Keep mini video locked so accidental clicks never swap or hide it</span>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setting-strict-pip" checked>
@@ -120,6 +100,49 @@
             </div>
         </div>
 
+        <!-- Participants Side Sheet (Right side, exactly 80% on mobile, sleek drawer on desktop) -->
+        <div id="participants-backdrop" class="sheet-backdrop"></div>
+        <aside id="participants-drawer" class="participants-drawer">
+            <div class="drawer-header">
+                <div class="drawer-title">
+                    <i class="fas fa-users" style="color: #8ab4f8; font-size: 1.5rem;"></i>
+                    <span>Participants</span>
+                    <span id="participant-count" class="participant-count-badge">0</span>
+                </div>
+                <button id="close-participants-btn" class="drawer-close-icon" title="Close Panel">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Join / Update Name Section inside Drawer -->
+            <div class="drawer-user-box">
+                <label class="drawer-label">Your Display Name</label>
+                <div class="drawer-input-row">
+                    <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
+                    <button id="create-user">Join</button>
+                </div>
+            </div>
+
+            <!-- Online Participants List -->
+            <div class="drawer-list-container">
+                <div class="drawer-list-header">
+                    <span>Active Users</span>
+                    <span id="badge-participant-count-inner" style="font-size: 11px; opacity: 0.7;">(0 online)</span>
+                </div>
+                <ul id="allusers" class="caller-list">
+                    <!-- Dynamic users list -->
+                </ul>
+            </div>
+
+            <!-- Drawer Bottom Close Footer -->
+            <div class="drawer-footer">
+                <button id="btn-footer-close-sheet" class="drawer-footer-btn">
+                    <i class="fas fa-times-circle"></i> Close Panel
+                </button>
+            </div>
+        </aside>
+
+        <!-- Video Streams Area -->
         <section class="video-call-container">
             <div class="video-streams">
                 <div class="remote-video">
@@ -136,7 +159,7 @@
                 </div>
             </div>
 
-            <!-- Sleek Unified Call Controls Bar -->
+            <!-- Compact Call Controls Dock (All Options Included, Compact Sizing) -->
             <div class="call-controls">
                 <button class="control-btn" id="toggle-camera" title="Toggle Camera">
                     <i class="fas fa-video"></i>
@@ -144,60 +167,32 @@
                 <button class="control-btn" id="toggle-mic" title="Toggle Microphone">
                     <i class="fas fa-microphone"></i>
                 </button>
-                <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
-                    <span id="quality-badge" class="quality-badge hd">HD</span>
-                </button>
-                <button class="control-btn" id="toggle-participants-btn" title="Participants">
+                <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
                     <i class="fas fa-users"></i>
                     <span id="badge-participant-count" class="badge-mini">0</span>
                 </button>
-
-                <!-- Desktop Secondary Controls (Also available in More Menu for mobile) -->
-                <button class="control-btn desktop-only" id="toggle-screen" title="Share Screen">
-                    <i class="fas fa-desktop"></i>
+                <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
+                    <span id="quality-badge" class="quality-badge hd">HD</span>
                 </button>
-                <button class="control-btn desktop-only" id="toggle-fit" title="Toggle Fit Screen (Complete View / Fill Screen)">
+                <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen / Fill Screen">
                     <i class="fas fa-expand-arrows-alt"></i>
                 </button>
-                <button class="control-btn desktop-only" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
+                <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
                     <i class="fas fa-clone"></i>
                 </button>
-                <button class="control-btn freeze-btn desktop-only" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
+                <button class="control-btn" id="toggle-screen" title="Share Screen">
+                    <i class="fas fa-desktop"></i>
+                </button>
+                <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
                     <i class="fas fa-snowflake"></i>
                 </button>
-
-                <!-- Settings / More Options Button -->
-                <button class="control-btn" id="toggle-more-menu" title="Settings & More Options">
-                    <i class="fas fa-ellipsis-v"></i>
+                <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
+                    <i class="fas fa-cog"></i>
                 </button>
-
-                <!-- End Call Button (Active in Call) -->
                 <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
                     <i class="fas fa-phone-slash"></i>
                 </button>
             </div>
-
-            <!-- Participants Bottom Sheet / Drawer -->
-            <aside class="caller-list-wrapper">
-                <div class="bottom-sheet-handle"></div>
-                <div class="caller-list-header">
-                    <div class="caller-list-title">
-                        <i class="fas fa-users" style="color: #8ab4f8; margin-right: 8px;"></i>
-                        <span>Participants</span>
-                        <span id="participant-count" class="participant-count">(0)</span>
-                    </div>
-                    <button id="close-participants-btn" class="close-panel-btn" title="Close">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="username-input">
-                    <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
-                    <button id="create-user">Join</button>
-                </div>
-                <ul id="allusers" class="caller-list">
-                    <!-- Users will be added here dynamically -->
-                </ul>
-            </aside>
         </section>
     </main>
 </body>
