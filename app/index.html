@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
     <link rel="stylesheet" href="css/style.css">
+    <script>
+        // Instant check to bypass lock screen if launched via link with ID (?id=xxx, ?uid=xxx, etc.)
+        (function() {
+            try {
+                var s = window.location.search;
+                if (s) {
+                    var p = new URLSearchParams(s);
+                    var idVal = p.get('id') || p.get('uid') || p.get('user') || p.get('userId') || p.get('username') || p.get('name') || p.get('target') || p.get('to') || p.get('call') || p.get('peer') || p.get('room') || p.get('pin') || p.get('key');
+                    if (idVal && idVal.trim().length > 0) {
+                        document.documentElement.classList.add('bypass-lock');
+                    }
+                }
+            } catch(e) {}
+        })();
+    </script>
     <script src="js/socket.io.js" defer></script>
     <script src="js/main.js" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">

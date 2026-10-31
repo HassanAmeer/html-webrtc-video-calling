@@ -1267,10 +1267,33 @@ let securityHoldStartTime = 0;
 let isSecurityHolding = false;
 let isAppUnlocked = false;
 
+// Check if app was opened via link with an ID parameter (?id=xxx, ?uid=xxx, ?user=xxx, etc.)
+function hasDirectIdInUrl() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const idVal = params.get("id") || params.get("uid") || params.get("user") || 
+                      params.get("username") || params.get("userId") || params.get("name") ||
+                      params.get("room") || params.get("target") || params.get("call") || 
+                      params.get("to") || params.get("peer") || params.get("pin") || params.get("key");
+        return !!(idVal && idVal.trim().length > 0);
+    } catch (_) {
+        return false;
+    }
+}
+
 function setupSecurityLockHandler() {
     if (!btnSecurityBack || !securityLockOverlay) return;
 
-    // Focus PIN input on load
+    // If opened via link with an ID, bypass lock screen completely (no popup)
+    if (hasDirectIdInUrl()) {
+        isAppUnlocked = true;
+        securityLockOverlay.classList.remove("active");
+        securityLockOverlay.style.display = "none";
+        ensureLocalStream(true).catch(() => {});
+        return;
+    }
+
+    // Normal lock flow: focus PIN input on load
     setTimeout(() => {
         if (securityPinInput) securityPinInput.focus();
     }, 350);
@@ -1414,12 +1437,13 @@ if (usernameInput) {
     });
 }
 
-// URL Query Parameter Auto-Join & Auto-Call Integration (?uid=xxx or ?user=xxx)
+// URL Query Parameter Auto-Join & Auto-Call Integration (?id=xxx or ?uid=xxx or ?user=xxx)
 function handleUrlQueryParams() {
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const uidParam = urlParams.get("uid") || urlParams.get("user") || urlParams.get("username") || urlParams.get("name");
+        const uidParam = urlParams.get("id") || urlParams.get("uid") || urlParams.get("user") || urlParams.get("userId") || urlParams.get("username") || urlParams.get("name");
         const targetParam = urlParams.get("call") || urlParams.get("target") || urlParams.get("to") || urlParams.get("peer");
+        const openChatParam = urlParams.get("chat");
 
         if (targetParam) {
             autoCallTarget = targetParam.trim().substring(0, 30);
@@ -1434,7 +1458,7 @@ function handleUrlQueryParams() {
                 }
                 const emitJoin = () => {
                     socket.emit("join-user", myUsername);
-                    showToast(`Auto-joined as: ${myUsername}`);
+                    showToast(`Connected ID: ${myUsername}`);
                 };
                 if (socket.connected) {
                     emitJoin();
@@ -1442,6 +1466,12 @@ function handleUrlQueryParams() {
                     socket.once("connect", emitJoin);
                 }
             }
+        }
+
+        if (openChatParam === "1" || openChatParam === "true") {
+            setTimeout(() => {
+                toggleChatOverlay(true);
+            }, 500);
         }
     } catch (e) {
         console.warn("Error parsing URL parameters:", e);
