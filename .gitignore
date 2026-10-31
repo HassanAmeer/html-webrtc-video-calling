@@ -52,3 +52,9 @@ typings/
 
 # dotenv environment variables file
 .env
+
+# Binary APK builds
+*.apk
+remoteapk/**/build/
+remoteapk/.gradle/
+remoteapk/local.properties
