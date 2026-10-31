@@ -14,6 +14,17 @@
         <!-- Floating Toast Notification -->
         <div id="toast-notice" class="toast-notice"></div>
 
+        <!-- In-Call Floating Status & Quality Badge -->
+        <div id="active-call-bar" class="active-call-bar" style="display: none;">
+            <span class="call-pulse-dot"></span>
+            <span id="active-call-name">Connected</span>
+            <button id="bar-quality-toggle" class="call-bar-badge hd" title="Network Quality: HD 1080p (Fast Network). Click to switch to SD if connection is weak.">
+                <i class="fas fa-bolt"></i>
+                <span id="bar-quality-text">HD</span>
+                <span class="signal-indicator"><i class="fas fa-wifi"></i></span>
+            </button>
+        </div>
+
         <!-- Freeze Sleep Overlay -->
         <div id="freeze-overlay" class="freeze-overlay">
             <div class="freeze-card">
@@ -23,6 +34,81 @@
                 <button id="unfreeze-btn" class="unfreeze-btn">
                     <i class="fas fa-power-off"></i> Unfreeze & Resume
                 </button>
+            </div>
+        </div>
+
+        <!-- Settings & More Options Modal -->
+        <div id="settings-modal" class="settings-modal">
+            <div class="settings-dialog">
+                <div class="settings-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-cog" style="color: #8ab4f8; font-size: 1.6rem;"></i>
+                        <h3>Call & Display Settings</h3>
+                    </div>
+                    <button id="close-settings-btn" class="close-panel-btn" title="Close Settings">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="settings-body">
+                    <!-- Native Floating Window (Over other tabs/apps) -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Floating Picture-in-Picture</span>
+                            <span class="setting-desc">Keep video floating on top of all other tabs, browser windows, and desktop apps.</span>
+                        </div>
+                        <button id="launch-pip-btn" class="setting-action-btn" title="Pop out floating video">
+                            <i class="fas fa-external-link-alt"></i> Pop Out
+                        </button>
+                    </div>
+
+                    <!-- Strict Pin PiP Window -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Strict Pin PiP Overlay</span>
+                            <span class="setting-desc">Lock mini video window in place so clicking outside or typing never hides or swaps it accidentally.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-strict-pip" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Video Quality Mode -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Video Quality Mode</span>
+                            <span class="setting-desc">Switch between crystal clear HD (1080p) or Normal/SD (smooth on slow Wi-Fi).</span>
+                        </div>
+                        <select id="setting-quality-select" class="setting-select">
+                            <option value="HD">HD (1080p 60fps - High Speed)</option>
+                            <option value="SD">Normal / SD (480p - Slow Wi-Fi / Low Data)</option>
+                        </select>
+                    </div>
+
+                    <!-- Screen Fit Mode -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Screen Fit Mode</span>
+                            <span class="setting-desc">Fit Screen ensures the full camera view from mobile or desktop is never cut off.</span>
+                        </div>
+                        <select id="setting-fit-select" class="setting-select">
+                            <option value="contain">Fit to Screen (Full Camera - Recommended)</option>
+                            <option value="cover">Fill Screen (Zoom to edge)</option>
+                        </select>
+                    </div>
+
+                    <!-- Mirror Self Camera -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Mirror Self Camera</span>
+                            <span class="setting-desc">Mirrors your preview video horizontally like a real selfie mirror.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-mirror-camera" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -60,8 +146,17 @@
                 <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen (Complete View / Fill Screen)">
                     <i class="fas fa-expand-arrows-alt"></i>
                 </button>
+                <!-- Floating PiP Button (Stays over other tabs) -->
+                <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs & apps)">
+                    <i class="fas fa-clone"></i>
+                </button>
+                <!-- Freeze Sleep Button -->
                 <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Stop Camera, Mic & Sleep)">
                     <i class="fas fa-snowflake"></i>
+                </button>
+                <!-- Settings / More Options Button -->
+                <button class="control-btn" id="toggle-more-menu" title="Settings & Preferences">
+                    <i class="fas fa-ellipsis-v"></i>
                 </button>
                 <button id="end-call-btn" class="control-btn" title="End Call" style="display: none; background-color: #ea4335;">
                     <i class="fas fa-phone-slash"></i>

@@ -11,6 +11,24 @@ const unfreezeBtn = document.getElementById("unfreeze-btn");
 const freezeOverlay = document.getElementById("freeze-overlay");
 const toggleQualityBtn = document.getElementById("toggle-quality");
 const qualityBadge = document.getElementById("quality-badge");
+const toggleFitBtn = document.getElementById("toggle-fit");
+const togglePipBtn = document.getElementById("toggle-pip");
+const toggleMoreMenuBtn = document.getElementById("toggle-more-menu");
+
+// Settings Modal Elements
+const settingsModal = document.getElementById("settings-modal");
+const closeSettingsBtn = document.getElementById("close-settings-btn");
+const launchPipBtn = document.getElementById("launch-pip-btn");
+const settingStrictPip = document.getElementById("setting-strict-pip");
+const settingQualitySelect = document.getElementById("setting-quality-select");
+const settingFitSelect = document.getElementById("setting-fit-select");
+const settingMirrorCamera = document.getElementById("setting-mirror-camera");
+
+// Active Call Bar
+const activeCallBar = document.getElementById("active-call-bar");
+const activeCallName = document.getElementById("active-call-name");
+const barQualityToggle = document.getElementById("bar-quality-toggle");
+const barQualityText = document.getElementById("bar-quality-text");
 
 const socket = io();
 
@@ -38,7 +56,7 @@ const QUALITY_PROFILES = {
     }
 };
 
-// State
+// Preferences & State
 let myUsername = "";
 let hasJoined = false;
 let activePeer = null;
@@ -47,6 +65,9 @@ let pendingIceCandidates = [];
 let localStream = null;
 let isFrozen = false;
 let currentQuality = localStorage.getItem("webrtc_video_quality") || "HD";
+let isFitCover = (localStorage.getItem("webrtc_fit_mode") === "cover");
+let isStrictPip = (localStorage.getItem("webrtc_strict_pip") !== "false");
+let isMirrorCamera = (localStorage.getItem("webrtc_mirror_camera") !== "false");
 
 const rtcConfig = {
     iceServers: [
@@ -71,21 +92,80 @@ function showToast(message) {
     }, 2800);
 }
 
-// Update Quality UI Button
-function updateQualityUI() {
-    if (!qualityBadge || !toggleQualityBtn) return;
-    qualityBadge.textContent = currentQuality;
-    if (currentQuality === "HD") {
-        qualityBadge.className = "quality-badge hd";
-        toggleQualityBtn.title = "Current: HD 1080p (Click to switch to Normal/SD)";
+// Initialize Preferences in UI
+function initPreferences() {
+    // Quality UI
+    updateQualityUI();
+    if (settingQualitySelect) settingQualitySelect.value = currentQuality;
+
+    // Fit Mode
+    if (isFitCover) {
+        remoteVideo.classList.add("fit-cover");
+        if (toggleFitBtn) {
+            toggleFitBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
+            toggleFitBtn.title = "View: Fill Screen (Zoomed) - Click to Fit";
+        }
     } else {
-        qualityBadge.className = "quality-badge sd";
-        toggleQualityBtn.title = "Current: Normal/SD (Click to switch to HD 1080p)";
+        remoteVideo.classList.remove("fit-cover");
+        if (toggleFitBtn) {
+            toggleFitBtn.innerHTML = '<i class="fas fa-expand-arrows-alt"></i>';
+            toggleFitBtn.title = "View: Fit Screen (Complete View) - Click to Fill";
+        }
+    }
+    if (settingFitSelect) settingFitSelect.value = isFitCover ? "cover" : "contain";
+
+    // Strict PiP
+    if (settingStrictPip) settingStrictPip.checked = isStrictPip;
+
+    // Mirror Camera
+    if (settingMirrorCamera) settingMirrorCamera.checked = isMirrorCamera;
+    localVideo.style.transform = isMirrorCamera ? "scaleX(-1)" : "scaleX(1)";
+}
+initPreferences();
+
+// Update Quality UI Button & In-Call Indicators
+function updateQualityUI() {
+    if (qualityBadge && toggleQualityBtn) {
+        qualityBadge.textContent = currentQuality;
+        if (currentQuality === "HD") {
+            qualityBadge.className = "quality-badge hd";
+            toggleQualityBtn.title = "Current: HD 1080p (Click to switch to Normal/SD)";
+        } else {
+            qualityBadge.className = "quality-badge sd";
+            toggleQualityBtn.title = "Current: Normal/SD (Click to switch to HD 1080p)";
+        }
+    }
+
+    // Active In-Call bar badge
+    if (barQualityText && barQualityToggle) {
+        barQualityText.textContent = currentQuality;
+        if (currentQuality === "HD") {
+            barQualityToggle.className = "call-bar-badge hd";
+            barQualityToggle.title = "Network Quality: HD 1080p (Fast Network). Click to switch to SD for slow network.";
+        } else {
+            barQualityToggle.className = "call-bar-badge sd";
+            barQualityToggle.title = "Network Quality: SD 480p (Stable on Slow Wi-Fi). Click to switch to HD.";
+        }
+    }
+
+    if (settingQualitySelect) settingQualitySelect.value = currentQuality;
+
+    // Update active peer quality pill in participants list if open
+    const peerQualityBtn = document.querySelector(".btn-peer-quality");
+    if (peerQualityBtn) {
+        peerQualityBtn.className = `btn-peer-quality ${currentQuality.toLowerCase()}`;
+        peerQualityBtn.innerHTML = `
+            <i class="fas ${currentQuality === 'HD' ? 'fa-bolt' : 'fa-signal'}"></i>
+            <span>${currentQuality}</span>
+            <span class="status-indicator-dot ${currentQuality === 'HD' ? 'fast' : 'stable'}"></span>
+        `;
+        peerQualityBtn.title = (currentQuality === "HD")
+            ? "Network Quality: HD 1080p (High Speed) - Click to switch to SD if connection is weak"
+            : "Network Quality: SD 480p (Stable on Weak Wi-Fi) - Click to switch to HD";
     }
 }
-updateQualityUI();
 
-// Apply bitrate & degradation preferences to WebRTC connection
+// Apply Bitrate & Degradation to WebRTC sender
 function applyBitrateToSender(pc) {
     if (!pc) return;
     const profile = QUALITY_PROFILES[currentQuality];
@@ -121,7 +201,6 @@ async function toggleQuality() {
         if (videoTrack) {
             try {
                 await videoTrack.applyConstraints(profile.videoConstraints);
-                console.log(`Applied constraints for ${newQuality}`);
             } catch (err) {
                 console.warn(`applyConstraints error, acquiring fresh ${newQuality} track:`, err);
                 try {
@@ -158,25 +237,130 @@ async function toggleQuality() {
 if (toggleQualityBtn) {
     toggleQualityBtn.addEventListener("click", toggleQuality);
 }
+if (barQualityToggle) {
+    barQualityToggle.addEventListener("click", toggleQuality);
+}
 
 // Toggle Screen Fit (Contain vs Cover)
-const toggleFitBtn = document.getElementById("toggle-fit");
-let isFitCover = false;
-
-if (toggleFitBtn) {
-    toggleFitBtn.addEventListener("click", () => {
-        isFitCover = !isFitCover;
-        if (isFitCover) {
-            remoteVideo.classList.add("fit-cover");
+function toggleFitMode() {
+    isFitCover = !isFitCover;
+    localStorage.setItem("webrtc_fit_mode", isFitCover ? "cover" : "contain");
+    if (isFitCover) {
+        remoteVideo.classList.add("fit-cover");
+        if (toggleFitBtn) {
             toggleFitBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
             toggleFitBtn.title = "View: Fill Screen (Zoomed) - Click to Fit";
-            showToast("View: Fill Screen (Zoomed)");
-        } else {
-            remoteVideo.classList.remove("fit-cover");
+        }
+        showToast("View: Fill Screen (Zoomed to edge)");
+    } else {
+        remoteVideo.classList.remove("fit-cover");
+        if (toggleFitBtn) {
             toggleFitBtn.innerHTML = '<i class="fas fa-expand-arrows-alt"></i>';
             toggleFitBtn.title = "View: Fit Screen (Complete View) - Click to Fill";
-            showToast("View: Fit Screen (Complete View - No Crop)");
         }
+        showToast("View: Fit Screen (Complete View - No Crop)");
+    }
+    if (settingFitSelect) settingFitSelect.value = isFitCover ? "cover" : "contain";
+}
+
+if (toggleFitBtn) {
+    toggleFitBtn.addEventListener("click", toggleFitMode);
+}
+
+// Native Floating Picture-in-Picture (Over other tabs and desktop apps)
+async function togglePictureInPicture() {
+    try {
+        if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+            showToast("Picture-in-Picture window closed");
+        } else {
+            // Prefer remote video if active, otherwise local video
+            const targetVideo = (remoteVideo.srcObject && remoteVideo.srcObject.active) 
+                ? remoteVideo 
+                : localVideo;
+
+            if (targetVideo.readyState >= 2 || (targetVideo.srcObject && targetVideo.srcObject.active)) {
+                await targetVideo.requestPictureInPicture();
+                showToast("Floating PiP active (Stays on top of other tabs & apps)");
+            } else {
+                showToast("Start a call or enable camera to open Picture-in-Picture");
+            }
+        }
+    } catch (err) {
+        console.error("Picture-in-Picture error:", err);
+        showToast("Picture-in-Picture not supported or blocked by browser");
+    }
+}
+
+if (togglePipBtn) {
+    togglePipBtn.addEventListener("click", togglePictureInPicture);
+}
+if (launchPipBtn) {
+    launchPipBtn.addEventListener("click", () => {
+        togglePictureInPicture();
+        if (settingsModal) settingsModal.classList.remove("active");
+    });
+}
+
+// PiP Button active state listener
+remoteVideo.addEventListener("enterpictureinpicture", () => {
+    if (togglePipBtn) togglePipBtn.classList.add("active");
+});
+remoteVideo.addEventListener("leavepictureinpicture", () => {
+    if (togglePipBtn) togglePipBtn.classList.remove("active");
+});
+
+// Settings Modal Handlers
+if (toggleMoreMenuBtn) {
+    toggleMoreMenuBtn.addEventListener("click", () => {
+        if (settingsModal) settingsModal.classList.add("active");
+    });
+}
+if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener("click", () => {
+        if (settingsModal) settingsModal.classList.remove("active");
+    });
+}
+if (settingsModal) {
+    settingsModal.addEventListener("click", (e) => {
+        if (e.target === settingsModal) {
+            settingsModal.classList.remove("active");
+        }
+    });
+}
+
+// Settings Selects and Toggles
+if (settingStrictPip) {
+    settingStrictPip.addEventListener("change", (e) => {
+        isStrictPip = e.target.checked;
+        localStorage.setItem("webrtc_strict_pip", isStrictPip);
+        showToast(isStrictPip ? "Strict PiP: Window locked in place" : "Strict PiP: Click to swap enabled");
+    });
+}
+
+if (settingQualitySelect) {
+    settingQualitySelect.addEventListener("change", (e) => {
+        if (e.target.value !== currentQuality) {
+            toggleQuality();
+        }
+    });
+}
+
+if (settingFitSelect) {
+    settingFitSelect.addEventListener("change", (e) => {
+        const wantsCover = (e.target.value === "cover");
+        if (wantsCover !== isFitCover) {
+            toggleFitMode();
+        }
+    });
+}
+
+if (settingMirrorCamera) {
+    settingMirrorCamera.addEventListener("change", (e) => {
+        isMirrorCamera = e.target.checked;
+        localStorage.setItem("webrtc_mirror_camera", isMirrorCamera);
+        localVideo.style.transform = isMirrorCamera ? "scaleX(-1)" : "scaleX(1)";
+        showToast(isMirrorCamera ? "Self Camera Mirrored" : "Self Camera Standard");
     });
 }
 
@@ -288,7 +472,7 @@ function createParticipantItem(user, isCurrent) {
     li.style.display = "flex";
     li.style.alignItems = "center";
     li.style.justifyContent = "space-between";
-    li.style.padding = "10px 16px";
+    li.style.padding = "10px 14px";
     li.style.borderBottom = "1px solid rgba(255, 255, 255, 0.05)";
 
     const userInfo = document.createElement("div");
@@ -320,15 +504,35 @@ function createParticipantItem(user, isCurrent) {
     userInfo.appendChild(span);
     li.appendChild(userInfo);
 
-    // Actions container (Call & Delete)
+    // Actions container (Quality, Call & Delete)
     const actionsDiv = document.createElement("div");
     actionsDiv.className = "participant-actions";
 
     if (!isCurrent) {
+        // If actively connected in call with this participant, show Quality Toggle Button right here!
+        if (activePeer === user) {
+            const peerQualityBtn = document.createElement("button");
+            peerQualityBtn.className = `btn-peer-quality ${currentQuality.toLowerCase()}`;
+            peerQualityBtn.innerHTML = `
+                <i class="fas ${currentQuality === 'HD' ? 'fa-bolt' : 'fa-signal'}"></i>
+                <span>${currentQuality}</span>
+                <span class="status-indicator-dot ${currentQuality === 'HD' ? 'fast' : 'stable'}"></span>
+            `;
+            peerQualityBtn.title = (currentQuality === "HD")
+                ? "Network Quality: HD 1080p (High Speed) - Click to switch to SD if connection is weak"
+                : "Network Quality: SD 480p (Stable on Weak Wi-Fi) - Click to switch to HD";
+
+            peerQualityBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                toggleQuality();
+            });
+            actionsDiv.appendChild(peerQualityBtn);
+        }
+
         // Call button
         const callBtn = document.createElement("button");
         callBtn.className = "btn-action-call";
-        callBtn.title = `Call ${user}`;
+        callBtn.title = `Call ${user} (${currentQuality} Mode)`;
         callBtn.innerHTML = '<i class="fas fa-phone"></i>';
         callBtn.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -488,6 +692,21 @@ async function flushPendingCandidates(pc) {
     }
 }
 
+// Show Active Call Bar
+function showActiveCallBar(peerName) {
+    if (activeCallBar && activeCallName) {
+        activeCallName.textContent = `Connected: ${peerName}`;
+        activeCallBar.style.display = "flex";
+        updateQualityUI();
+    }
+}
+
+function hideActiveCallBar() {
+    if (activeCallBar) {
+        activeCallBar.style.display = "none";
+    }
+}
+
 // Start Call
 async function startCall(targetUser) {
     if (!targetUser) return;
@@ -515,6 +734,7 @@ async function startCall(targetUser) {
         });
 
         endCallBtn.style.display = "flex";
+        showActiveCallBar(targetUser);
         showToast(`Calling ${targetUser}...`);
     } catch (err) {
         console.error("Failed to start call:", err);
@@ -543,6 +763,7 @@ socket.on("offer", async ({ from, to, offer }) => {
         });
 
         endCallBtn.style.display = "flex";
+        showActiveCallBar(from);
         showToast(`Connected with ${from}`);
     } catch (err) {
         console.error("Error answering call:", err);
@@ -558,6 +779,7 @@ socket.on("answer", async ({ from, to, answer }) => {
             await flushPendingCandidates(peerConnection);
             applyBitrateToSender(peerConnection);
             endCallBtn.style.display = "flex";
+            showActiveCallBar(from);
             showToast(`Call connected with ${from}`);
         } catch (err) {
             console.error("Error setting remote description from answer:", err);
@@ -597,6 +819,12 @@ function endCall(notifyServer = true) {
     }
     if (endCallBtn) {
         endCallBtn.style.display = "none";
+    }
+    hideActiveCallBar();
+
+    // Close PiP if open
+    if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(() => {});
     }
 }
 
@@ -727,20 +955,15 @@ document.addEventListener("click", (e) => {
     }
 });
 
-// Click local/remote video swap
+// In-App PiP Window interaction:
+// If strict PiP is ON: clicking blank screen or typing does NOT swap or hide!
+// Only clicking the local video window directly swaps when strict PiP allows it.
 document.querySelector(".local-video").addEventListener("click", function (e) {
-    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
-        callerListWrapper.classList.remove("expanded");
+    e.stopPropagation();
+    if (isStrictPip) {
+        // In strict mode, PiP window stays locked on bottom-right!
         return;
     }
     this.classList.toggle("active");
     document.querySelector(".remote-video").classList.toggle("active");
-});
-document.querySelector(".remote-video").addEventListener("click", function (e) {
-    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
-        callerListWrapper.classList.remove("expanded");
-        return;
-    }
-    this.classList.toggle("active");
-    document.querySelector(".local-video").classList.toggle("active");
 });
