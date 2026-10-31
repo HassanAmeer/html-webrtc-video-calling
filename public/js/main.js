@@ -1103,6 +1103,10 @@ function setupSecurityLockHandler() {
             if (enteredKey === SECURITY_PIN) {
                 // Correct 0000 PIN -> Unlock app
                 isAppUnlocked = true;
+                if (securityPinInput) {
+                    securityPinInput.value = "";
+                    securityPinInput.blur();
+                }
                 if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
                 securityLockOverlay.classList.remove("active");
                 securityLockOverlay.style.display = "none";
