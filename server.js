@@ -42,6 +42,12 @@ io.on("connection", (socket) => {
     // Send currently joined users (empty until someone sets a name)
     socket.emit("joined", getAllUsersPayload());
 
+    // Allow clients to explicitly refresh or check participants on demand
+    socket.on("get-users", () => {
+        console.log(`Participants refresh requested by socket ${socket.id}`);
+        socket.emit("joined", getAllUsersPayload());
+    });
+
     // User joins by explicitly submitting their name
     socket.on("join-user", (requestedName) => {
         if (!requestedName || typeof requestedName !== "string") return;

@@ -303,12 +303,14 @@ if (launchPipBtn) {
 }
 
 // PiP Button active state listener
-remoteVideo.addEventListener("enterpictureinpicture", () => {
-    if (togglePipBtn) togglePipBtn.classList.add("active");
-});
-remoteVideo.addEventListener("leavepictureinpicture", () => {
-    if (togglePipBtn) togglePipBtn.classList.remove("active");
-});
+if (remoteVideo) {
+    remoteVideo.addEventListener("enterpictureinpicture", () => {
+        if (togglePipBtn) togglePipBtn.classList.add("active");
+    });
+    remoteVideo.addEventListener("leavepictureinpicture", () => {
+        if (togglePipBtn) togglePipBtn.classList.remove("active");
+    });
+}
 
 // Settings Modal Handlers
 if (toggleMoreMenuBtn) {
@@ -432,12 +434,16 @@ function handleJoinOrUpdate() {
     socket.emit("join-user", myUsername);
 }
 
-createUserBtn.addEventListener("click", handleJoinOrUpdate);
-usernameInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-        handleJoinOrUpdate();
-    }
-});
+if (createUserBtn) {
+    createUserBtn.addEventListener("click", handleJoinOrUpdate);
+}
+if (usernameInput) {
+    usernameInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            handleJoinOrUpdate();
+        }
+    });
+}
 
 // Render participant list
 socket.on("joined", (allusers) => {
@@ -615,13 +621,20 @@ async function freezeApp() {
     socket.emit("freeze-user");
 
     // Show freeze overlay
-    freezeOverlay.classList.add("active");
+    if (freezeOverlay) {
+        freezeOverlay.classList.add("active");
+        freezeOverlay.style.display = "flex";
+    }
+    showToast("App Frozen: Sleep mode activated");
     console.log("App frozen: camera, mic and connection stopped.");
 }
 
 async function unfreezeApp() {
     isFrozen = false;
-    freezeOverlay.classList.remove("active");
+    if (freezeOverlay) {
+        freezeOverlay.classList.remove("active");
+        freezeOverlay.style.display = "none";
+    }
 
     // Restore camera and microphone
     await ensureLocalStream();
@@ -630,11 +643,12 @@ async function unfreezeApp() {
     if (hasJoined && myUsername) {
         socket.emit("join-user", myUsername);
     }
+    showToast("App Resumed: Active");
     console.log("App unfrozen: camera, mic and connection restored.");
 }
 
-toggleFreezeBtn.addEventListener("click", freezeApp);
-unfreezeBtn.addEventListener("click", unfreezeApp);
+if (toggleFreezeBtn) toggleFreezeBtn.addEventListener("click", freezeApp);
+if (unfreezeBtn) unfreezeBtn.addEventListener("click", unfreezeApp);
 
 // PeerConnection Factory
 function initPeerConnection(targetUser) {
@@ -836,9 +850,11 @@ function endCall(notifyServer = true) {
     }
 }
 
-endCallBtn.addEventListener("click", () => {
-    endCall(true);
-});
+if (endCallBtn) {
+    endCallBtn.addEventListener("click", () => {
+        endCall(true);
+    });
+}
 
 socket.on("end-call", ({ from, to }) => {
     console.log(`Call ended by peer`);
@@ -858,65 +874,84 @@ let isMicOn = true;
 let isScreenSharing = false;
 let isLocalVideoVisible = true;
 
-toggleCamera.addEventListener("click", () => {
-    if (!localStream) return;
-    const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
-        isCameraOn = !isCameraOn;
-        videoTrack.enabled = isCameraOn;
-        toggleCamera.classList.toggle("active", !isCameraOn);
-        const icon = toggleCamera.querySelector("i");
-        icon.className = isCameraOn ? "fas fa-video" : "fas fa-video-slash";
-    }
-});
-
-toggleMic.addEventListener("click", () => {
-    if (!localStream) return;
-    const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
-        isMicOn = !isMicOn;
-        audioTrack.enabled = isMicOn;
-        toggleMic.classList.toggle("active", !isMicOn);
-        const icon = toggleMic.querySelector("i");
-        icon.className = isMicOn ? "fas fa-microphone" : "fas fa-microphone-slash";
-    }
-});
-
-localVideoToggleIcon.addEventListener("click", () => {
-    isLocalVideoVisible = !isLocalVideoVisible;
-    localVideoDiv.style.display = isLocalVideoVisible ? "block" : "none";
-    const icon = localVideoToggleIcon.querySelector("i");
-    icon.className = isLocalVideoVisible ? "fas fa-eye" : "fas fa-eye-slash";
-});
-
-toggleScreen.addEventListener("click", async () => {
-    if (!isScreenSharing) {
-        try {
-            const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-            const screenTrack = screenStream.getVideoTracks()[0];
-
-            if (peerConnection) {
-                const sender = peerConnection.getSenders().find((s) => s.track && s.track.kind === "video");
-                if (sender) {
-                    sender.replaceTrack(screenTrack);
-                }
-            }
-
-            localVideo.srcObject = screenStream;
-            isScreenSharing = true;
-            toggleScreen.classList.add("active");
-            toggleScreen.querySelector("i").className = "fas fa-stop";
-
-            screenTrack.onended = () => {
-                revertToCameraTrack();
-            };
-        } catch (err) {
-            console.error("Screen share error:", err);
+if (toggleCamera) {
+    toggleCamera.addEventListener("click", () => {
+        if (!localStream) {
+            showToast("Camera not ready or not permitted");
+            return;
         }
-    } else {
-        revertToCameraTrack();
-    }
-});
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack) {
+            isCameraOn = !isCameraOn;
+            videoTrack.enabled = isCameraOn;
+            toggleCamera.classList.toggle("active", !isCameraOn);
+            const icon = toggleCamera.querySelector("i");
+            if (icon) icon.className = isCameraOn ? "fas fa-video" : "fas fa-video-slash";
+            showToast(isCameraOn ? "Camera: ON" : "Camera: OFF");
+        }
+    });
+}
+
+if (toggleMic) {
+    toggleMic.addEventListener("click", () => {
+        if (!localStream) {
+            showToast("Microphone not ready or not permitted");
+            return;
+        }
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            isMicOn = !isMicOn;
+            audioTrack.enabled = isMicOn;
+            toggleMic.classList.toggle("active", !isMicOn);
+            const icon = toggleMic.querySelector("i");
+            if (icon) icon.className = isMicOn ? "fas fa-microphone" : "fas fa-microphone-slash";
+            showToast(isMicOn ? "Microphone: ON" : "Microphone: MUTED");
+        }
+    });
+}
+
+if (localVideoToggleIcon) {
+    localVideoToggleIcon.addEventListener("click", () => {
+        if (isLocalVideoVisible) {
+            hideSelfView();
+        } else {
+            showSelfView();
+        }
+    });
+}
+
+if (toggleScreen) {
+    toggleScreen.addEventListener("click", async () => {
+        if (!isScreenSharing) {
+            try {
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                const screenTrack = screenStream.getVideoTracks()[0];
+
+                if (peerConnection) {
+                    const sender = peerConnection.getSenders().find((s) => s.track && s.track.kind === "video");
+                    if (sender) {
+                        sender.replaceTrack(screenTrack);
+                    }
+                }
+
+                localVideo.srcObject = screenStream;
+                isScreenSharing = true;
+                toggleScreen.classList.add("active");
+                toggleScreen.querySelector("i").className = "fas fa-stop";
+                showToast("Screen Sharing: Active");
+
+                screenTrack.onended = () => {
+                    revertToCameraTrack();
+                };
+            } catch (err) {
+                console.error("Screen share error:", err);
+                showToast("Screen share cancelled or not supported");
+            }
+        } else {
+            revertToCameraTrack();
+        }
+    });
+}
 
 function revertToCameraTrack() {
     isScreenSharing = false;
@@ -941,15 +976,51 @@ const participantsDrawer = document.getElementById("participants-drawer");
 const participantsBackdrop = document.getElementById("participants-backdrop");
 const closeParticipantsBtn = document.getElementById("close-participants-btn");
 const btnFooterCloseSheet = document.getElementById("btn-footer-close-sheet");
+const refreshParticipantsBtn = document.getElementById("refresh-participants-btn");
+const btnRefreshListInline = document.getElementById("btn-refresh-list-inline");
+const refreshIcon = document.getElementById("refresh-icon");
+const refreshIconInline = document.getElementById("refresh-icon-inline");
+
+function triggerParticipantsRefresh() {
+    if (refreshIcon) refreshIcon.classList.add("spinning");
+    if (refreshIconInline) refreshIconInline.classList.add("spinning");
+
+    if (socket && socket.connected) {
+        socket.emit("get-users");
+    }
+
+    setTimeout(() => {
+        if (refreshIcon) refreshIcon.classList.remove("spinning");
+        if (refreshIconInline) refreshIconInline.classList.remove("spinning");
+    }, 700);
+}
 
 function openParticipants() {
-    if (participantsDrawer) participantsDrawer.classList.add("open");
-    if (participantsBackdrop) participantsBackdrop.classList.add("active");
+    if (participantsDrawer) {
+        participantsDrawer.classList.add("open");
+        participantsDrawer.style.transform = "translateX(0)";
+    }
+    if (participantsBackdrop) {
+        participantsBackdrop.classList.add("active");
+        participantsBackdrop.style.opacity = "1";
+        participantsBackdrop.style.pointerEvents = "auto";
+    }
+    // Automatically ask server for the freshest participant list
+    if (socket && socket.connected) {
+        socket.emit("get-users");
+    }
 }
 
 function closeParticipants() {
-    if (participantsDrawer) participantsDrawer.classList.remove("open");
-    if (participantsBackdrop) participantsBackdrop.classList.remove("active");
+    if (participantsDrawer) {
+        participantsDrawer.classList.remove("open");
+        participantsDrawer.style.transform = "translateX(100%)";
+    }
+    if (participantsBackdrop) {
+        participantsBackdrop.classList.remove("active");
+        participantsBackdrop.style.opacity = "0";
+        participantsBackdrop.style.pointerEvents = "none";
+    }
 }
 
 function toggleParticipants() {
@@ -964,6 +1035,20 @@ if (toggleParticipantsBtn) {
     toggleParticipantsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleParticipants();
+    });
+}
+
+if (refreshParticipantsBtn) {
+    refreshParticipantsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        triggerParticipantsRefresh();
+    });
+}
+
+if (btnRefreshListInline) {
+    btnRefreshListInline.addEventListener("click", (e) => {
+        e.stopPropagation();
+        triggerParticipantsRefresh();
     });
 }
 
@@ -988,13 +1073,289 @@ if (participantsBackdrop) {
     });
 }
 
+// ==============================================================
+// LOCAL VIDEO: DRAGGABLE, RESIZABLE, AND HIDE / RESTORE PREVIEW
+// ==============================================================
+const localVideoContainer = document.getElementById("local-video-container") || document.querySelector(".local-video");
+const btnLocalSize = document.getElementById("btn-local-size");
+const iconLocalSize = document.getElementById("icon-local-size");
+const btnLocalHide = document.getElementById("btn-local-hide");
+const btnRestoreLocal = document.getElementById("btn-restore-local");
+const localResizeCorner = document.getElementById("local-resize-corner");
+
+let suppressLocalClickUntil = 0;
+let currentSizePreset = "normal"; // 'mini', 'normal', 'large'
+
+function hideSelfView() {
+    isLocalVideoVisible = false;
+    if (localVideoContainer) {
+        localVideoContainer.classList.add("hidden-preview");
+    }
+    if (btnRestoreLocal) {
+        btnRestoreLocal.style.display = "inline-flex";
+    }
+    if (localVideoToggleIcon) {
+        localVideoToggleIcon.classList.add("active");
+        const icon = localVideoToggleIcon.querySelector("i");
+        if (icon) icon.className = "fas fa-eye-slash";
+    }
+    showToast("Self camera view hidden");
+}
+
+function showSelfView() {
+    isLocalVideoVisible = true;
+    if (localVideoContainer) {
+        localVideoContainer.classList.remove("hidden-preview");
+    }
+    if (btnRestoreLocal) {
+        btnRestoreLocal.style.display = "none";
+    }
+    if (localVideoToggleIcon) {
+        localVideoToggleIcon.classList.remove("active");
+        const icon = localVideoToggleIcon.querySelector("i");
+        if (icon) icon.className = "fas fa-eye";
+    }
+    showToast("Self camera view restored");
+}
+
+if (btnLocalHide) {
+    btnLocalHide.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideSelfView();
+    });
+}
+
+if (btnRestoreLocal) {
+    btnRestoreLocal.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showSelfView();
+    });
+}
+
+// Preset Sizes: cycle mini -> large -> normal
+if (btnLocalSize) {
+    btnLocalSize.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!localVideoContainer) return;
+        
+        // Remove manual inline dimensions so preset CSS applies cleanly
+        localVideoContainer.style.width = "";
+        localVideoContainer.style.height = "";
+
+        if (currentSizePreset === "normal") {
+            currentSizePreset = "mini";
+            localVideoContainer.classList.remove("size-large", "size-normal");
+            localVideoContainer.classList.add("size-mini");
+            if (iconLocalSize) iconLocalSize.className = "fas fa-compress";
+            showToast("Camera size: Mini (Very Small)");
+        } else if (currentSizePreset === "mini") {
+            currentSizePreset = "large";
+            localVideoContainer.classList.remove("size-mini", "size-normal");
+            localVideoContainer.classList.add("size-large");
+            if (iconLocalSize) iconLocalSize.className = "fas fa-expand";
+            showToast("Camera size: Large");
+        } else {
+            currentSizePreset = "normal";
+            localVideoContainer.classList.remove("size-mini", "size-large");
+            localVideoContainer.classList.add("size-normal");
+            if (iconLocalSize) iconLocalSize.className = "fas fa-compress-arrows-alt";
+            showToast("Camera size: Normal");
+        }
+
+        clampLocalVideoPosition();
+    });
+}
+
+function clampLocalVideoPosition() {
+    if (!localVideoContainer) return;
+    const rect = localVideoContainer.getBoundingClientRect();
+    const maxLeft = window.innerWidth - rect.width - 6;
+    const maxTop = window.innerHeight - rect.height - 6;
+    const newLeft = Math.max(6, Math.min(maxLeft, rect.left));
+    const newTop = Math.max(6, Math.min(maxTop, rect.top));
+    localVideoContainer.style.bottom = "auto";
+    localVideoContainer.style.right = "auto";
+    localVideoContainer.style.left = `${newLeft}px`;
+    localVideoContainer.style.top = `${newTop}px`;
+}
+
+// DRAGGING IMPLEMENTATION (Pointer Events: unified Touch + Mouse)
+if (localVideoContainer) {
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
+    let hasMoved = false;
+
+    localVideoContainer.addEventListener("pointerdown", (e) => {
+        // Do not drag if user clicked buttons or resize corner
+        if (e.target.closest(".local-action-buttons") || e.target.closest(".local-resize-corner") || e.target.closest("button")) {
+            return;
+        }
+        // Do not drag if full screen active
+        if (localVideoContainer.classList.contains("active")) {
+            return;
+        }
+
+        isDragging = true;
+        hasMoved = false;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+
+        const rect = localVideoContainer.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        localVideoContainer.setPointerCapture(e.pointerId);
+        localVideoContainer.classList.add("dragging");
+    });
+
+    localVideoContainer.addEventListener("pointermove", (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+
+        if (Math.hypot(dx, dy) > 5) {
+            hasMoved = true;
+        }
+
+        const maxLeft = window.innerWidth - localVideoContainer.offsetWidth - 6;
+        const maxTop = window.innerHeight - localVideoContainer.offsetHeight - 6;
+        const clampLeft = Math.max(6, Math.min(maxLeft, initialLeft + dx));
+        const clampTop = Math.max(6, Math.min(maxTop, initialTop + dy));
+
+        localVideoContainer.style.bottom = "auto";
+        localVideoContainer.style.right = "auto";
+        localVideoContainer.style.left = `${clampLeft}px`;
+        localVideoContainer.style.top = `${clampTop}px`;
+    });
+
+    const stopDragging = (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        localVideoContainer.classList.remove("dragging");
+        try {
+            localVideoContainer.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+
+        if (hasMoved) {
+            suppressLocalClickUntil = Date.now() + 250;
+        }
+    };
+
+    localVideoContainer.addEventListener("pointerup", stopDragging);
+    localVideoContainer.addEventListener("pointercancel", stopDragging);
+}
+
+// CORNER RESIZE DRAG (Pointer Events)
+if (localResizeCorner && localVideoContainer) {
+    let isResizing = false;
+    let startW = 0;
+    let startH = 0;
+    let startX = 0;
+    let startY = 0;
+
+    localResizeCorner.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = localVideoContainer.offsetWidth;
+        startH = localVideoContainer.offsetHeight;
+
+        localResizeCorner.setPointerCapture(e.pointerId);
+        localVideoContainer.classList.remove("size-mini", "size-normal", "size-large");
+    });
+
+    localResizeCorner.addEventListener("pointermove", (e) => {
+        if (!isResizing) return;
+        e.stopPropagation();
+        const dw = e.clientX - startX;
+        const dh = e.clientY - startY;
+
+        const minW = 60;
+        const minH = 60;
+        const maxW = window.innerWidth * 0.85;
+        const maxH = window.innerHeight * 0.8;
+
+        const newW = Math.max(minW, Math.min(maxW, startW + dw));
+        const newH = Math.max(minH, Math.min(maxH, startH + dh));
+
+        localVideoContainer.style.width = `${newW}px`;
+        localVideoContainer.style.height = `${newH}px`;
+    });
+
+    const stopResizing = (e) => {
+        if (!isResizing) return;
+        isResizing = false;
+        try {
+            localResizeCorner.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        suppressLocalClickUntil = Date.now() + 250;
+    };
+
+    localResizeCorner.addEventListener("pointerup", stopResizing);
+    localResizeCorner.addEventListener("pointercancel", stopResizing);
+}
+
 // In-App PiP Window interaction:
 // If strict PiP is ON: clicking blank screen or typing does NOT swap or hide!
-document.querySelector(".local-video").addEventListener("click", function (e) {
-    e.stopPropagation();
-    if (isStrictPip) {
-        return;
+const localVideoBox = document.querySelector(".local-video");
+if (localVideoBox) {
+    localVideoBox.addEventListener("click", function (e) {
+        if (Date.now() < suppressLocalClickUntil) {
+            return;
+        }
+        if (e.target.closest(".local-action-buttons") || e.target.closest(".local-resize-corner") || e.target.closest("button")) {
+            return;
+        }
+        e.stopPropagation();
+        if (isStrictPip) {
+            return;
+        }
+        this.classList.toggle("active");
+        const remoteVideoBox = document.querySelector(".remote-video");
+        if (remoteVideoBox) {
+            remoteVideoBox.classList.toggle("active");
+        }
+    });
+}
+
+// Bottom Call Controls Dock Collapse / Expand Handlers
+const callControlsDock = document.getElementById("call-controls");
+const btnCollapseBar = document.getElementById("btn-collapse-bar");
+const btnExpandBar = document.getElementById("btn-expand-bar");
+
+function hideControlsBar() {
+    if (callControlsDock) {
+        callControlsDock.classList.add("collapsed");
     }
-    this.classList.toggle("active");
-    document.querySelector(".remote-video").classList.toggle("active");
-});
+    if (btnExpandBar) {
+        btnExpandBar.classList.add("visible");
+    }
+}
+
+function showControlsBar() {
+    if (callControlsDock) {
+        callControlsDock.classList.remove("collapsed");
+    }
+    if (btnExpandBar) {
+        btnExpandBar.classList.remove("visible");
+    }
+}
+
+if (btnCollapseBar) {
+    btnCollapseBar.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideControlsBar();
+    });
+}
+
+if (btnExpandBar) {
+    btnExpandBar.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showControlsBar();
+    });
+}

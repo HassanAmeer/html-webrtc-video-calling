@@ -49,6 +49,17 @@
                     </button>
                 </div>
                 <div class="settings-body">
+                    <!-- Floating PiP Button in Settings -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Floating Picture-in-Picture</span>
+                            <span class="setting-desc">Keeps floating video over all other tabs, browser windows, and apps</span>
+                        </div>
+                        <button id="launch-pip-btn" class="drawer-footer-btn" style="width: auto; padding: 6px 14px; font-size: 12px;">
+                            <i class="fas fa-external-link-alt"></i> Pop Out
+                        </button>
+                    </div>
+
                     <!-- Video Quality Mode -->
                     <div class="setting-item">
                         <div class="setting-info">
@@ -109,9 +120,14 @@
                     <span>Participants</span>
                     <span id="participant-count" class="participant-count-badge">0</span>
                 </div>
-                <button id="close-participants-btn" class="drawer-close-icon" title="Close Panel">
-                    <i class="fas fa-times"></i>
-                </button>
+                <div class="drawer-header-actions">
+                    <button id="refresh-participants-btn" class="drawer-header-btn" title="Refresh Participants / Check Another Participant">
+                        <i class="fas fa-sync-alt" id="refresh-icon"></i>
+                    </button>
+                    <button id="close-participants-btn" class="drawer-close-icon" title="Close Panel">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
             </div>
 
             <!-- Join / Update Name Section inside Drawer -->
@@ -127,7 +143,12 @@
             <div class="drawer-list-container">
                 <div class="drawer-list-header">
                     <span>Active Users</span>
-                    <span id="badge-participant-count-inner" style="font-size: 11px; opacity: 0.7;">(0 online)</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="badge-participant-count-inner" style="font-size: 11px; opacity: 0.7;">(0 online)</span>
+                        <button id="btn-refresh-list-inline" class="refresh-list-btn" title="Check Another Participant / Refresh">
+                            <i class="fas fa-sync-alt" id="refresh-icon-inline"></i> Refresh
+                        </button>
+                    </div>
                 </div>
                 <ul id="allusers" class="caller-list">
                     <!-- Dynamic users list -->
@@ -151,48 +172,85 @@
                         <i class="fas fa-user"></i>
                     </div>
                 </div>
-                <div class="local-video">
+                <div class="local-video" id="local-video-container">
                     <video id="localVideo" autoplay muted playsinline></video>
                     <div class="user-avatar d-none">
                         <i class="fas fa-user"></i>
                     </div>
+                    <!-- Local Camera Overlay: Drag Indicator, Resize, and Hide -->
+                    <div class="local-camera-overlay" id="local-camera-overlay">
+                        <span class="local-drag-hint" title="Drag anywhere to move camera position">
+                            <i class="fas fa-arrows-alt"></i>
+                        </span>
+                        <div class="local-action-buttons">
+                            <button id="btn-local-size" class="local-overlay-btn" title="Resize Camera (Mini / Normal / Large)">
+                                <i class="fas fa-compress-arrows-alt" id="icon-local-size"></i>
+                            </button>
+                            <button id="btn-local-hide" class="local-overlay-btn" title="Hide Self View">
+                                <i class="fas fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Resize Handle at Bottom-Right Corner -->
+                    <div class="local-resize-corner" id="local-resize-corner" title="Drag to Resize"></div>
                 </div>
             </div>
 
-            <!-- Compact Call Controls Dock (All Options Included, Compact Sizing) -->
-            <div class="call-controls">
-                <button class="control-btn" id="toggle-camera" title="Toggle Camera">
-                    <i class="fas fa-video"></i>
-                </button>
-                <button class="control-btn" id="toggle-mic" title="Toggle Microphone">
-                    <i class="fas fa-microphone"></i>
-                </button>
-                <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
-                    <i class="fas fa-users"></i>
-                    <span id="badge-participant-count" class="badge-mini">0</span>
-                </button>
-                <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
-                    <span id="quality-badge" class="quality-badge hd">HD</span>
-                </button>
-                <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen / Fill Screen">
-                    <i class="fas fa-expand-arrows-alt"></i>
-                </button>
-                <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
-                    <i class="fas fa-clone"></i>
-                </button>
-                <button class="control-btn" id="toggle-screen" title="Share Screen">
-                    <i class="fas fa-desktop"></i>
-                </button>
-                <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
-                    <i class="fas fa-snowflake"></i>
-                </button>
-                <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
-                    <i class="fas fa-cog"></i>
-                </button>
-                <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
-                    <i class="fas fa-phone-slash"></i>
-                </button>
+            <!-- Floating Restore Self-View Pill when camera preview is hidden -->
+            <button id="btn-restore-local" class="restore-local-pill" title="Show Self Camera Preview">
+                <i class="fas fa-video"></i> <span>Show Self</span>
+            </button>
+
+            <!-- iOS-style Floating Call Controls Dock (Max 85% width, Scrollable with Static Right Toggle) -->
+            <div class="call-controls" id="call-controls">
+                <div class="controls-scroll-wrapper" id="controls-scroll-wrapper">
+                    <button class="control-btn" id="toggle-camera" title="Toggle Camera">
+                        <i class="fas fa-video"></i>
+                    </button>
+                    <button class="control-btn" id="toggle-mic" title="Toggle Microphone">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
+                        <i class="fas fa-users"></i>
+                        <span id="badge-participant-count" class="badge-mini">0</span>
+                    </button>
+                    <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
+                        <span id="quality-badge" class="quality-badge hd">HD</span>
+                    </button>
+                    <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen / Fill Screen">
+                        <i class="fas fa-expand-arrows-alt"></i>
+                    </button>
+                    <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
+                        <i class="fas fa-clone"></i>
+                    </button>
+                    <button class="control-btn" id="toggle-screen" title="Share Screen">
+                        <i class="fas fa-desktop"></i>
+                    </button>
+                    <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
+                        <i class="fas fa-snowflake"></i>
+                    </button>
+                    <button id="local-video-toggle-icon" class="control-btn" title="Toggle Local Video Preview">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
+                        <i class="fas fa-phone-slash"></i>
+                    </button>
+                </div>
+                <!-- Pinned Static Right Button to Hide/Collapse Dock -->
+                <div class="controls-static-action">
+                    <button class="control-btn toggle-bar-btn" id="btn-collapse-bar" title="Hide Controls">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
             </div>
+
+            <!-- Transparent Minimalist Arrow-Up to restore controls (No bg, no border, pure icon) -->
+            <button id="btn-expand-bar" class="expand-bar-btn" title="Show Controls" aria-label="Show Controls">
+                <i class="fas fa-chevron-up"></i>
+            </button>
         </section>
     </main>
 </body>

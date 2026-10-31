@@ -80,28 +80,166 @@ html, body {
     object-fit: cover;
 }
 
-/* Local Video (Picture-in-Picture) */
+/* Local Video (Picture-in-Picture & Draggable / Resizable) */
 .local-video {
     position: absolute;
     bottom: 80px;
     right: 20px;
     width: 190px;
-    max-width: 24vw;
-    aspect-ratio: 16 / 9;
-    height: auto;
+    height: 115px;
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.22);
     background-color: #202124;
-    z-index: 15;
+    z-index: 25;
     overflow: hidden;
-    cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease;
+    cursor: move;
+    touch-action: none; /* Allows smooth mobile touch dragging */
+    user-select: none;
+    -webkit-user-select: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .local-video:hover {
     border-color: #8ab4f8;
-    transform: scale(1.02);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7);
+}
+
+.local-video.dragging {
+    opacity: 0.92;
+    border-color: #8ab4f8;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.85);
+    cursor: grabbing;
+}
+
+/* Preset Sizes */
+.local-video.size-mini {
+    width: 120px !important;
+    height: 75px !important;
+}
+
+.local-video.size-normal {
+    width: 190px !important;
+    height: 115px !important;
+}
+
+.local-video.size-large {
+    width: 260px !important;
+    height: 160px !important;
+}
+
+.local-video.hidden-preview {
+    display: none !important;
+}
+
+/* Local Camera Overlay Bar (Drag hint, Size, Hide) */
+.local-camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 30px;
+    padding: 3px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+}
+
+.local-video:hover .local-camera-overlay,
+.local-video.touch-active .local-camera-overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.local-drag-hint {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 2px;
+}
+
+.local-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: auto;
+}
+
+.local-overlay-btn {
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #e8eaed;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.local-overlay-btn:hover {
+    background: #1a73e8;
+    color: #ffffff;
+    border-color: #8ab4f8;
+}
+
+/* Resize Corner at Bottom Right */
+.local-resize-corner {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 18px;
+    height: 18px;
+    cursor: se-resize;
+    z-index: 12;
+    touch-action: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.6) 50%);
+}
+
+.local-video:hover .local-resize-corner,
+.local-video.touch-active .local-resize-corner {
+    opacity: 1;
+}
+
+/* Floating Restore Self-View Pill when camera preview is hidden */
+.restore-local-pill {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 45;
+    background: rgba(28, 30, 34, 0.85);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    color: #8ab4f8;
+    border: 1px solid rgba(138, 180, 248, 0.35);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    transition: all 0.2s ease;
+}
+
+.restore-local-pill:hover {
+    background: #1a73e8;
+    color: #ffffff;
+    transform: scale(1.05);
 }
 
 #localVideo {
@@ -164,7 +302,7 @@ html, body {
     display: none !important;
 }
 
-/* Compact Bottom Call Controls Dock */
+/* iOS-style Floating Call Controls Dock (Max 85% width, Compact & Frosted Glass) */
 .call-controls {
     position: absolute;
     bottom: 16px;
@@ -172,36 +310,111 @@ html, body {
     transform: translateX(-50%);
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
+    max-width: 85%;
+    width: auto;
     z-index: 50;
-    background: rgba(28, 31, 36, 0.92);
-    backdrop-filter: blur(16px);
-    padding: 6px 14px;
+    background: rgba(28, 30, 34, 0.82);
+    -webkit-backdrop-filter: blur(24px) saturate(190%);
+    backdrop-filter: blur(24px) saturate(190%);
+    padding: 6px 8px;
     border-radius: 36px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-    max-width: calc(100% - 16px);
-    overflow-x: auto;
-    scrollbar-width: none;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    transition: transform 0.35s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.25s ease;
+    box-sizing: border-box;
 }
 
-.call-controls::-webkit-scrollbar {
+.call-controls.collapsed {
+    transform: translateX(-50%) translateY(140%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Horizontal Scrollable Controls Wrapper */
+.controls-scroll-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+    padding: 2px 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.controls-scroll-wrapper::-webkit-scrollbar {
     display: none;
 }
 
+/* Pinned Static Right Action Container (Never Scrolls) */
+.controls-static-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 6px;
+    margin-left: 4px;
+    border-left: 1px solid rgba(255, 255, 255, 0.16);
+    flex-shrink: 0;
+}
+
+.toggle-bar-btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: #c4c7c5;
+}
+
+.toggle-bar-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+}
+
+/* Minimalist Transparent Arrow-Up Launcher at Screen Bottom */
+.expand-bar-btn {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%) translateY(24px);
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 20px;
+    cursor: pointer;
+    z-index: 49;
+    padding: 8px 16px;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.25s ease, color 0.2s ease;
+}
+
+.expand-bar-btn.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.expand-bar-btn:hover {
+    color: #ffffff;
+    transform: translateX(-50%) translateY(-2px);
+}
+
 .control-btn {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
     border-radius: 50%;
     border: none;
     background: rgba(255, 255, 255, 0.08);
     color: #e8eaed;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.3rem;
+    font-size: 1.25rem;
     transition: all 0.2s ease;
     position: relative;
     flex-shrink: 0;
@@ -306,7 +519,7 @@ html, body {
     height: 100%;
     height: 100dvh;
     width: 380px;
-    max-width: 80%; /* Exactly 80% width as requested! */
+    max-width: 90vw;
     background: #1e2126;
     border-left: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: -8px 0 32px rgba(0, 0, 0, 0.65);
@@ -316,6 +529,7 @@ html, body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    box-sizing: border-box;
 }
 
 .participants-drawer.open {
@@ -350,6 +564,33 @@ html, body {
     font-weight: 700;
 }
 
+.drawer-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.drawer-header-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    color: #e8eaed;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.drawer-header-btn:hover {
+    background: rgba(138, 180, 248, 0.2);
+    color: #8ab4f8;
+    transform: scale(1.08);
+}
+
 .drawer-close-icon {
     background: rgba(255, 255, 255, 0.08);
     border: none;
@@ -370,6 +611,37 @@ html, body {
     color: #ffffff;
 }
 
+.refresh-list-btn {
+    background: rgba(138, 180, 248, 0.12);
+    border: 1px solid rgba(138, 180, 248, 0.3);
+    color: #8ab4f8;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s ease;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.refresh-list-btn:hover {
+    background: rgba(138, 180, 248, 0.25);
+    color: #ffffff;
+}
+
+@keyframes spin-anim {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spinning {
+    animation: spin-anim 0.65s ease-in-out !important;
+}
+
 /* User Box inside Drawer */
 .drawer-user-box {
     padding: 14px 18px;
@@ -378,6 +650,8 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
 }
 
 .drawer-label {
@@ -391,10 +665,16 @@ html, body {
 .drawer-input-row {
     display: flex;
     gap: 8px;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .drawer-input-row input {
-    flex: 1;
+    flex: 1 1 0%;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
     padding: 8px 12px;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 8px;
@@ -409,6 +689,9 @@ html, body {
 }
 
 .drawer-input-row button {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    white-space: nowrap;
     padding: 8px 16px;
     border: none;
     border-radius: 8px;
@@ -417,11 +700,16 @@ html, body {
     cursor: pointer;
     font-weight: 600;
     font-size: 13px;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, transform 0.1s;
+    box-sizing: border-box;
 }
 
 .drawer-input-row button:hover {
     background-color: #1557b0;
+}
+
+.drawer-input-row button:active {
+    transform: scale(0.97);
 }
 
 /* Online Members List Container */
@@ -472,6 +760,15 @@ html, body {
     align-items: center;
     gap: 10px;
     overflow: hidden;
+    min-width: 0;
+    flex: 1;
+}
+
+.user-info span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .user-avatar {
@@ -571,15 +868,18 @@ html, body {
 /* Drawer Bottom Close Footer */
 .drawer-footer {
     padding: 14px 18px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     background: #181a1e;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
+    box-sizing: border-box;
+    flex-shrink: 0;
 }
 
 .drawer-footer-btn {
     width: 100%;
-    padding: 10px;
+    padding: 11px 16px;
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.06);
@@ -591,6 +891,7 @@ html, body {
     align-items: center;
     justify-content: center;
     gap: 8px;
+    box-sizing: border-box;
     transition: all 0.2s;
 }
 
@@ -899,10 +1200,41 @@ input:checked + .slider:before {
    ============================================================== */
 
 @media screen and (max-width: 768px) {
-    /* Exactly 80% width drawer on mobile as requested */
+    /* Responsive drawer on mobile - comfortable 90vw width */
     .participants-drawer {
-        width: 80% !important;
-        max-width: 80% !important;
+        width: 90vw !important;
+        max-width: 92vw !important;
+    }
+
+    .drawer-header {
+        padding: 14px 14px;
+    }
+
+    .drawer-user-box {
+        padding: 12px 14px;
+    }
+
+    .drawer-input-row input {
+        font-size: 13px;
+        padding: 8px 10px;
+    }
+
+    .drawer-input-row button {
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+
+    .drawer-list-header {
+        padding: 10px 14px 6px 14px;
+    }
+
+    .caller-list {
+        padding: 4px 8px;
+    }
+
+    .drawer-footer {
+        padding: 12px 14px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     }
 
     /* Pin local camera to top-right on mobile so bottom controls are completely free */
@@ -912,13 +1244,37 @@ input:checked + .slider:before {
         right: 14px;
         bottom: auto;
         left: auto;
-        width: 85px;
-        height: 120px;
+        width: 95px;
+        height: 135px;
         aspect-ratio: unset;
         border-radius: 10px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
         border: 2px solid rgba(255, 255, 255, 0.25);
         z-index: 25;
+    }
+
+    .local-video.size-mini {
+        width: 70px !important;
+        height: 98px !important;
+    }
+
+    .local-video.size-normal {
+        width: 95px !important;
+        height: 135px !important;
+    }
+
+    .local-video.size-large {
+        width: 130px !important;
+        height: 185px !important;
+    }
+
+    .local-camera-overlay {
+        opacity: 0.85;
+        pointer-events: auto;
+    }
+
+    .local-resize-corner {
+        opacity: 0.75;
     }
 
     .remote-video.active {
@@ -935,15 +1291,31 @@ input:checked + .slider:before {
     }
 
     .call-controls {
-        bottom: 14px;
-        padding: 5px 10px;
+        bottom: 12px;
+        padding: 4px 6px;
+        max-width: 85% !important;
+        border-radius: 32px;
+    }
+
+    .controls-scroll-wrapper {
         gap: 6px;
-        max-width: calc(100% - 12px);
+        padding: 2px 2px;
     }
 
     .control-btn {
-        width: 35px;
-        height: 35px;
-        font-size: 1.15rem;
+        width: 33px;
+        height: 33px;
+        min-width: 33px;
+        font-size: 1.05rem;
+    }
+
+    .controls-static-action {
+        padding-left: 5px;
+        margin-left: 3px;
+    }
+
+    .expand-bar-btn {
+        bottom: 6px;
+        font-size: 18px;
     }
 }
