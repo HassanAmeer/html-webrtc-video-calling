@@ -80,6 +80,16 @@ html, body {
     object-fit: cover;
 }
 
+/* Peer Video Hidden locally via Eye 2 (Stealth Blank Screen - Audio remains active) */
+.remote-video.remote-hidden #remoteVideo,
+.remote-video.remote-hidden #remote-call-card,
+.remote-video.remote-hidden .user-avatar {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
 /* Local Video (Picture-in-Picture & Draggable / Resizable) */
 .local-video {
     position: absolute;
@@ -555,6 +565,31 @@ html, body {
     color: #9ca3af !important;
     border: 1px solid rgba(255, 255, 255, 0.14) !important;
     box-shadow: none !important;
+}
+
+.eye-btn-with-badge {
+    position: relative;
+}
+
+.eye-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    color: #e5e7eb;
+    background: rgba(18, 22, 28, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    padding: 1px 2px;
+    pointer-events: none;
+    letter-spacing: -0.2px;
+}
+
+.control-btn.active .eye-badge {
+    color: #9ca3af;
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 .end-call-btn {

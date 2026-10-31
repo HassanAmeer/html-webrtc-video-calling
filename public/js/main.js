@@ -1714,6 +1714,9 @@ function endCall(notifyServer = true) {
     if (remoteCallCard) {
         remoteCallCard.style.display = "none";
     }
+    if (!isRemoteVideoVisible) {
+        showRemoteView();
+    }
     hideActiveCallBar();
 
     // Close PiP if open
@@ -2065,12 +2068,15 @@ const toggleCamera = document.getElementById("toggle-camera");
 const toggleMic = document.getElementById("toggle-mic");
 const toggleScreen = document.getElementById("toggle-screen");
 const localVideoToggleIcon = document.getElementById("local-video-toggle-icon");
+const remoteVideoToggleIcon = document.getElementById("remote-video-toggle-icon");
 const localVideoDiv = document.querySelector(".local-video");
+const remoteVideoContainer = document.querySelector(".remote-video");
 
 let isCameraOn = true;
 let isMicOn = true;
 let isScreenSharing = false;
 let isLocalVideoVisible = true;
+let isRemoteVideoVisible = true;
 
 if (toggleCamera) {
     toggleCamera.addEventListener("click", async () => {
@@ -2282,6 +2288,42 @@ if (localVideoToggleIcon) {
             hideSelfView();
         } else {
             showSelfView();
+        }
+    });
+}
+
+function hideRemoteView() {
+    isRemoteVideoVisible = false;
+    if (remoteVideoContainer) {
+        remoteVideoContainer.classList.add("remote-hidden");
+    }
+    if (remoteVideoToggleIcon) {
+        remoteVideoToggleIcon.classList.add("active");
+        const icon = remoteVideoToggleIcon.querySelector("i");
+        if (icon) icon.className = "fas fa-eye-slash";
+    }
+    showToast("Peer screen hidden locally (Eye 2: Voice active)");
+}
+
+function showRemoteView() {
+    isRemoteVideoVisible = true;
+    if (remoteVideoContainer) {
+        remoteVideoContainer.classList.remove("remote-hidden");
+    }
+    if (remoteVideoToggleIcon) {
+        remoteVideoToggleIcon.classList.remove("active");
+        const icon = remoteVideoToggleIcon.querySelector("i");
+        if (icon) icon.className = "fas fa-eye";
+    }
+    showToast("Peer screen restored (Eye 2: Visible)");
+}
+
+if (remoteVideoToggleIcon) {
+    remoteVideoToggleIcon.addEventListener("click", () => {
+        if (isRemoteVideoVisible) {
+            hideRemoteView();
+        } else {
+            showRemoteView();
         }
     });
 }
