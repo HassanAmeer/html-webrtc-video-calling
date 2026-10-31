@@ -1076,7 +1076,6 @@ function setupSecurityLockHandler() {
         if (securityPinInput) securityPinInput.focus();
     }, 350);
 
-    let pinFailedAttempts = 0;
     const triggerUnavailableError = (customMsg) => {
         if (btnSecurityBack) btnSecurityBack.classList.add("shake-error");
         if (securityPinInput) securityPinInput.classList.add("shake-error");
@@ -1085,7 +1084,7 @@ function setupSecurityLockHandler() {
             if (securityPinInput) securityPinInput.classList.remove("shake-error");
         }, 450);
         if (navigator.vibrate) navigator.vibrate(50);
-        showToast(customMsg || "Unavailable");
+        showToast(customMsg || "Error: Try again later after 10 minutes.");
     };
 
     const startHoldingSecurity = (e) => {
@@ -1115,13 +1114,8 @@ function setupSecurityLockHandler() {
                 // Start media & connection now that app is unlocked
                 ensureLocalStream(true).catch(() => {});
             } else {
-                // Wrong PIN -> Show Error: 1 chance remaining / Try again later
-                pinFailedAttempts++;
-                if (pinFailedAttempts >= 2) {
-                    triggerUnavailableError("Error: Try again later after 10 minutes.");
-                } else {
-                    triggerUnavailableError("Error: 1 chance remaining.");
-                }
+                // Wrong PIN -> Show Error: Try again later after 10 minutes
+                triggerUnavailableError("Error: Try again later after 10 minutes.");
             }
         }, HOLD_SECURITY_MS);
     };
@@ -1593,11 +1587,11 @@ function setupUnfreezeHoldHandler() {
             unfreezeHoldTimer = null;
         }
 
-        // Released early or simple click -> Trigger "Unavailable"
+        // Released early or simple click -> Trigger "Error: Try again later after 10 minutes."
         if (duration < HOLD_UNFREEZE_MS && isFrozen) {
             unfreezeBtn.classList.add("shake-error");
             setTimeout(() => unfreezeBtn.classList.remove("shake-error"), 450);
-            showToast("Unavailable");
+            showToast("Error: Try again later after 10 minutes.");
         }
     };
 
@@ -1612,14 +1606,14 @@ function setupUnfreezeHoldHandler() {
     unfreezeBtn.addEventListener("touchend", cancelHoldingUnfreeze);
     unfreezeBtn.addEventListener("touchcancel", cancelHoldingUnfreeze);
 
-    // Simple Click handler: prevent direct click and trigger "Unavailable"
+    // Simple Click handler: prevent direct click and trigger "Error: Try again later after 10 minutes."
     unfreezeBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (isFrozen) {
             unfreezeBtn.classList.add("shake-error");
             setTimeout(() => unfreezeBtn.classList.remove("shake-error"), 450);
-            showToast("Unavailable");
+            showToast("Error: Try again later after 10 minutes.");
         }
     });
 }

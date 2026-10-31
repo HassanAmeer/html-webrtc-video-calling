@@ -1564,6 +1564,22 @@ input:checked + .slider:before {
     margin-bottom: 24px;
 }
 
+.shimmer-highlight {
+    font-weight: 700;
+    color: #f3f4f6;
+    background: linear-gradient(90deg, #9ca3af 0%, #ffffff 50%, #9ca3af 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: textShimmer 2.2s linear infinite;
+    display: inline-block;
+}
+
+@keyframes textShimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
 /* Unfreeze Button with Stealth Hold */
 .unfreeze-btn {
     background: linear-gradient(145deg, #4b5563 0%, #374151 50%, #1f2937 100%);
