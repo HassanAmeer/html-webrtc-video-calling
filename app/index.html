@@ -135,6 +135,19 @@
                         </select>
                     </div>
 
+                    <!-- Camera Diagnostics & Device Logs -->
+                    <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="setting-label" style="font-size: 13px;">Camera Diagnostics & Status</span>
+                            <button type="button" id="btn-refresh-cameras" class="btn-diag-refresh" title="Scan available cameras">
+                                <i class="fas fa-sync-alt"></i> Scan Cameras
+                            </button>
+                        </div>
+                        <div id="camera-diag-box" class="camera-diag-box">
+                            Detecting cameras...
+                        </div>
+                    </div>
+
                     <!-- Incoming Audio Volume & Speaker Control -->
                     <div class="setting-item">
                         <div class="setting-info">

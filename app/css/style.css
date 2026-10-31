@@ -1372,6 +1372,42 @@ html, body {
     font-size: 12px;
     outline: none;
     cursor: pointer;
+    max-width: 190px;
+}
+
+.camera-diag-box {
+    background: rgba(14, 17, 22, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #9ca3af;
+    line-height: 1.45;
+    font-family: monospace, ui-monospace, sans-serif;
+    word-break: break-word;
+    max-height: 95px;
+    overflow-y: auto;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.btn-diag-refresh {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #e5e7eb;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.btn-diag-refresh:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
 }
 
 /* Switch Toggle Slider */

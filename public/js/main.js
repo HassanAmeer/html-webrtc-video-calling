@@ -738,6 +738,7 @@ if (remoteVideo) {
 if (toggleMoreMenuBtn) {
     toggleMoreMenuBtn.addEventListener("click", () => {
         if (settingsModal) settingsModal.classList.add("active");
+        refreshCameraDiagnostics();
     });
 }
 if (closeSettingsBtn) {
@@ -781,74 +782,268 @@ if (settingFitSelect) {
 
 
 
-// Progressive Resilient Camera Stream Acquisition (Front / Back / Fallback)
-async function getBestVideoStream(targetFacing = "user") {
-    const profile = QUALITY_PROFILES[currentQuality] || QUALITY_PROFILES.HD;
+// ==============================================================
+// PROGRESSIVE RESILIENT CAMERA STREAM & SWITCHING (MOBILE & LAPTOP)
+// ==============================================================
+const cameraDiagBox = document.getElementById("camera-diag-box");
+const btnRefreshCameras = document.getElementById("btn-refresh-cameras");
+let cameraDiagHistory = [];
 
-    // 1. Try ideal facingMode with resolution
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-                facingMode: { ideal: targetFacing },
-                width: profile.videoConstraints.width,
-                height: profile.videoConstraints.height
-            }
-        });
-        if (stream && stream.getVideoTracks().length > 0) return stream;
-    } catch (e1) {
-        console.warn(`Attempt 1 (ideal facingMode ${targetFacing}) failed:`, e1.name || e1);
+function populateCameraList(videoDevices) {
+    if (!settingCameraSelect) return;
+    if (!videoDevices || videoDevices.length === 0) {
+        settingCameraSelect.innerHTML = `
+            <option value="user">Front Camera (Selfie)</option>
+            <option value="environment">Back Camera (Rear)</option>
+        `;
+        settingCameraSelect.value = currentFacingMode;
+        return;
     }
 
-    // 2. Try exact facingMode (especially honored by many mobile browsers)
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-                facingMode: { exact: targetFacing }
-            }
-        });
-        if (stream && stream.getVideoTracks().length > 0) return stream;
-    } catch (e2) {
-        console.warn(`Attempt 2 (exact facingMode ${targetFacing}) failed:`, e2.name || e2);
-    }
+    const activeTrack = localStream ? localStream.getVideoTracks().find(t => t.readyState === "live") : null;
+    const activeDevId = activeTrack && activeTrack.getSettings ? activeTrack.getSettings().deviceId : null;
 
-    // 3. Try finding hardware camera device via enumerateDevices
+    settingCameraSelect.innerHTML = "";
+    videoDevices.forEach((dev, idx) => {
+        const opt = document.createElement("option");
+        opt.value = dev.deviceId;
+        let lbl = dev.label;
+        if (!lbl) {
+            lbl = (idx === 0) ? `Camera ${idx + 1} (Front / Main)` : `Camera ${idx + 1} (Back / Rear)`;
+        } else if (/back|rear|environment|main/i.test(lbl)) {
+            lbl = `📷 Back Camera: ${lbl}`;
+        } else if (/front|user|selfie/i.test(lbl)) {
+            lbl = `🤳 Front Camera: ${lbl}`;
+        } else {
+            lbl = `📷 Camera ${idx + 1}: ${lbl}`;
+        }
+        opt.textContent = lbl;
+        if (activeDevId && dev.deviceId === activeDevId) {
+            opt.selected = true;
+        }
+        settingCameraSelect.appendChild(opt);
+    });
+}
+
+async function refreshCameraDiagnostics(customLog = "") {
+    if (customLog) {
+        const time = new Date().toLocaleTimeString();
+        cameraDiagHistory.unshift(`[${time}] ${customLog}`);
+        if (cameraDiagHistory.length > 4) cameraDiagHistory.pop();
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        if (cameraDiagBox) cameraDiagBox.textContent = "MediaDevices API not supported";
+        return [];
+    }
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === "videoinput");
-        if (videoDevices.length > 0) {
-            let chosen = null;
-            if (targetFacing === "environment") {
-                chosen = videoDevices.find(d => /back|rear|environment|main/i.test(d.label)) || videoDevices[videoDevices.length - 1];
-            } else {
-                chosen = videoDevices.find(d => /front|user|selfie|face/i.test(d.label)) || videoDevices[0];
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+
+        populateCameraList(videoInputs);
+
+        if (cameraDiagBox) {
+            const activeTrack = localStream ? localStream.getVideoTracks().find(t => t.readyState === "live") : null;
+            const settings = activeTrack && activeTrack.getSettings ? activeTrack.getSettings() : {};
+            const label = activeTrack ? (activeTrack.label || "Live Camera") : "None";
+            const facing = settings.facingMode || currentFacingMode || "auto";
+            const res = (settings.width && settings.height) ? `${settings.width}x${settings.height}` : "Auto";
+
+            let text = `Detected: ${videoInputs.length} camera(s)\n`;
+            videoInputs.forEach((v, i) => {
+                const isBack = /back|rear|environment|main/i.test(v.label);
+                const tag = isBack ? "[REAR]" : "[FRONT/OTHER]";
+                text += `• Cam ${i + 1} ${tag}: ${v.label || ("ID " + v.deviceId.slice(0, 8))} \n`;
+            });
+            text += `Active: ${label} (${facing}, ${res})\n`;
+            if (cameraDiagHistory.length > 0) {
+                text += `Logs:\n${cameraDiagHistory.join("\n")}`;
             }
-            if (chosen && chosen.deviceId) {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { deviceId: { exact: chosen.deviceId } }
-                });
-                if (stream && stream.getVideoTracks().length > 0) return stream;
-            }
+            cameraDiagBox.textContent = text;
         }
-    } catch (e3) {
-        console.warn("Attempt 3 (enumerateDevices camera search) failed:", e3.name || e3);
+        return videoInputs;
+    } catch (err) {
+        if (cameraDiagBox) cameraDiagBox.textContent = `Error: ${err.message}`;
+        return [];
+    }
+}
+
+if (btnRefreshCameras) {
+    btnRefreshCameras.addEventListener("click", () => {
+        refreshCameraDiagnostics("Manual camera scan");
+        showToast("Scanning camera devices...");
+    });
+}
+
+async function getBestVideoStream(target = "user", isSwitching = false) {
+    const profile = QUALITY_PROFILES[currentQuality] || QUALITY_PROFILES.HD;
+
+    // CRITICAL FOR MOBILE: If switching, stop previous camera tracks so hardware sensor lock is released!
+    if (isSwitching && localStream) {
+        localStream.getVideoTracks().forEach(t => {
+            try {
+                t.stop();
+                console.log("Stopped old video track for mobile hardware switch:", t.label);
+            } catch (_) {}
+        });
     }
 
-    // 4. Fallback: simple generic video constraint
+    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    const videoDevices = devices.filter(d => d.kind === "videoinput");
+
+    const isSpecificDeviceId = videoDevices.some(d => d.deviceId && d.deviceId === target);
+    const wantsBack = (target === "environment" || (!isSpecificDeviceId && target !== "user" && /back|rear|environment/i.test(target)));
+
+    // 1. If a specific deviceId was chosen:
+    if (isSpecificDeviceId) {
+        try {
+            console.log("Acquiring camera by explicit deviceId:", target);
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { deviceId: { exact: target } }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (eDev) {
+            console.warn("Exact deviceId failed, trying soft deviceId:", eDev);
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { deviceId: target }
+                });
+                if (s && s.getVideoTracks().length > 0) return s;
+            } catch (_) {}
+        }
+    }
+
+    // 2. BACK CAMERA (environment) requested:
+    if (wantsBack) {
+        // 2a. Find physical back camera from enumerateDevices
+        const backDev = videoDevices.find(d =>
+            /back|rear|environment|main|facing\s*0|camera\s*0/i.test(d.label) ||
+            (d.getCapabilities && d.getCapabilities().facingMode && d.getCapabilities().facingMode.includes("environment"))
+        );
+        if (backDev && backDev.deviceId) {
+            try {
+                console.log("Acquiring back camera via detected deviceId:", backDev.label, backDev.deviceId);
+                const s = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { deviceId: { exact: backDev.deviceId } }
+                });
+                if (s && s.getVideoTracks().length > 0) return s;
+            } catch (eBackDev) {
+                console.warn("Detected back camera deviceId failed, trying facingMode:", eBackDev.name || eBackDev);
+            }
+        }
+
+        // 2b. Exact facingMode: "environment" (Very reliable on iOS & Android Chrome)
+        try {
+            console.log("Acquiring back camera via facingMode: { exact: 'environment' }");
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { exact: "environment" } }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (eExactEnv) {
+            console.warn("exact facingMode: environment failed:", eExactEnv.name || eExactEnv);
+        }
+
+        // 2c. String facingMode: "environment"
+        try {
+            console.log("Acquiring back camera via facingMode: 'environment'");
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: "environment" }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (ePlainEnv) {
+            console.warn("string facingMode: environment failed:", ePlainEnv.name || ePlainEnv);
+        }
+
+        // 2d. If multiple cameras exist, pick the last device (standard secondary/rear on Android)
+        if (videoDevices.length >= 2) {
+            const altDev = videoDevices[videoDevices.length - 1];
+            if (altDev && altDev.deviceId) {
+                try {
+                    console.log("Acquiring secondary camera device:", altDev.label);
+                    const s = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: { deviceId: { exact: altDev.deviceId } }
+                    });
+                    if (s && s.getVideoTracks().length > 0) return s;
+                } catch (_) {}
+            }
+        }
+
+        // 2e. Ideal facingMode: "environment" with resolution
+        try {
+            console.log("Acquiring back camera via ideal facingMode: environment");
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                    facingMode: { ideal: "environment" },
+                    width: profile.videoConstraints.width,
+                    height: profile.videoConstraints.height
+                }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (_) {}
+    } else {
+        // 3. FRONT CAMERA (user) requested:
+        const frontDev = videoDevices.find(d =>
+            /front|user|selfie|face|facing\s*1|camera\s*1/i.test(d.label) ||
+            (d.getCapabilities && d.getCapabilities().facingMode && d.getCapabilities().facingMode.includes("user"))
+        );
+        if (frontDev && frontDev.deviceId) {
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { deviceId: { exact: frontDev.deviceId } }
+                });
+                if (s && s.getVideoTracks().length > 0) return s;
+            } catch (_) {}
+        }
+
+        try {
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { exact: "user" } }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (_) {}
+
+        try {
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: "user" }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (_) {}
+
+        try {
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                    facingMode: { ideal: "user" },
+                    width: profile.videoConstraints.width,
+                    height: profile.videoConstraints.height
+                }
+            });
+            if (s && s.getVideoTracks().length > 0) return s;
+        } catch (_) {}
+    }
+
+    // 4. Fallback: generic video stream
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const s = await navigator.mediaDevices.getUserMedia({
             audio: false,
             video: true
         });
-        if (stream && stream.getVideoTracks().length > 0) return stream;
-    } catch (e4) {
-        console.error("All camera stream attempts failed:", e4);
-        throw e4;
+        if (s && s.getVideoTracks().length > 0) return s;
+    } catch (eGeneric) {
+        console.error("All camera stream attempts failed:", eGeneric);
+        throw eGeneric;
     }
 
-    throw new Error("No video camera stream could be acquired");
+    throw new Error("No camera stream could be acquired");
 }
 
 // Switch Camera (Front / Back Lens)
@@ -878,27 +1073,26 @@ async function switchCamera(targetMode = null) {
     console.log(`Switching camera: current=${currentFacingMode}, requested=${nextMode}`);
 
     try {
-        const newStream = await getBestVideoStream(nextMode);
+        const newStream = await getBestVideoStream(nextMode, true);
         const newTrack = newStream.getVideoTracks()[0];
         if (!newTrack) {
             throw new Error("No video track found from camera");
         }
 
-        currentFacingMode = nextMode;
+        const settings = newTrack.getSettings ? newTrack.getSettings() : {};
+        const label = newTrack.label || "";
+        const isRear = settings.facingMode === "environment" || /back|rear|environment/i.test(label) || (nextMode === "environment" && settings.facingMode !== "user");
+
+        currentFacingMode = isRear ? "environment" : "user";
         localStorage.setItem("webrtc_facing_mode", currentFacingMode);
-        if (settingCameraSelect) {
-            settingCameraSelect.value = currentFacingMode;
-        }
 
         // Maintain current mute/enabled state
         newTrack.enabled = isCameraOn && !isAudioCallMode;
 
         if (localStream) {
-            const oldTrack = localStream.getVideoTracks()[0];
-            if (oldTrack) {
-                oldTrack.stop();
-                localStream.removeTrack(oldTrack);
-            }
+            localStream.getVideoTracks().forEach(t => {
+                try { t.stop(); localStream.removeTrack(t); } catch (_) {}
+            });
             localStream.addTrack(newTrack);
         } else {
             localStream = newStream;
@@ -912,7 +1106,7 @@ async function switchCamera(targetMode = null) {
             const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
             if (sender) {
                 await sender.replaceTrack(newTrack);
-                console.log("Peer connection video track replaced successfully");
+                console.log("Peer connection video track replaced successfully with new camera");
             } else {
                 peerConnection.addTrack(newTrack, localStream);
                 console.log("Peer connection added new video track to active call");
@@ -923,11 +1117,16 @@ async function switchCamera(targetMode = null) {
         applyMirrorState();
 
         const modeText = (currentFacingMode === "environment") ? "Back Camera (Rear Lens)" : "Front Camera (Selfie Lens)";
-        showToast(`Camera Switched: ${modeText}`);
+        const friendlyInfo = label ? ` [${label.substring(0, 24)}]` : "";
+        showToast(`📷 Switched: ${modeText}${friendlyInfo}`);
+        refreshCameraDiagnostics(`Switched to: ${modeText} - ${label}`);
     } catch (err) {
         console.error("Camera switch error:", err);
-        const isUnavailable = err.name === "OverconstrainedError" || err.name === "NotFoundError";
-        showToast(isUnavailable ? "Back camera not available on this device" : `Camera switch failed: ${err.message || "Error"}`);
+        const errDetail = `${err.name || "Error"}: ${err.message || "Failed to switch"}`;
+        showToast(`⚠️ Camera Switch: ${errDetail}`);
+        refreshCameraDiagnostics(`Failed switch: ${errDetail}`);
+        // Restore stream if camera was stopped
+        ensureLocalStream(true).catch(() => {});
     } finally {
         setTimeout(() => {
             switchBtns.forEach(btn => {
