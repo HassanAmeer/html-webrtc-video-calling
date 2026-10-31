@@ -1430,7 +1430,7 @@ async function flushPendingCandidates(pc) {
 // Show Active Call Bar
 function showActiveCallBar(peerName) {
     if (activeCallBar && activeCallName) {
-        activeCallName.textContent = `Connected: ${peerName}`;
+        activeCallName.textContent = peerName;
         activeCallBar.style.display = "flex";
         updateQualityUI();
     }
