@@ -151,23 +151,17 @@ const settingSpeakerText = document.getElementById("setting-speaker-text");
 const settingVolumeSlider = document.getElementById("setting-volume-slider");
 const settingVolumeLabel = document.getElementById("setting-volume-label");
 
-// Volume HUD Progress Bar Patti Overlay Elements
+// Single Volume Progress Bar Overlay Elements: Left Sound Icon + 1 Gray-to-White Bar
 const volumeHudBar = document.getElementById("volume-hud-bar");
 const volumeHudFill = document.getElementById("volume-hud-fill");
-const volumeHudMeter = document.getElementById("volume-hud-meter");
-const volumeHudBadge = document.getElementById("volume-hud-badge");
-const btnHudVolDown = document.getElementById("btn-hud-vol-down");
-const btnHudVolUp = document.getElementById("btn-hud-vol-up");
+const volumeHudIcon = document.getElementById("volume-hud-icon");
 const volumeHudTrack = document.getElementById("volume-hud-track");
 
 let volumeHudHideTimer = null;
-let analyserNode = null;
-let analyserData = null;
-let meterAnimFrame = null;
 
 function flashVolumeHud(autoHide = true) {
     if (!volumeHudBar) return;
-    volumeHudBar.style.display = "flex";
+    volumeHudBar.style.display = "inline-flex";
     if (volumeHudHideTimer) clearTimeout(volumeHudHideTimer);
     if (autoHide) {
         volumeHudHideTimer = setTimeout(() => {
@@ -180,13 +174,19 @@ function updateVolumeHudUI() {
     const isMuted = isSpeakerMuted || currentVolume === 0;
     if (volumeHudFill) {
         volumeHudFill.style.width = isMuted ? "0%" : `${currentVolume}%`;
-        volumeHudFill.style.background = isMuted 
-            ? "#ea4335" 
-            : (currentVolume <= 40 ? "linear-gradient(90deg, #f59e0b, #eab308)" : "linear-gradient(90deg, #3b82f6, #00e676)");
+        volumeHudFill.classList.toggle("muted", isMuted);
     }
-    if (volumeHudBadge) {
-        volumeHudBadge.textContent = isMuted ? "Muted" : `${currentVolume}%`;
-        volumeHudBadge.style.color = isMuted ? "#ea4335" : "#ffffff";
+    if (volumeHudIcon) {
+        if (isMuted) {
+            volumeHudIcon.className = "fas fa-volume-mute volume-hud-sound-icon muted";
+            volumeHudIcon.title = "Volume: Muted (Click to Unmute)";
+        } else if (currentVolume <= 40) {
+            volumeHudIcon.className = "fas fa-volume-down volume-hud-sound-icon";
+            volumeHudIcon.title = `Volume: ${currentVolume}% (Click to Mute)`;
+        } else {
+            volumeHudIcon.className = "fas fa-volume-up volume-hud-sound-icon";
+            volumeHudIcon.title = `Volume: ${currentVolume}% (Click to Mute)`;
+        }
     }
 }
 
@@ -389,16 +389,10 @@ function toggleSpeakerMute() {
 }
 
 // Volume HUD Progress Bar Interactive Listeners
-if (btnHudVolDown) {
-    btnHudVolDown.addEventListener("click", (e) => {
+if (volumeHudIcon) {
+    volumeHudIcon.addEventListener("click", (e) => {
         e.stopPropagation();
-        setIncomingVolume(currentVolume - 10, false);
-    });
-}
-if (btnHudVolUp) {
-    btnHudVolUp.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setIncomingVolume(currentVolume + 10, false);
+        toggleSpeakerMute();
     });
 }
 if (volumeHudTrack) {
@@ -2008,30 +2002,9 @@ if (toggleMic) {
 
 // Speaker / Incoming Audio Listeners
 if (toggleSpeaker) {
-    let pressTimer = null;
     toggleSpeaker.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleSpeakerMute();
-    });
-
-    toggleSpeaker.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (volumePopover) {
-            volumePopover.style.display = (volumePopover.style.display === "none") ? "flex" : "none";
-        }
-    });
-
-    toggleSpeaker.addEventListener("touchstart", () => {
-        pressTimer = setTimeout(() => {
-            if (volumePopover) {
-                volumePopover.style.display = "flex";
-            }
-        }, 400);
-    }, { passive: true });
-
-    toggleSpeaker.addEventListener("touchend", () => {
-        if (pressTimer) clearTimeout(pressTimer);
     });
 }
 
@@ -2039,19 +2012,6 @@ if (barSpeakerToggle) {
     barSpeakerToggle.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleSpeakerMute();
-    });
-}
-
-if (btnPopoverMute) {
-    btnPopoverMute.addEventListener("click", (e) => {
-        e.stopPropagation();
-        toggleSpeakerMute();
-    });
-}
-
-if (remoteVolumeSlider) {
-    remoteVolumeSlider.addEventListener("input", (e) => {
-        setIncomingVolume(e.target.value);
     });
 }
 

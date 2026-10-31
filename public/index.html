@@ -237,20 +237,6 @@
                 </div>
             </div>
 
-            <!-- Floating Volume Adjuster Popover for Incoming Audio -->
-            <div id="volume-popover" class="volume-popover" style="display: none;">
-                <div class="volume-popover-header">
-                    <span>Incoming Volume</span>
-                    <button id="btn-popover-mute" class="popover-mute-link">Mute</button>
-                </div>
-                <div class="volume-popover-slider-row">
-                    <i class="fas fa-volume-down" style="font-size: 11px; opacity: 0.7;"></i>
-                    <input type="range" id="remote-volume-slider" min="0" max="100" value="100" class="volume-range-input">
-                    <i class="fas fa-volume-up" style="font-size: 11px; opacity: 0.7;"></i>
-                    <span id="volume-slider-label" class="volume-val-badge">100%</span>
-                </div>
-            </div>
-
             <!-- Floating Transparent Chat Overlay (WhatsApp-style reactions, attachments, emojis) -->
             <div id="chat-overlay-container" class="chat-overlay-container" style="display: none;">
                 <!-- Overlay Header (Static Bar at Top with Glowing Pulse, Peer Name & Large Close Cross) -->
@@ -359,17 +345,13 @@
                 </div>
             </div>
 
-            <!-- Floating Volume Progress Bar Patti Overlay (Live Visual Level Indicator) -->
+            <!-- Single Volume Progress Bar: Left Sound Icon + 1 Gray-to-White Bar -->
             <div id="volume-hud-bar" class="volume-hud-bar" style="display: none;">
                 <div class="volume-hud-inner">
-                    <button type="button" id="btn-hud-vol-down" class="hud-vol-btn" title="Lower Volume"><i class="fas fa-volume-down"></i></button>
+                    <i id="volume-hud-icon" class="fas fa-volume-up volume-hud-sound-icon" title="Toggle Mute / Volume"></i>
                     <div class="volume-hud-track-container" id="volume-hud-track" title="Click or Drag to Adjust Volume">
-                        <div class="volume-hud-track-bg"></div>
                         <div class="volume-hud-fill" id="volume-hud-fill" style="width: 100%;"></div>
-                        <div class="volume-hud-meter" id="volume-hud-meter" style="width: 0%;"></div>
                     </div>
-                    <button type="button" id="btn-hud-vol-up" class="hud-vol-btn" title="Increase Volume"><i class="fas fa-volume-up"></i></button>
-                    <span class="volume-hud-badge" id="volume-hud-badge">100%</span>
                 </div>
             </div>
 
