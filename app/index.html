@@ -350,43 +350,17 @@
                 <a id="lightbox-download" class="lightbox-download-btn" href="" download="image.jpg"><i class="fas fa-download"></i> Download</a>
             </div>
 
-            <!-- Incoming Call Floating Banner with Ringing Waves, Phone Rock Wobble, and Hold-to-Accept -->
+            <!-- Minimal Transparent Incoming Alert: ID : [Call Icon] [Cross Icon] (10px above bottom bar) -->
             <div id="incoming-call-bar" class="incoming-call-bar" style="display: none;">
-                <!-- Concentric Soft Waves radiating outward -->
-                <div class="incoming-waves-container">
-                    <span class="incoming-wave-ring wave-1"></span>
-                    <span class="incoming-wave-ring wave-2"></span>
-                    <span class="incoming-wave-ring wave-3"></span>
-                </div>
-
-                <div class="incoming-call-content">
-                    <div class="incoming-caller-info">
-                        <div class="incoming-phone-pulse">
-                            <i class="fas fa-phone-alt"></i>
-                        </div>
-                        <div class="incoming-caller-text">
-                            <span class="incoming-call-label">Incoming Call</span>
-                            <span id="incoming-caller-name" class="incoming-caller-name">Caller</span>
-                        </div>
-                    </div>
-
-                    <div class="incoming-call-actions">
-                        <!-- Decline Button (Subtle, low opacity) -->
-                        <button type="button" id="btn-incoming-decline" class="btn-incoming-decline" title="Decline Call">
-                            <i class="fas fa-times"></i>
-                        </button>
-
-                        <!-- Hold-to-Accept Button with SVG Progress Ring -->
-                        <div class="hold-accept-wrapper" id="hold-accept-wrapper">
-                            <button type="button" id="btn-incoming-accept" class="btn-incoming-accept" title="Hold to accept call">
-                                <svg class="hold-progress-svg" viewBox="0 0 52 52">
-                                    <circle class="hold-progress-bg" cx="26" cy="26" r="23"></circle>
-                                    <circle class="hold-progress-fill" id="hold-progress-circle" cx="26" cy="26" r="23"></circle>
-                                </svg>
-                                <i class="fas fa-phone incoming-accept-icon"></i>
-                            </button>
-                        </div>
-                    </div>
+                <div class="incoming-call-minimal shimmer-row">
+                    <span id="incoming-caller-name" class="incoming-id-text">7</span>
+                    <span class="incoming-sep">:</span>
+                    <button type="button" id="btn-incoming-accept" class="btn-incoming-call-icon" title="Hold to accept call" aria-label="Accept Call">
+                        <i class="fas fa-phone-alt"></i>
+                    </button>
+                    <button type="button" id="btn-incoming-decline" class="btn-incoming-end-icon" title="Decline Call" aria-label="Decline Call">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
             </div>
 

@@ -2468,237 +2468,138 @@ input:checked + .slider:before {
 }
 
 /* ============================================================
-   Incoming Call Floating Bar, Ringing Waves & Phone Rock Wobble
+   Minimal Transparent Incoming Call Row (10px above bottom bar)
+   Format: ID : [CallIcon] [EndIcon] - No Background, No Outline
    ============================================================ */
 .incoming-call-bar {
     position: fixed;
-    bottom: 84px;
+    bottom: 74px; /* Exactly 10px above .call-controls */
     left: 50%;
     transform: translateX(-50%);
     z-index: 10040;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
     pointer-events: auto;
-    transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Concentric Soft Wave Rings radiating outward */
-.incoming-waves-container {
-    position: absolute;
-    inset: -12px;
-    pointer-events: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.incoming-wave-ring {
-    position: absolute;
-    inset: 0px;
-    border-radius: 36px;
-    border: 1.5px solid rgba(52, 168, 83, 0.5);
-    box-shadow: 0 0 18px rgba(52, 168, 83, 0.28);
-    opacity: 0;
-    animation: incomingWavesPulse 2.2s cubic-bezier(0.1, 0.6, 0.3, 1) infinite;
-}
-
-.incoming-wave-ring.wave-1 {
-    animation-delay: 0s;
-}
-
-.incoming-wave-ring.wave-2 {
-    animation-delay: 0.7s;
-}
-
-.incoming-wave-ring.wave-3 {
-    animation-delay: 1.4s;
-}
-
-@keyframes incomingWavesPulse {
-    0% {
-        inset: 0px;
-        opacity: 0.85;
-        transform: scale(0.96);
-    }
-    45% {
-        opacity: 0.40;
-    }
-    100% {
-        inset: -28px;
-        opacity: 0;
-        transform: scale(1.35);
-    }
-}
-
-/* The Rocking Wobble animation: Phone vibrates/rocks left up then right up */
-.incoming-call-content {
-    position: relative;
-    background: rgba(20, 24, 30, 0.88);
-    border: 1px solid rgba(52, 168, 83, 0.45);
-    border-radius: 32px;
-    padding: 8px 14px 8px 18px;
-    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.65), 0 0 24px rgba(52, 168, 83, 0.25);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    animation: phoneRingingRock 1.6s infinite ease-in-out;
-    transform-origin: center center;
-}
-
-@keyframes phoneRingingRock {
-    0% { transform: translateY(0) rotate(0deg); }
-    8% { transform: translateY(-3px) rotate(-3.5deg); }
-    16% { transform: translateY(-3px) rotate(3.5deg); }
-    24% { transform: translateY(-2px) rotate(-3deg); }
-    32% { transform: translateY(-2px) rotate(3deg); }
-    40% { transform: translateY(-1px) rotate(-1.5deg); }
-    48% { transform: translateY(-1px) rotate(1.5deg); }
-    56% { transform: translateY(0) rotate(0deg); }
-    100% { transform: translateY(0) rotate(0deg); }
-}
-
-.incoming-caller-info {
-    display: flex;
+/* Row with 10px gap between items */
+.incoming-call-minimal {
+    display: inline-flex;
     align-items: center;
     gap: 10px;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 
-.incoming-phone-pulse {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(52, 168, 83, 0.20);
-    border: 1px solid rgba(52, 168, 83, 0.45);
-    color: #81c995;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    animation: phoneIconPulse 1.2s infinite alternate;
-}
-
-@keyframes phoneIconPulse {
-    from { transform: scale(0.95); opacity: 0.75; }
-    to { transform: scale(1.1); opacity: 1; color: #a8f5b8; }
-}
-
-.incoming-caller-text {
-    display: flex;
-    flex-direction: column;
-}
-
-.incoming-call-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: #81c995;
-    font-weight: 600;
-}
-
-.incoming-caller-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: #f1f3f4;
-    max-width: 140px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.incoming-call-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-/* Subtle Decline Button */
-.btn-incoming-decline {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: rgba(234, 67, 53, 0.18);
-    border: 1px solid rgba(234, 67, 53, 0.35);
-    color: rgba(242, 139, 130, 0.85);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    transition: all 0.2s ease;
-    opacity: 0.7;
-}
-
-.btn-incoming-decline:hover {
-    background: rgba(234, 67, 53, 0.35);
-    color: #fff;
-    opacity: 1;
-    transform: scale(1.08);
-}
-
-/* Hold-to-Accept Button with SVG Progress Ring */
-.hold-accept-wrapper {
+/* Shimmer Effect in Black, Gray & White */
+.shimmer-row {
     position: relative;
-    width: 48px;
-    height: 48px;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
 }
 
-.btn-incoming-accept {
-    position: relative;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: rgba(52, 168, 83, 0.28);
-    border: none;
-    color: #a8f5b8;
+.incoming-id-text {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #9ca3af 0%, #ffffff 35%, #4b5563 65%, #9ca3af 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmerTextSweep 2.2s infinite linear;
+}
+
+.incoming-sep {
+    font-size: 13px;
+    font-weight: 700;
+    color: #9ca3af;
+    opacity: 0.75;
+}
+
+/* Call Icon (White to Gray Shimmer / Pulse) */
+.btn-incoming-call-icon {
+    background: none !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 2px 4px !important;
+    margin: 0 !important;
+    font-size: 13px;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 17px;
-    transition: transform 0.15s ease, background-color 0.2s ease;
+    color: #ffffff;
+    animation: whiteGrayPulse 2s infinite ease-in-out;
+    transition: transform 0.15s ease, color 0.15s ease;
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
 }
 
-.btn-incoming-accept:active,
-.btn-incoming-accept.holding {
-    transform: scale(1.08);
-    background: rgba(52, 168, 83, 0.45);
+@keyframes whiteGrayPulse {
+    0% {
+        color: #ffffff;
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.7));
+    }
+    50% {
+        color: #6b7280; /* dark/gray */
+        filter: drop-shadow(0 0 1px rgba(107, 114, 128, 0.4));
+    }
+    100% {
+        color: #ffffff;
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.7));
+    }
+}
+
+.btn-incoming-call-icon:hover {
     color: #ffffff;
+    transform: scale(1.18);
 }
 
-.hold-progress-svg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-    pointer-events: none;
+.btn-incoming-call-icon.holding {
+    color: #ffffff !important;
+    transform: scale(1.25);
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 1)) !important;
 }
 
-.hold-progress-bg {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.12);
-    stroke-width: 3;
+/* End / Cross Icon */
+.btn-incoming-end-icon {
+    background: none !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 2px 4px !important;
+    margin: 0 !important;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    opacity: 0.75;
+    transition: transform 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
-.hold-progress-fill {
-    fill: none;
-    stroke: #34a853;
-    stroke-width: 3.5;
-    stroke-dasharray: 145;
-    stroke-dashoffset: 145;
-    stroke-linecap: round;
-    transition: stroke-dashoffset 0.05s linear;
+.btn-incoming-end-icon:hover {
+    color: #ef4444;
+    opacity: 1;
+    transform: scale(1.18);
 }
 
-.hold-progress-fill.animating {
-    stroke: #4ade80;
-    filter: drop-shadow(0 0 6px rgba(74, 222, 128, 0.75));
+@keyframes shimmerTextSweep {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
 }
 
 /* Shake button animation on single click / early abort */
@@ -2712,17 +2613,5 @@ input:checked + .slider:before {
     40% { transform: translateX(4px) rotate(3deg); }
     60% { transform: translateX(-3px) rotate(-2deg); }
     80% { transform: translateX(3px) rotate(2deg); }
-}
-
-/* Bottom Bar Waves when incoming call is ringing */
-.call-controls.incoming-ringing-waves::before {
-    content: "";
-    position: absolute;
-    inset: -6px;
-    border-radius: 36px;
-    border: 1.5px solid rgba(52, 168, 83, 0.5);
-    opacity: 0;
-    pointer-events: none;
-    animation: incomingWavesPulse 2.2s cubic-bezier(0.1, 0.6, 0.3, 1) infinite;
 }
 

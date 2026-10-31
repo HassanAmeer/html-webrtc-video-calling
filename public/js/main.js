@@ -1687,26 +1687,18 @@ function stopSynthesizedRingtone() {
     }
 }
 
-// Start Incoming Call Alert (Ringing Waves + Phone Rocking Wobble)
+// Start Incoming Call Alert (Format: ID : [CallIcon] [EndIcon])
 function startIncomingCallAlert(callerName) {
     const incomingBar = document.getElementById("incoming-call-bar");
     const callerNameSpan = document.getElementById("incoming-caller-name");
-    const callControls = document.getElementById("call-controls");
-    const holdCircle = document.getElementById("hold-progress-circle");
 
     if (callerNameSpan) {
-        callerNameSpan.textContent = callerName || "Unknown Caller";
-    }
-    if (holdCircle) {
-        holdCircle.style.strokeDashoffset = "145";
-        holdCircle.classList.remove("animating");
+        const cleanId = (callerName || "7").split("_")[0];
+        callerNameSpan.textContent = cleanId;
     }
 
     if (incomingBar) {
-        incomingBar.style.display = "flex";
-    }
-    if (callControls) {
-        callControls.classList.add("incoming-ringing-waves");
+        incomingBar.style.display = "inline-flex";
     }
 
     decoyClickCount = 0;
@@ -1716,19 +1708,10 @@ function startIncomingCallAlert(callerName) {
 // Stop Incoming Call Alert
 function stopIncomingCallAlert() {
     const incomingBar = document.getElementById("incoming-call-bar");
-    const callControls = document.getElementById("call-controls");
-    const holdCircle = document.getElementById("hold-progress-circle");
     const acceptBtn = document.getElementById("btn-incoming-accept");
 
     if (incomingBar) {
         incomingBar.style.display = "none";
-    }
-    if (callControls) {
-        callControls.classList.remove("incoming-ringing-waves");
-    }
-    if (holdCircle) {
-        holdCircle.style.strokeDashoffset = "145";
-        holdCircle.classList.remove("animating");
     }
     if (acceptBtn) {
         acceptBtn.classList.remove("holding", "shake-error");
@@ -1782,7 +1765,6 @@ async function acceptIncomingCall() {
 const HOLD_REQUIRED_MS = 1200;
 function setupIncomingCallHandlers() {
     const btnIncomingAccept = document.getElementById("btn-incoming-accept");
-    const holdProgressCircle = document.getElementById("hold-progress-circle");
     const btnIncomingDecline = document.getElementById("btn-incoming-decline");
 
     if (!btnIncomingAccept) return;
@@ -1796,11 +1778,6 @@ function setupIncomingCallHandlers() {
         holdStartTime = Date.now();
         btnIncomingAccept.classList.add("holding");
         btnIncomingAccept.classList.remove("shake-error");
-
-        if (holdProgressCircle) {
-            holdProgressCircle.classList.add("animating");
-            holdProgressCircle.style.strokeDashoffset = "0";
-        }
 
         if (navigator.vibrate) {
             navigator.vibrate(30);
@@ -1826,11 +1803,6 @@ function setupIncomingCallHandlers() {
         if (holdAcceptTimer) {
             clearTimeout(holdAcceptTimer);
             holdAcceptTimer = null;
-        }
-
-        if (holdProgressCircle) {
-            holdProgressCircle.classList.remove("animating");
-            holdProgressCircle.style.strokeDashoffset = "145";
         }
 
         // Single click or released early -> Trigger decoy toast!
