@@ -38,8 +38,8 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
-    // Official WebRTC Android SDK
-    implementation 'org.webrtc:google-webrtc:1.0.32006'
+    // Official WebRTC Android SDK (MavenCentral release)
+    implementation 'io.github.webrtc-sdk:android:125.6422.06'
 
     // Socket.io for Real-time WebRTC Signaling to v.tokendeal.cloud
     implementation('io.socket:socket.io-client:2.1.1') {
