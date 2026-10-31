@@ -313,21 +313,127 @@ html, body {
     max-width: 85%;
     width: auto;
     z-index: 50;
-    background: rgba(28, 30, 34, 0.82);
+    background: rgba(22, 26, 32, 0.70);
+    opacity: 0.70; /* 70% opacity default as requested */
     -webkit-backdrop-filter: blur(24px) saturate(190%);
     backdrop-filter: blur(24px) saturate(190%);
     padding: 6px 8px;
     border-radius: 36px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     transition: transform 0.35s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.25s ease;
     box-sizing: border-box;
 }
 
+.call-controls:hover, .call-controls:active, .call-controls:focus-within {
+    opacity: 0.95;
+}
+
 .call-controls.collapsed {
     transform: translateX(-50%) translateY(140%);
-    opacity: 0;
+    opacity: 0 !important;
     pointer-events: none;
+}
+
+/* Floating Volume Progress Bar Patti Overlay (Live Visual Indicator) */
+.volume-hud-bar {
+    position: absolute;
+    bottom: 74px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    background: rgba(18, 22, 28, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 24px;
+    padding: 6px 14px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: popVolumeBar 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+@keyframes popVolumeBar {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.95); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.volume-hud-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.hud-vol-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.hud-vol-btn:hover {
+    color: #ffffff;
+    transform: scale(1.15);
+}
+
+.volume-hud-track-container {
+    position: relative;
+    width: 140px;
+    height: 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.volume-hud-track-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.volume-hud-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #00e676);
+    border-radius: 6px;
+    transition: width 0.1s ease-out;
+}
+
+.volume-hud-meter {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.4);
+    pointer-events: none;
+    transition: width 0.05s ease-out;
+}
+
+.volume-hud-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: #ffffff;
+    min-width: 44px;
+    text-align: right;
+    text-shadow: 0 1px 2px #000;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Horizontal Scrollable Controls Wrapper */

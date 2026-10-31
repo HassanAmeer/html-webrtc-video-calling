@@ -344,6 +344,20 @@
                 <a id="lightbox-download" class="lightbox-download-btn" href="" download="image.jpg"><i class="fas fa-download"></i> Download</a>
             </div>
 
+            <!-- Floating Volume Progress Bar Patti Overlay (Live Visual Level Indicator) -->
+            <div id="volume-hud-bar" class="volume-hud-bar" style="display: none;">
+                <div class="volume-hud-inner">
+                    <button type="button" id="btn-hud-vol-down" class="hud-vol-btn" title="Lower Volume"><i class="fas fa-volume-down"></i></button>
+                    <div class="volume-hud-track-container" id="volume-hud-track" title="Click or Drag to Adjust Volume">
+                        <div class="volume-hud-track-bg"></div>
+                        <div class="volume-hud-fill" id="volume-hud-fill" style="width: 100%;"></div>
+                        <div class="volume-hud-meter" id="volume-hud-meter" style="width: 0%;"></div>
+                    </div>
+                    <button type="button" id="btn-hud-vol-up" class="hud-vol-btn" title="Increase Volume"><i class="fas fa-volume-up"></i></button>
+                    <span class="volume-hud-badge" id="volume-hud-badge">100%</span>
+                </div>
+            </div>
+
             <!-- iOS-style Floating Call Controls Dock (Main Action Buttons First - Default Hidden) -->
             <div class="call-controls collapsed" id="call-controls">
                 <div class="controls-scroll-wrapper" id="controls-scroll-wrapper">

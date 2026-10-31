@@ -142,6 +142,67 @@ const settingSpeakerText = document.getElementById("setting-speaker-text");
 const settingVolumeSlider = document.getElementById("setting-volume-slider");
 const settingVolumeLabel = document.getElementById("setting-volume-label");
 
+// Volume HUD Progress Bar Patti Overlay Elements
+const volumeHudBar = document.getElementById("volume-hud-bar");
+const volumeHudFill = document.getElementById("volume-hud-fill");
+const volumeHudMeter = document.getElementById("volume-hud-meter");
+const volumeHudBadge = document.getElementById("volume-hud-badge");
+const btnHudVolDown = document.getElementById("btn-hud-vol-down");
+const btnHudVolUp = document.getElementById("btn-hud-vol-up");
+const volumeHudTrack = document.getElementById("volume-hud-track");
+
+let volumeHudHideTimer = null;
+let analyserNode = null;
+let analyserData = null;
+let meterAnimFrame = null;
+
+function flashVolumeHud(autoHide = true) {
+    if (!volumeHudBar) return;
+    volumeHudBar.style.display = "flex";
+    if (volumeHudHideTimer) clearTimeout(volumeHudHideTimer);
+    if (autoHide) {
+        volumeHudHideTimer = setTimeout(() => {
+            if (volumeHudBar) volumeHudBar.style.display = "none";
+        }, 2200);
+    }
+}
+
+function updateVolumeHudUI() {
+    const isMuted = isSpeakerMuted || currentVolume === 0;
+    if (volumeHudFill) {
+        volumeHudFill.style.width = isMuted ? "0%" : `${currentVolume}%`;
+        volumeHudFill.style.background = isMuted 
+            ? "#ea4335" 
+            : (currentVolume <= 40 ? "linear-gradient(90deg, #f59e0b, #eab308)" : "linear-gradient(90deg, #3b82f6, #00e676)");
+    }
+    if (volumeHudBadge) {
+        volumeHudBadge.textContent = isMuted ? "Muted" : `${currentVolume}%`;
+        volumeHudBadge.style.color = isMuted ? "#ea4335" : "#ffffff";
+    }
+}
+
+function startSoundMeterLoop() {
+    if (meterAnimFrame) cancelAnimationFrame(meterAnimFrame);
+    function checkLevel() {
+        if (analyserNode && analyserData && volumeHudMeter) {
+            analyserNode.getByteFrequencyData(analyserData);
+            let sum = 0;
+            for (let i = 0; i < analyserData.length; i++) {
+                sum += analyserData[i];
+            }
+            const avg = sum / analyserData.length;
+            const meterPct = Math.min(100, Math.round((avg / 128) * 100));
+            if (!isSpeakerMuted && currentVolume > 0) {
+                volumeHudMeter.style.width = `${meterPct}%`;
+            } else {
+                volumeHudMeter.style.width = "0%";
+            }
+        }
+        meterAnimFrame = requestAnimationFrame(checkLevel);
+    }
+    checkLevel();
+}
+
 function setupAudioGain(stream) {
     if (!stream) return;
     try {
@@ -162,6 +223,13 @@ function setupAudioGain(stream) {
                 gainNode = audioCtx.createGain();
                 gainNode.connect(audioCtx.destination);
             }
+            if (!analyserNode) {
+                analyserNode = audioCtx.createAnalyser();
+                analyserNode.fftSize = 64;
+                analyserData = new Uint8Array(analyserNode.frequencyBinCount);
+                gainNode.connect(analyserNode);
+                startSoundMeterLoop();
+            }
             remoteAudioSource.connect(gainNode);
             const factor = (isSpeakerMuted || currentVolume === 0) ? 0 : (currentVolume / 100);
             gainNode.gain.setValueAtTime(factor, audioCtx.currentTime);
@@ -179,6 +247,11 @@ function updateVolumeUI() {
     if (remoteAudio) {
         remoteAudio.muted = isMuted;
         remoteAudio.volume = isMuted ? 0 : (currentVolume / 100);
+        if (isMuted) {
+            try { remoteAudio.pause(); } catch (_) {}
+        } else {
+            try { remoteAudio.play().catch(() => {}); } catch (_) {}
+        }
     }
 
     // 2. Ironclad WebRTC Audio Track Level Mute (discards audio frames at decoder level!)
@@ -215,6 +288,9 @@ function updateVolumeUI() {
             gainNode.gain.setValueAtTime(isMuted ? 0 : (currentVolume / 100), audioCtx.currentTime);
         } catch (_) {}
     }
+
+    // 5. Update Floating Volume HUD Patti
+    updateVolumeHudUI();
 
     if (toggleSpeaker) {
         toggleSpeaker.classList.toggle("muted-speaker", isMuted);
@@ -270,6 +346,7 @@ function setIncomingVolume(val, notify = false) {
         localStorage.setItem("webrtc_speaker_muted", "false");
     }
     updateVolumeUI();
+    flashVolumeHud();
     if (notify) {
         showToast(`Incoming Volume: ${currentVolume}%`);
     }
@@ -283,21 +360,66 @@ function toggleSpeakerMute() {
         localStorage.setItem("webrtc_speaker_muted", "false");
         localStorage.setItem("webrtc_speaker_volume", "100");
         updateVolumeUI();
+        flashVolumeHud();
         showToast("📢 Big Speaker: Loudspeaker ON (100% Full Awaaz)");
     } else if (currentVolume > 40) {
         // Big Loudspeaker -> Phone Earpiece / Soft Speaker 30%
         currentVolume = 30;
         localStorage.setItem("webrtc_speaker_volume", "30");
         updateVolumeUI();
+        flashVolumeHud();
         showToast("📱 Phone Speaker: Earpiece Mode (30% Soft Awaaz)");
     } else {
         // Phone Earpiece -> Complete Mute 0%
         isSpeakerMuted = true;
         localStorage.setItem("webrtc_speaker_muted", "true");
         updateVolumeUI();
+        flashVolumeHud();
         showToast("🔇 Speaker: Muted (Awaaz Bilkul Band)");
     }
 }
+
+// Volume HUD Progress Bar Interactive Listeners
+if (btnHudVolDown) {
+    btnHudVolDown.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setIncomingVolume(currentVolume - 10, false);
+    });
+}
+if (btnHudVolUp) {
+    btnHudVolUp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setIncomingVolume(currentVolume + 10, false);
+    });
+}
+if (volumeHudTrack) {
+    const handleHudTrackSeek = (e) => {
+        e.stopPropagation();
+        const rect = volumeHudTrack.getBoundingClientRect();
+        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const percent = Math.max(0, Math.min(100, Math.round(((clientX - rect.left) / rect.width) * 100)));
+        setIncomingVolume(percent, false);
+    };
+    volumeHudTrack.addEventListener("click", handleHudTrackSeek);
+    volumeHudTrack.addEventListener("touchstart", handleHudTrackSeek, { passive: true });
+}
+
+// System/Keyboard Volume Hotkeys (Arrow Up/Down, M key)
+window.addEventListener("keydown", (e) => {
+    if (document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")) {
+        return;
+    }
+    if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setIncomingVolume(currentVolume + 5, false);
+    } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setIncomingVolume(currentVolume - 5, false);
+    } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        toggleSpeakerMute();
+    }
+});
 
 // WhatsApp-style Permanent Camera Mirroring:
 // Front camera: scaleX(-1) (natural mirror so moving left reflects left)
