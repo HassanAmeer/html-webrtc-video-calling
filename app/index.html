@@ -288,13 +288,17 @@
                     <button type="button" class="reaction-emoji-btn" data-emoji="🔥">🔥</button>
                 </div>
 
-                <!-- Attachment Picker Menu: Camera / Photos / Documents -->
+                <!-- Attachment Picker Menu: Camera / Photos / Documents / Video Record -->
                 <div id="chat-attachment-popover" class="chat-attachment-popover" style="display: none;">
-                    <label class="attachment-action-item">
-                        <input type="file" id="attach-camera-input" accept="image/*" capture="environment" style="display: none;">
+                    <div class="attachment-action-item" id="btn-camera-photo-chat">
+                        <input type="file" id="attach-camera-input" accept="image/*" style="display: none;">
                         <span class="attachment-action-icon camera-bg"><i class="fas fa-camera"></i></span>
                         <span class="attachment-action-text">Camera Photo</span>
-                    </label>
+                    </div>
+                    <div class="attachment-action-item" id="btn-record-video-chat">
+                        <span class="attachment-action-icon video-rec-bg"><i class="fas fa-video"></i></span>
+                        <span class="attachment-action-text">Record Video</span>
+                    </div>
                     <label class="attachment-action-item">
                         <input type="file" id="attach-media-input" accept="image/*,video/*" style="display: none;">
                         <span class="attachment-action-icon media-bg"><i class="fas fa-images"></i></span>
@@ -305,6 +309,26 @@
                         <span class="attachment-action-icon doc-bg"><i class="fas fa-file-alt"></i></span>
                         <span class="attachment-action-text">Document / File</span>
                     </label>
+                </div>
+
+                <!-- In-Chat Video Recorder Modal -->
+                <div id="chat-video-recorder" class="chat-video-recorder" style="display: none;">
+                    <div class="cvr-header">
+                        <span><i class="fas fa-video"></i> Record Video Message</span>
+                        <button type="button" id="cvr-btn-close" class="chat-icon-btn"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="cvr-preview-wrap">
+                        <video id="cvr-preview" class="cvr-preview" autoplay muted playsinline></video>
+                        <div id="cvr-timer" class="cvr-timer">0:00</div>
+                        <div id="cvr-rec-dot" class="cvr-rec-dot" style="display:none;"></div>
+                    </div>
+                    <div class="cvr-controls">
+                        <button type="button" id="cvr-btn-cancel" class="cvr-btn cvr-cancel"><i class="fas fa-times"></i> Cancel</button>
+                        <button type="button" id="cvr-btn-record" class="cvr-btn cvr-record"><i class="fas fa-circle"></i> Record</button>
+                        <button type="button" id="cvr-btn-stop" class="cvr-btn cvr-stop" style="display:none;"><i class="fas fa-stop"></i> Stop</button>
+                        <button type="button" id="cvr-btn-send" class="cvr-btn cvr-send" style="display:none;"><i class="fas fa-paper-plane"></i> Send Video</button>
+                        <button type="button" id="cvr-btn-retake" class="cvr-btn cvr-retake" style="display:none;"><i class="fas fa-redo"></i> Retake</button>
+                    </div>
                 </div>
 
                 <!-- Emoji Drawer Popover for Chat Input -->

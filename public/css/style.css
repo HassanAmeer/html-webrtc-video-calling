@@ -2050,10 +2050,10 @@ input:checked + .slider:before {
    ============================================================== */
 .chat-overlay-container {
     position: absolute;
+    top: 12px;
     bottom: 95px;
     left: 16px;
     width: min(440px, calc(100% - 32px));
-    max-height: calc(100% - 160px);
     display: flex;
     flex-direction: column;
     background: transparent !important;
@@ -2064,10 +2064,10 @@ input:checked + .slider:before {
 
 @media (max-width: 600px) {
     .chat-overlay-container {
-        bottom: 85px;
-        left: 8px;
-        width: calc(100% - 16px);
-        max-height: calc(100% - 140px);
+        top: env(safe-area-inset-top, 8px);
+        bottom: 80px;
+        left: 4px;
+        width: calc(100% - 8px);
     }
 }
 
@@ -2144,6 +2144,7 @@ input:checked + .slider:before {
 /* Chat Messages Stream: Pure Transparent, Strong Black Text-Shadow */
 .chat-messages-scroll {
     flex: 1;
+    min-height: 0; /* CRITICAL: flex child must have min-height:0 for scroll to work on desktop */
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;
@@ -2151,9 +2152,10 @@ input:checked + .slider:before {
     gap: 8px;
     padding: 6px 4px 12px 4px;
     background: transparent !important;
-    max-height: 380px;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    -webkit-overflow-scrolling: touch;
+    pointer-events: auto; /* CRITICAL: Allows mouse wheel scroll on desktop without hitting messages */
 }
 
 .chat-messages-scroll::-webkit-scrollbar {
@@ -2280,6 +2282,39 @@ input:checked + .slider:before {
     overflow: hidden;
 }
 
+/* Chat Media Loader (For outgoing & incoming images / videos) */
+.chat-media-wrapper {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    min-width: 140px;
+    min-height: 50px;
+    display: inline-block;
+}
+
+.chat-media-loader {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 18px;
+    background: rgba(18, 22, 29, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #e5e7eb;
+    font-size: 12px;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.chat-media-loader i {
+    font-size: 14px;
+    color: #60a5fa;
+    animation: fa-spin 1.2s infinite linear;
+}
+
 .chat-img-thumb {
     max-width: 230px;
     max-height: 200px;
@@ -2289,7 +2324,7 @@ input:checked + .slider:before {
     display: block;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-    transition: transform 0.2s ease;
+    transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .chat-img-thumb:hover {
@@ -2469,12 +2504,152 @@ input:checked + .slider:before {
 }
 
 .camera-bg { background: linear-gradient(135deg, #00b09b, #96c93d); }
+.video-rec-bg { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
 .media-bg { background: linear-gradient(135deg, #8a2387, #e94057, #f27121); }
 .doc-bg { background: linear-gradient(135deg, #2193b0, #6dd5ed); }
 
 .attachment-action-text {
     font-size: 13px;
     font-weight: 600;
+}
+
+/* In-Chat Video Recorder Modal */
+.chat-video-recorder {
+    pointer-events: auto;
+    position: absolute;
+    bottom: 52px;
+    left: 0;
+    width: 290px;
+    background: rgba(18, 22, 29, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+    z-index: 1045;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: popReactionBar 0.2s ease-out;
+}
+
+.cvr-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+    color: #e5e7eb;
+}
+
+.cvr-preview-wrap {
+    position: relative;
+    width: 100%;
+    height: 180px;
+    background: #000000;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.cvr-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cvr-timer {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cvr-rec-dot {
+    position: absolute;
+    top: 11px;
+    left: 10px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 8px #ef4444;
+    animation: pulseRecDot 1s infinite alternate ease-in-out;
+}
+
+@keyframes pulseRecDot {
+    from { opacity: 0.3; transform: scale(0.85); }
+    to { opacity: 1; transform: scale(1.15); }
+}
+
+.cvr-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cvr-btn {
+    border: none;
+    outline: none;
+    padding: 7px 13px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+.cvr-cancel {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e5e7eb;
+}
+.cvr-cancel:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.cvr-record {
+    background: #ef4444;
+    color: #ffffff;
+}
+.cvr-record:hover {
+    background: #dc2626;
+}
+
+.cvr-stop {
+    background: #f59e0b;
+    color: #000000;
+    font-weight: 700;
+}
+.cvr-stop:hover {
+    background: #d97706;
+}
+
+.cvr-send {
+    background: #10b981;
+    color: #ffffff;
+}
+.cvr-send:hover {
+    background: #059669;
+}
+
+.cvr-retake {
+    background: rgba(255, 255, 255, 0.12);
+    color: #e5e7eb;
+}
+.cvr-retake:hover {
+    background: rgba(255, 255, 255, 0.22);
 }
 
 /* Emoji Drawer Popover */

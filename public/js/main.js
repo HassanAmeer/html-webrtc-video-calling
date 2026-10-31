@@ -3418,8 +3418,28 @@ const btnCloseEmoji = document.getElementById("btn-close-emoji");
 const emojiGrid = document.getElementById("emoji-grid");
 
 const attachCameraInput = document.getElementById("attach-camera-input");
+const btnCameraPhotoChat = document.getElementById("btn-camera-photo-chat");
+const btnRecordVideoChat = document.getElementById("btn-record-video-chat");
 const attachMediaInput = document.getElementById("attach-media-input");
 const attachDocInput = document.getElementById("attach-doc-input");
+
+const chatVideoRecorder = document.getElementById("chat-video-recorder");
+const cvrPreview = document.getElementById("cvr-preview");
+const cvrTimer = document.getElementById("cvr-timer");
+const cvrRecDot = document.getElementById("cvr-rec-dot");
+const cvrBtnCancel = document.getElementById("cvr-btn-cancel");
+const cvrBtnRecord = document.getElementById("cvr-btn-record");
+const cvrBtnStop = document.getElementById("cvr-btn-stop");
+const cvrBtnSend = document.getElementById("cvr-btn-send");
+const cvrBtnRetake = document.getElementById("cvr-btn-retake");
+const cvrBtnClose = document.getElementById("cvr-btn-close");
+
+let cvrMediaRecorder = null;
+let cvrRecordedChunks = [];
+let cvrStream = null;
+let cvrTimerInterval = null;
+let cvrSeconds = 0;
+let cvrRecordedBlob = null;
 
 const chatPendingAttachment = document.getElementById("chat-pending-attachment");
 const pendingImgPreview = document.getElementById("pending-img-preview");
@@ -3537,7 +3557,10 @@ function hideChatPopovers() {
 
 function scrollChatToBottom() {
     if (chatMessagesScroll) {
-        chatMessagesScroll.scrollTop = chatMessagesScroll.scrollHeight;
+        // Use rAF so DOM is fully painted before scrolling (fixes desktop scroll after image send)
+        requestAnimationFrame(() => {
+            chatMessagesScroll.scrollTop = chatMessagesScroll.scrollHeight;
+        });
     }
 }
 
@@ -3627,22 +3650,60 @@ function appendChatMessage(msg, isMine) {
         attachContainer.className = "chat-msg-attachment";
 
         if (msg.file.type && msg.file.type.startsWith("image/")) {
+            const wrap = document.createElement("div");
+            wrap.className = "chat-media-wrapper";
+
+            const loader = document.createElement("div");
+            loader.className = "chat-media-loader";
+            loader.innerHTML = `<i class="fas fa-circle-notch"></i> <span>${isMine ? "Sending photo..." : "Loading photo..."}</span>`;
+            wrap.appendChild(loader);
+
             const img = document.createElement("img");
             img.src = msg.file.data;
             img.className = "chat-img-thumb";
             img.alt = msg.file.name || "Attached Photo";
-            img.loading = "lazy";
+            img.style.display = "none";
+            img.onload = () => {
+                loader.style.display = "none";
+                img.style.display = "block";
+                scrollChatToBottom();
+            };
+            img.onerror = () => {
+                loader.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ef4444;"></i> <span>Failed to load image</span>`;
+                scrollChatToBottom();
+            };
             img.addEventListener("click", (e) => {
                 e.stopPropagation();
                 openImageLightbox(msg.file.data, msg.file.name);
             });
-            attachContainer.appendChild(img);
+            wrap.appendChild(img);
+            attachContainer.appendChild(wrap);
         } else if (msg.file.type && msg.file.type.startsWith("video/")) {
+            const wrap = document.createElement("div");
+            wrap.className = "chat-media-wrapper";
+
+            const loader = document.createElement("div");
+            loader.className = "chat-media-loader";
+            loader.innerHTML = `<i class="fas fa-circle-notch"></i> <span>${isMine ? "Sending video..." : "Loading video..."}</span>`;
+            wrap.appendChild(loader);
+
             const video = document.createElement("video");
             video.src = msg.file.data;
             video.controls = true;
+            video.playsInline = true;
             video.className = "chat-video-player";
-            attachContainer.appendChild(video);
+            video.style.display = "none";
+            video.onloadeddata = () => {
+                loader.style.display = "none";
+                video.style.display = "block";
+                scrollChatToBottom();
+            };
+            video.onerror = () => {
+                loader.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ef4444;"></i> <span>Failed to load video</span>`;
+                scrollChatToBottom();
+            };
+            wrap.appendChild(video);
+            attachContainer.appendChild(wrap);
         } else {
             // Document card
             const docCard = document.createElement("a");
@@ -3887,12 +3948,324 @@ if (btnCloseEmoji) {
     });
 }
 
+// Instant Snapshot from active call camera (Zero interruption to video call)
+function captureCallSnapshot() {
+    try {
+        if (!localVideo || !localVideo.videoWidth) {
+            if (attachCameraInput) attachCameraInput.click();
+            return;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = localVideo.videoWidth || 1280;
+        canvas.height = localVideo.videoHeight || 720;
+        const ctx = canvas.getContext("2d");
+
+        // Front camera mirror correction if needed
+        if (currentFacingMode === "user") {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        const fileName = `snapshot_${Date.now()}.jpg`;
+        const approxSize = Math.round(dataUrl.length * 0.75);
+
+        pendingFileObj = {
+            name: fileName,
+            type: "image/jpeg",
+            size: approxSize,
+            data: dataUrl
+        };
+
+        if (chatPendingAttachment) {
+            chatPendingAttachment.style.display = "flex";
+            if (pendingFileName) pendingFileName.textContent = fileName;
+            if (pendingFileSize) pendingFileSize.textContent = formatFileSize(approxSize);
+            if (pendingImgPreview) {
+                pendingImgPreview.src = dataUrl;
+                pendingImgPreview.style.display = "block";
+            }
+            if (pendingDocIcon) pendingDocIcon.style.display = "none";
+        }
+        hideChatPopovers();
+        showToast("📸 Photo captured from call camera");
+        if (chatTextInput) chatTextInput.focus();
+    } catch (err) {
+        console.error("captureCallSnapshot error:", err);
+        if (attachCameraInput) attachCameraInput.click();
+    }
+}
+
+// Auto-Restore Engine for Video Call Screens (Restores camera & video playback after background switch)
+let isRestoringCallMedia = false;
+async function checkAndRestoreCallMedia() {
+    if (isRestoringCallMedia) return;
+
+    // 1. Resume remoteVideo playback if it paused during background switch
+    if (remoteVideo && remoteVideo.srcObject) {
+        if (remoteVideo.paused) {
+            remoteVideo.play().catch(e => console.warn("Remote video auto-play:", e));
+        }
+    }
+
+    // 2. Resume localVideo playback if it paused
+    if (localVideo && localVideo.srcObject) {
+        if (localVideo.paused) {
+            localVideo.play().catch(e => console.warn("Local video auto-play:", e));
+        }
+    }
+
+    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    if (!isCallActive || isAudioCallMode) return;
+
+    // Check if local video track was terminated or muted by mobile OS camera switch
+    const hasAnyLiveVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+
+    if (!hasAnyLiveVideo) {
+        isRestoringCallMedia = true;
+        console.warn("Local camera track was interrupted by external app, restoring...");
+        try {
+            const newStream = await getBestVideoStream(currentFacingMode, true);
+            if (newStream) {
+                const newTrack = newStream.getVideoTracks()[0];
+                if (newTrack) {
+                    if (localStream) {
+                        localStream.getVideoTracks().forEach(t => {
+                            try { t.stop(); localStream.removeTrack(t); } catch(_) {}
+                        });
+                        localStream.addTrack(newTrack);
+                    } else {
+                        localStream = newStream;
+                    }
+                    localVideo.srcObject = localStream;
+                    localVideo.play().catch(() => {});
+
+                    if (peerConnection) {
+                        const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+                        if (sender) {
+                            await sender.replaceTrack(newTrack);
+                            console.log("Peer connection video track successfully restored!");
+                        } else {
+                            peerConnection.addTrack(newTrack, localStream);
+                        }
+                    }
+                    showToast("Camera restored");
+                }
+            }
+        } catch (err) {
+            console.error("Camera restoration failed:", err);
+        } finally {
+            isRestoringCallMedia = false;
+        }
+    }
+}
+
+// In-Chat Video Recorder Functions
+async function openChatVideoRecorder() {
+    hideChatPopovers();
+    if (!chatVideoRecorder) return;
+
+    cvrRecordedChunks = [];
+    cvrRecordedBlob = null;
+    cvrSeconds = 0;
+    if (cvrTimer) cvrTimer.textContent = "0:00";
+    if (cvrRecDot) cvrRecDot.style.display = "none";
+    if (cvrBtnRecord) cvrBtnRecord.style.display = "inline-flex";
+    if (cvrBtnStop) cvrBtnStop.style.display = "none";
+    if (cvrBtnSend) cvrBtnSend.style.display = "none";
+    if (cvrBtnRetake) cvrBtnRetake.style.display = "none";
+
+    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    const hasLiveCam = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+
+    try {
+        if (isCallActive && hasLiveCam) {
+            cvrStream = localStream;
+        } else {
+            cvrStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: currentFacingMode || "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: true
+            });
+        }
+        if (cvrPreview) {
+            cvrPreview.srcObject = cvrStream;
+            cvrPreview.src = "";
+            cvrPreview.controls = false;
+            cvrPreview.muted = true;
+            cvrPreview.play().catch(() => {});
+        }
+        chatVideoRecorder.style.display = "flex";
+    } catch (err) {
+        console.error("Failed to open video recorder:", err);
+        showToast("Camera access needed for video message");
+    }
+}
+
+function closeChatVideoRecorder() {
+    if (cvrMediaRecorder && cvrMediaRecorder.state === "recording") {
+        try { cvrMediaRecorder.stop(); } catch(_) {}
+    }
+    if (cvrTimerInterval) {
+        clearInterval(cvrTimerInterval);
+        cvrTimerInterval = null;
+    }
+    if (cvrStream && cvrStream !== localStream) {
+        cvrStream.getTracks().forEach(t => {
+            try { t.stop(); } catch(_) {}
+        });
+    }
+    cvrStream = null;
+    cvrRecordedChunks = [];
+    cvrRecordedBlob = null;
+    if (cvrPreview) {
+        cvrPreview.srcObject = null;
+        cvrPreview.src = "";
+    }
+    if (chatVideoRecorder) chatVideoRecorder.style.display = "none";
+}
+
+function startChatVideoRecording() {
+    if (!cvrStream) return;
+    cvrRecordedChunks = [];
+    cvrRecordedBlob = null;
+    cvrSeconds = 0;
+
+    let mimeType = "video/webm;codecs=vp8,opus";
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = "video/webm";
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = "video/mp4";
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = "";
+            }
+        }
+    }
+
+    try {
+        const options = mimeType ? { mimeType } : undefined;
+        cvrMediaRecorder = new MediaRecorder(cvrStream, options);
+
+        cvrMediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+                cvrRecordedChunks.push(e.data);
+            }
+        };
+
+        cvrMediaRecorder.onstop = () => {
+            const actualType = cvrMediaRecorder.mimeType || "video/webm";
+            cvrRecordedBlob = new Blob(cvrRecordedChunks, { type: actualType });
+            if (cvrPreview) {
+                cvrPreview.srcObject = null;
+                cvrPreview.src = URL.createObjectURL(cvrRecordedBlob);
+                cvrPreview.controls = true;
+                cvrPreview.muted = false;
+            }
+            if (cvrBtnStop) cvrBtnStop.style.display = "none";
+            if (cvrBtnSend) cvrBtnSend.style.display = "inline-flex";
+            if (cvrBtnRetake) cvrBtnRetake.style.display = "inline-flex";
+            if (cvrRecDot) cvrRecDot.style.display = "none";
+        };
+
+        cvrMediaRecorder.start(250);
+
+        if (cvrBtnRecord) cvrBtnRecord.style.display = "none";
+        if (cvrBtnStop) cvrBtnStop.style.display = "inline-flex";
+        if (cvrRecDot) cvrRecDot.style.display = "block";
+
+        cvrTimerInterval = setInterval(() => {
+            cvrSeconds++;
+            const mins = Math.floor(cvrSeconds / 60);
+            const secs = String(cvrSeconds % 60).padStart(2, "0");
+            if (cvrTimer) cvrTimer.textContent = `${mins}:${secs}`;
+            if (cvrSeconds >= 60) {
+                stopChatVideoRecording();
+            }
+        }, 1000);
+    } catch (err) {
+        console.error("Start MediaRecorder failed:", err);
+        showToast("Video recording not supported on this browser");
+    }
+}
+
+function stopChatVideoRecording() {
+    if (cvrTimerInterval) {
+        clearInterval(cvrTimerInterval);
+        cvrTimerInterval = null;
+    }
+    if (cvrMediaRecorder && cvrMediaRecorder.state === "recording") {
+        cvrMediaRecorder.stop();
+    }
+}
+
+function retakeChatRecordedVideo() {
+    cvrRecordedChunks = [];
+    cvrRecordedBlob = null;
+    cvrSeconds = 0;
+    if (cvrTimer) cvrTimer.textContent = "0:00";
+    if (cvrPreview && cvrStream) {
+        cvrPreview.src = "";
+        cvrPreview.srcObject = cvrStream;
+        cvrPreview.controls = false;
+        cvrPreview.muted = true;
+        cvrPreview.play().catch(() => {});
+    }
+    if (cvrBtnSend) cvrBtnSend.style.display = "none";
+    if (cvrBtnRetake) cvrBtnRetake.style.display = "none";
+    if (cvrBtnRecord) cvrBtnRecord.style.display = "inline-flex";
+}
+
+function sendChatRecordedVideo() {
+    if (!cvrRecordedBlob) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const ext = cvrRecordedBlob.type.includes("mp4") ? "mp4" : "webm";
+        pendingFileObj = {
+            name: `video_msg_${Date.now()}.${ext}`,
+            type: cvrRecordedBlob.type || "video/webm",
+            size: cvrRecordedBlob.size,
+            data: e.target.result
+        };
+        closeChatVideoRecorder();
+        sendChatMessage();
+    };
+    reader.readAsDataURL(cvrRecordedBlob);
+}
+
 // File Inputs
+if (btnCameraPhotoChat) {
+    btnCameraPhotoChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isCallActive = !!(activePeer || callingPeer || peerConnection);
+        const hasLiveCam = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+        if (isCallActive && hasLiveCam && localVideo && localVideo.videoWidth > 0) {
+            captureCallSnapshot();
+        } else {
+            if (attachCameraInput) attachCameraInput.click();
+        }
+    });
+}
+
+if (btnRecordVideoChat) {
+    btnRecordVideoChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openChatVideoRecorder();
+    });
+}
+
+if (cvrBtnRecord) cvrBtnRecord.addEventListener("click", (e) => { e.stopPropagation(); startChatVideoRecording(); });
+if (cvrBtnStop) cvrBtnStop.addEventListener("click", (e) => { e.stopPropagation(); stopChatVideoRecording(); });
+if (cvrBtnCancel) cvrBtnCancel.addEventListener("click", (e) => { e.stopPropagation(); closeChatVideoRecorder(); });
+if (cvrBtnClose) cvrBtnClose.addEventListener("click", (e) => { e.stopPropagation(); closeChatVideoRecorder(); });
+if (cvrBtnSend) cvrBtnSend.addEventListener("click", (e) => { e.stopPropagation(); sendChatRecordedVideo(); });
+if (cvrBtnRetake) cvrBtnRetake.addEventListener("click", (e) => { e.stopPropagation(); retakeChatRecordedVideo(); });
+
 if (attachCameraInput) {
     attachCameraInput.addEventListener("change", (e) => {
         if (e.target.files && e.target.files[0]) {
             handleFileSelection(e.target.files[0]);
         }
+        setTimeout(checkAndRestoreCallMedia, 300);
     });
 }
 
@@ -3901,6 +4274,7 @@ if (attachMediaInput) {
         if (e.target.files && e.target.files[0]) {
             handleFileSelection(e.target.files[0]);
         }
+        setTimeout(checkAndRestoreCallMedia, 300);
     });
 }
 
@@ -3909,8 +4283,19 @@ if (attachDocInput) {
         if (e.target.files && e.target.files[0]) {
             handleFileSelection(e.target.files[0]);
         }
+        setTimeout(checkAndRestoreCallMedia, 300);
     });
 }
+
+// Auto-restore call screens when user returns to app
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        checkAndRestoreCallMedia();
+    }
+});
+window.addEventListener("focus", () => {
+    checkAndRestoreCallMedia();
+});
 
 if (btnCancelPending) {
     btnCancelPending.addEventListener("click", (e) => {
