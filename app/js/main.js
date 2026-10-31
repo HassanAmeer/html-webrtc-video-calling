@@ -75,6 +75,8 @@ let isFitCover = (localStorage.getItem("webrtc_fit_mode") === "cover");
 let isStrictPip = (localStorage.getItem("webrtc_strict_pip") !== "false");
 let isMirrorCamera = (localStorage.getItem("webrtc_mirror_camera") !== "false");
 let currentFacingMode = localStorage.getItem("webrtc_facing_mode") || "user";
+let autoCallTarget = null;
+let hasAutoCalled = false;
 
 const rtcConfig = {
     iceServers: [
@@ -852,6 +854,41 @@ if (usernameInput) {
     });
 }
 
+// URL Query Parameter Auto-Join & Auto-Call Integration (?uid=xxx or ?user=xxx)
+function handleUrlQueryParams() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const uidParam = urlParams.get("uid") || urlParams.get("user") || urlParams.get("username") || urlParams.get("name");
+        const targetParam = urlParams.get("call") || urlParams.get("target") || urlParams.get("to") || urlParams.get("peer");
+
+        if (targetParam) {
+            autoCallTarget = targetParam.trim().substring(0, 30);
+        }
+
+        if (uidParam) {
+            const cleanUid = uidParam.trim().substring(0, 30);
+            if (cleanUid) {
+                myUsername = cleanUid;
+                if (usernameInput) {
+                    usernameInput.value = cleanUid;
+                }
+                const emitJoin = () => {
+                    socket.emit("join-user", myUsername);
+                    showToast(`Auto-joined as: ${myUsername}`);
+                };
+                if (socket.connected) {
+                    emitJoin();
+                } else {
+                    socket.once("connect", emitJoin);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("Error parsing URL parameters:", e);
+    }
+}
+handleUrlQueryParams();
+
 // Render participant list
 socket.on("joined", (allusers) => {
     console.log("Participants update:", allusers);
@@ -862,6 +899,16 @@ socket.on("joined", (allusers) => {
         console.log(`Active peer ${activePeer} left the meeting`);
         showToast(`${activePeer} disconnected`);
         endCall(false);
+    }
+
+    // Auto-call target if specified in URL query and online
+    if (autoCallTarget && autoCallTarget !== myUsername && allusers[autoCallTarget] && !activePeer && !hasAutoCalled) {
+        hasAutoCalled = true;
+        console.log(`Auto-calling target from URL: ${autoCallTarget}`);
+        showToast(`Auto-calling ${autoCallTarget}...`);
+        setTimeout(() => {
+            startCall(autoCallTarget).catch((err) => console.log("Auto-call error:", err));
+        }, 900);
     }
 
     const userKeys = Object.keys(allusers);
