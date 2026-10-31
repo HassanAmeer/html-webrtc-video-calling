@@ -73,6 +73,12 @@ let isFitCover = (localStorage.getItem("webrtc_fit_mode") === "cover");
 let isStrictPip = (localStorage.getItem("webrtc_strict_pip") !== "false");
 let isMirrorCamera = (localStorage.getItem("webrtc_mirror_camera") !== "false");
 let currentFacingMode = localStorage.getItem("webrtc_facing_mode") || "user";
+let isCameraOn = true;
+let isMicOn = true;
+let isAudioCallMode = false;
+let isScreenSharing = false;
+let isLocalVideoVisible = true;
+let isRemoteVideoVisible = true;
 let autoCallTarget = null;
 let hasAutoCalled = false;
 let latestUsers = {};
@@ -2682,11 +2688,7 @@ const remoteVideoToggleIcon = document.getElementById("remote-video-toggle-icon"
 const localVideoDiv = document.querySelector(".local-video");
 const remoteVideoContainer = document.querySelector(".remote-video");
 
-let isCameraOn = true;
-let isMicOn = true;
-let isScreenSharing = false;
-let isLocalVideoVisible = true;
-let isRemoteVideoVisible = true;
+// Media state variables are globally initialized at the top of main.js
 
 if (toggleCamera) {
     toggleCamera.addEventListener("click", async () => {
@@ -2728,7 +2730,6 @@ if (toggleCamera) {
 // Switch between Audio Call and Video Call
 const toggleCallMode = document.getElementById("toggle-call-mode");
 const callModeIcon = document.getElementById("call-mode-icon");
-let isAudioCallMode = false;
 
 if (toggleCallMode) {
     toggleCallMode.addEventListener("click", async () => {
