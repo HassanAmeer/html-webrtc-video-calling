@@ -1375,14 +1375,15 @@ input:checked + .slider:before {
     transform: translateX(18px);
 }
 
-/* Freeze Overlay */
+/* Freeze Overlay (Soft Backdrop Blur) */
 .freeze-overlay {
     position: fixed;
     inset: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(15, 17, 23, 0.94);
-    backdrop-filter: blur(8px);
+    background: rgba(18, 20, 26, 0.76);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     z-index: 9999;
     display: none;
     align-items: center;
@@ -1394,48 +1395,101 @@ input:checked + .slider:before {
     display: flex;
 }
 
+/* Light Grey Gradient Theme Card */
 .freeze-card {
-    background: #24272c;
-    border: 1px solid #3c4043;
-    border-radius: 16px;
-    padding: 30px 24px;
+    background: linear-gradient(145deg, #f3f4f6 0%, #e5e7eb 50%, #d1d5db 100%);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-radius: 20px;
+    padding: 32px 26px;
     max-width: 380px;
     width: 90%;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    color: #e8eaed;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    color: #1f2937;
+    position: relative;
+    overflow: hidden;
+}
+
+.freeze-card i.fa-snowflake {
+    color: #4b5563 !important;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 
 .freeze-card h2 {
-    font-size: 18px;
-    margin-bottom: 8px;
-    color: #8ab4f8;
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #111827;
+    letter-spacing: -0.2px;
 }
 
 .freeze-card p {
     font-size: 13px;
-    color: #9aa0a6;
-    line-height: 1.4;
-    margin-bottom: 20px;
+    color: #4b5563;
+    line-height: 1.5;
+    margin-bottom: 24px;
 }
 
+/* Unfreeze Button with Hold Progress Animation */
 .unfreeze-btn {
-    background-color: #1a73e8;
-    color: #fff;
-    border: none;
-    padding: 10px 24px;
+    background: linear-gradient(145deg, #374151 0%, #1f2937 100%);
+    color: #f9fafb;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 11px 26px;
     font-size: 13px;
     border-radius: 24px;
     cursor: pointer;
     font-weight: 600;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    transition: background-color 0.2s, transform 0.15s;
+    gap: 9px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
 }
 
 .unfreeze-btn:hover {
-    background-color: #1557b0;
-    transform: scale(1.04);
+    background: linear-gradient(145deg, #4b5563 0%, #111827 100%);
+    transform: scale(1.02);
+}
+
+.unfreeze-btn:active {
+    transform: scale(0.98);
+}
+
+/* Hold Progress Radial / Fill Animation */
+.unfreeze-btn.holding {
+    background: linear-gradient(145deg, #1f2937 0%, #111827 100%);
+    transform: scale(0.96);
+    box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.4);
+}
+
+.unfreeze-btn.holding::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.45));
+    animation: unfreezeHoldProgress 1.2s linear forwards;
+}
+
+@keyframes unfreezeHoldProgress {
+    0% { width: 0%; }
+    100% { width: 100%; }
+}
+
+.unfreeze-btn.shake-error {
+    animation: unfreezeShake 0.4s ease-in-out;
+    background: #4b5563 !important;
+}
+
+@keyframes unfreezeShake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
 }
 
 /* ==============================================================

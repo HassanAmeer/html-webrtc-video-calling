@@ -1400,6 +1400,11 @@ async function freezeApp() {
     // Remove from active participant list
     socket.emit("freeze-user");
 
+    // Reset unfreeze button state
+    if (unfreezeBtn) {
+        unfreezeBtn.classList.remove("holding", "shake-error");
+    }
+
     // Show freeze overlay
     if (freezeOverlay) {
         freezeOverlay.classList.add("active");
@@ -1417,7 +1422,7 @@ async function unfreezeApp() {
     }
 
     // Restore camera and microphone
-    await ensureLocalStream();
+    await ensureLocalStream(true);
 
     // Re-join if user had already joined with a name
     if (hasJoined && myUsername) {
@@ -1428,7 +1433,83 @@ async function unfreezeApp() {
 }
 
 if (toggleFreezeBtn) toggleFreezeBtn.addEventListener("click", freezeApp);
-if (unfreezeBtn) unfreezeBtn.addEventListener("click", unfreezeApp);
+
+// Setup Hold-to-Unfreeze & Decoy Click Handlers (Requires 1.2s Hold; Simple Click Shows "Unavailable")
+const HOLD_UNFREEZE_MS = 1200;
+let unfreezeHoldTimer = null;
+let unfreezeHoldStartTime = 0;
+let isUnfreezeHolding = false;
+
+function setupUnfreezeHoldHandler() {
+    if (!unfreezeBtn) return;
+
+    const startHoldingUnfreeze = (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (isUnfreezeHolding || !isFrozen) return;
+        isUnfreezeHolding = true;
+        unfreezeHoldStartTime = Date.now();
+        unfreezeBtn.classList.add("holding");
+        unfreezeBtn.classList.remove("shake-error");
+
+        if (navigator.vibrate) {
+            navigator.vibrate(30);
+        }
+
+        unfreezeHoldTimer = setTimeout(() => {
+            isUnfreezeHolding = false;
+            unfreezeHoldStartTime = 0;
+            unfreezeBtn.classList.remove("holding");
+            if (navigator.vibrate) {
+                navigator.vibrate([40, 60, 40]);
+            }
+            unfreezeApp();
+        }, HOLD_UNFREEZE_MS);
+    };
+
+    const cancelHoldingUnfreeze = (e) => {
+        if (!isUnfreezeHolding) return;
+        isUnfreezeHolding = false;
+        const duration = Date.now() - unfreezeHoldStartTime;
+        unfreezeHoldStartTime = 0;
+        unfreezeBtn.classList.remove("holding");
+
+        if (unfreezeHoldTimer) {
+            clearTimeout(unfreezeHoldTimer);
+            unfreezeHoldTimer = null;
+        }
+
+        // Released early or simple click -> Trigger "Unavailable"
+        if (duration < HOLD_UNFREEZE_MS && isFrozen) {
+            unfreezeBtn.classList.add("shake-error");
+            setTimeout(() => unfreezeBtn.classList.remove("shake-error"), 450);
+            showToast("Unavailable");
+        }
+    };
+
+    // Pointer events (Desktop and touch unified)
+    unfreezeBtn.addEventListener("pointerdown", startHoldingUnfreeze);
+    unfreezeBtn.addEventListener("pointerup", cancelHoldingUnfreeze);
+    unfreezeBtn.addEventListener("pointercancel", cancelHoldingUnfreeze);
+    unfreezeBtn.addEventListener("pointerleave", cancelHoldingUnfreeze);
+
+    // Touch events for maximum mobile webview compatibility
+    unfreezeBtn.addEventListener("touchstart", startHoldingUnfreeze, { passive: false });
+    unfreezeBtn.addEventListener("touchend", cancelHoldingUnfreeze);
+    unfreezeBtn.addEventListener("touchcancel", cancelHoldingUnfreeze);
+
+    // Simple Click handler: prevent direct click and trigger "Unavailable"
+    unfreezeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isFrozen) {
+            unfreezeBtn.classList.add("shake-error");
+            setTimeout(() => unfreezeBtn.classList.remove("shake-error"), 450);
+            showToast("Unavailable");
+        }
+    });
+}
+
+setupUnfreezeHoldHandler();
 
 // Force video encoder keyframe generation so receiver decodes immediately without manual toggle
 function forceKeyframeWarmup(pc) {

@@ -33,14 +33,15 @@
             </button>
         </div>
 
-        <!-- Freeze Sleep Overlay -->
+        <!-- Freeze Sleep Overlay (Light Grey Gradient Theme) -->
         <div id="freeze-overlay" class="freeze-overlay">
             <div class="freeze-card">
-                <i class="fas fa-snowflake fa-3x" style="color: #8ab4f8; margin-bottom: 16px;"></i>
+                <i class="fas fa-snowflake fa-3x" style="color: #4b5563; margin-bottom: 16px;"></i>
                 <h2>App is Frozen</h2>
                 <p>Camera, microphone, and connections are completely turned off for privacy and resource saving while keeping this tab open.</p>
-                <button id="unfreeze-btn" class="unfreeze-btn">
-                    <i class="fas fa-power-off"></i> Unfreeze & Resume
+                <button id="unfreeze-btn" class="unfreeze-btn" title="Hold to Unfreeze">
+                    <i class="fas fa-power-off"></i>
+                    <span class="unfreeze-btn-text">Hold to Unfreeze</span>
                 </button>
             </div>
         </div>
@@ -371,7 +372,12 @@
                         <i class="fas fa-user"></i>
                     </button>
 
-                    <!-- 3. Switch between Audio Call and Video Call Mode -->
+                    <!-- 3. Freeze App (Sleep & Stop Camera/Mic) - Moved to Left Side 2nd Position -->
+                    <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
+                        <i class="fas fa-snowflake"></i>
+                    </button>
+
+                    <!-- 4. Switch between Audio Call and Video Call Mode -->
                     <button class="control-btn" id="toggle-call-mode" title="Switch Call Mode (Video Call / Audio-Only)">
                         <i class="fas fa-video" id="call-mode-icon"></i>
                     </button>
@@ -430,12 +436,7 @@
                         <span id="badge-participant-count" class="badge-mini">0</span>
                     </button>
 
-                    <!-- 14. Freeze App (Sleep & Stop Camera/Mic) -->
-                    <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
-                        <i class="fas fa-snowflake"></i>
-                    </button>
-
-                    <!-- 15. Settings & Options -->
+                    <!-- 14. Settings & Options -->
                     <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
                         <i class="fas fa-cog"></i>
                     </button>
