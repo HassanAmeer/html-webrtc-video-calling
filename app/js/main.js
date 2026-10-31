@@ -448,6 +448,10 @@ socket.on("joined", (allusers) => {
     if (participantCount) {
         participantCount.textContent = `(${userKeys.length})`;
     }
+    const badgeParticipantCount = document.getElementById("badge-participant-count");
+    if (badgeParticipantCount) {
+        badgeParticipantCount.textContent = userKeys.length;
+    }
 
     if (userKeys.length === 0) {
         const li = document.createElement("li");
@@ -928,12 +932,12 @@ function revertToCameraTrack() {
 }
 
 // Layout toggles
-const bottomSheetToggle = document.querySelector(".bottom-sheet-toggle");
+const toggleParticipantsBtn = document.getElementById("toggle-participants-btn");
 const callerListWrapper = document.querySelector(".caller-list-wrapper");
 const closeParticipantsBtn = document.getElementById("close-participants-btn");
 
-if (bottomSheetToggle) {
-    bottomSheetToggle.addEventListener("click", (e) => {
+if (toggleParticipantsBtn) {
+    toggleParticipantsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         callerListWrapper.classList.toggle("expanded");
     });
@@ -946,10 +950,43 @@ if (closeParticipantsBtn) {
     });
 }
 
+// Quick action buttons in Settings dialog
+const btnQuickFreeze = document.getElementById("btn-quick-freeze");
+const btnQuickPip = document.getElementById("btn-quick-pip");
+const btnQuickFit = document.getElementById("btn-quick-fit");
+const btnQuickScreen = document.getElementById("btn-quick-screen");
+
+if (btnQuickFreeze) {
+    btnQuickFreeze.addEventListener("click", () => {
+        if (settingsModal) settingsModal.classList.remove("active");
+        freezeApp();
+    });
+}
+
+if (btnQuickPip) {
+    btnQuickPip.addEventListener("click", () => {
+        if (settingsModal) settingsModal.classList.remove("active");
+        togglePictureInPicture();
+    });
+}
+
+if (btnQuickFit) {
+    btnQuickFit.addEventListener("click", () => {
+        toggleFitMode();
+    });
+}
+
+if (btnQuickScreen) {
+    btnQuickScreen.addEventListener("click", () => {
+        if (settingsModal) settingsModal.classList.remove("active");
+        toggleScreen.click();
+    });
+}
+
 // Close participant popup when clicking anywhere outside it
 document.addEventListener("click", (e) => {
     if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
-        if (!callerListWrapper.contains(e.target) && !bottomSheetToggle.contains(e.target)) {
+        if (!callerListWrapper.contains(e.target) && (!toggleParticipantsBtn || !toggleParticipantsBtn.contains(e.target))) {
             callerListWrapper.classList.remove("expanded");
         }
     }
@@ -957,11 +994,9 @@ document.addEventListener("click", (e) => {
 
 // In-App PiP Window interaction:
 // If strict PiP is ON: clicking blank screen or typing does NOT swap or hide!
-// Only clicking the local video window directly swaps when strict PiP allows it.
 document.querySelector(".local-video").addEventListener("click", function (e) {
     e.stopPropagation();
     if (isStrictPip) {
-        // In strict mode, PiP window stays locked on bottom-right!
         return;
     }
     this.classList.toggle("active");
