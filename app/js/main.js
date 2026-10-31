@@ -6,15 +6,20 @@ const participantCount = document.getElementById("participant-count");
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const endCallBtn = document.getElementById("end-call-btn");
+const toggleFreezeBtn = document.getElementById("toggle-freeze");
+const unfreezeBtn = document.getElementById("unfreeze-btn");
+const freezeOverlay = document.getElementById("freeze-overlay");
 
 const socket = io();
 
 // State
-let myUsername = localStorage.getItem("webrtc_username") || "";
+let myUsername = "";
+let hasJoined = false;
 let activePeer = null;
 let peerConnection = null;
 let pendingIceCandidates = [];
 let localStream = null;
+let isFrozen = false;
 
 const rtcConfig = {
     iceServers: [
@@ -26,8 +31,9 @@ const rtcConfig = {
     ]
 };
 
-// Initialize Media
+// Initialize Camera & Microphone
 async function ensureLocalStream() {
+    if (isFrozen) return null;
     if (localStream && localStream.active && localStream.getTracks().length > 0) {
         return localStream;
     }
@@ -44,59 +50,53 @@ async function ensureLocalStream() {
             localVideo.srcObject = stream;
             return stream;
         } catch (audioErr) {
-            console.error("Microphone/Camera permission denied:", audioErr);
-            alert("Camera or microphone permission is needed for video calls.");
-            throw audioErr;
+            console.error("Camera/Microphone permission denied:", audioErr);
+            return null;
         }
     }
 }
 
-// Start local video immediately on page load
+// Start local camera on page load
 ensureLocalStream().catch(() => {});
 
 // Socket lifecycle
 socket.on("connect", () => {
     console.log("Connected to signaling server with socket id:", socket.id);
-    if (myUsername) {
-        usernameInput.value = myUsername;
+    if (hasJoined && myUsername) {
         socket.emit("join-user", myUsername);
     }
 });
 
-socket.on("assigned-username", (autoName) => {
-    if (!myUsername) {
-        myUsername = autoName;
-        usernameInput.value = autoName;
-        localStorage.setItem("webrtc_username", autoName);
-    }
-});
-
+// Name confirmation from server
 socket.on("name-confirmed", (confirmedName) => {
     myUsername = confirmedName;
+    hasJoined = true;
     usernameInput.value = confirmedName;
-    localStorage.setItem("webrtc_username", confirmedName);
+    createUserBtn.textContent = "Update";
+    usernameInput.placeholder = "Change Name";
 });
 
-// Update username on button click or Enter key
-function updateUsername() {
+// Join or Update Name
+function handleJoinOrUpdate() {
     const val = usernameInput.value.trim();
-    if (val && val !== myUsername) {
-        myUsername = val;
-        localStorage.setItem("webrtc_username", myUsername);
-        socket.emit("join-user", myUsername);
+    if (!val) {
+        alert("Please enter a name first.");
+        return;
     }
+    myUsername = val;
+    socket.emit("join-user", myUsername);
 }
 
-createUserBtn.addEventListener("click", updateUsername);
+createUserBtn.addEventListener("click", handleJoinOrUpdate);
 usernameInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") {
-        updateUsername();
+        handleJoinOrUpdate();
     }
 });
 
 // Render participant list
 socket.on("joined", (allusers) => {
-    console.log("Participants list update:", allusers);
+    console.log("Participants update:", allusers);
     allusersHtml.innerHTML = "";
 
     const userKeys = Object.keys(allusers);
@@ -106,9 +106,11 @@ socket.on("joined", (allusers) => {
 
     if (userKeys.length === 0) {
         const li = document.createElement("li");
-        li.textContent = "No participants online";
+        li.textContent = "No participants yet. Enter name to join.";
         li.style.color = "#9aa0a6";
-        li.style.padding = "12px 20px";
+        li.style.padding = "16px 20px";
+        li.style.fontSize = "13px";
+        li.style.textAlign = "center";
         allusersHtml.appendChild(li);
         return;
     }
@@ -157,44 +159,109 @@ function createParticipantItem(user, isCurrent) {
     userInfo.appendChild(span);
     li.appendChild(userInfo);
 
-    // Call Button for any other participant
+    // Actions container (Call & Delete)
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "participant-actions";
+
     if (!isCurrent) {
+        // Call button
         const callBtn = document.createElement("button");
-        callBtn.className = "control-btn call-participant-btn";
+        callBtn.className = "btn-action-call";
         callBtn.title = `Call ${user}`;
         callBtn.innerHTML = '<i class="fas fa-phone"></i>';
-        callBtn.style.width = "36px";
-        callBtn.style.height = "36px";
-        callBtn.style.borderRadius = "50%";
-        callBtn.style.border = "none";
-        callBtn.style.backgroundColor = "#34a853";
-        callBtn.style.color = "#ffffff";
-        callBtn.style.cursor = "pointer";
-        callBtn.style.display = "flex";
-        callBtn.style.alignItems = "center";
-        callBtn.style.justifyContent = "center";
-        callBtn.style.fontSize = "14px";
-        callBtn.style.transition = "transform 0.15s, background-color 0.2s";
-
-        callBtn.addEventListener("mouseenter", () => {
-            callBtn.style.backgroundColor = "#2d9249";
-            callBtn.style.transform = "scale(1.08)";
-        });
-        callBtn.addEventListener("mouseleave", () => {
-            callBtn.style.backgroundColor = "#34a853";
-            callBtn.style.transform = "scale(1)";
-        });
-
         callBtn.addEventListener("click", (e) => {
             e.stopPropagation();
+            if (!hasJoined) {
+                alert("Please enter your name and click Join first before calling.");
+                return;
+            }
             startCall(user);
         });
+        actionsDiv.appendChild(callBtn);
 
-        li.appendChild(callBtn);
+        // Delete / Kick button
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-action-delete";
+        deleteBtn.title = `Delete / Remove ${user}`;
+        deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (confirm(`Are you sure you want to remove "${user}"?`)) {
+                socket.emit("kick-user", { targetUser: user });
+            }
+        });
+        actionsDiv.appendChild(deleteBtn);
+    } else {
+        // Self-leave / delete button
+        const leaveBtn = document.createElement("button");
+        leaveBtn.className = "btn-action-delete";
+        leaveBtn.title = "Leave Room";
+        leaveBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i>';
+        leaveBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            leaveRoom();
+        });
+        actionsDiv.appendChild(leaveBtn);
     }
 
+    li.appendChild(actionsDiv);
     return li;
 }
+
+// Leave room
+function leaveRoom() {
+    endCall(true);
+    socket.emit("freeze-user");
+    hasJoined = false;
+    myUsername = "";
+    usernameInput.value = "";
+    usernameInput.placeholder = "Enter Name to Join";
+    createUserBtn.textContent = "Join";
+}
+
+// Kicked listener
+socket.on("kicked", () => {
+    alert("You have been removed from the room.");
+    leaveRoom();
+});
+
+// Freeze & Unfreeze Functionality
+async function freezeApp() {
+    isFrozen = true;
+    endCall(true);
+
+    // Stop and release camera & microphone completely
+    if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+        localStream = null;
+    }
+    if (localVideo) localVideo.srcObject = null;
+    if (remoteVideo) remoteVideo.srcObject = null;
+
+    // Remove from active participant list
+    socket.emit("freeze-user");
+
+    // Show freeze overlay
+    freezeOverlay.classList.add("active");
+    console.log("App frozen: camera, mic and connection stopped.");
+}
+
+async function unfreezeApp() {
+    isFrozen = false;
+    freezeOverlay.classList.remove("active");
+
+    // Restore camera and microphone
+    await ensureLocalStream();
+
+    // Re-join if user had already joined with a name
+    if (hasJoined && myUsername) {
+        socket.emit("join-user", myUsername);
+    }
+    console.log("App unfrozen: camera, mic and connection restored.");
+}
+
+toggleFreezeBtn.addEventListener("click", freezeApp);
+unfreezeBtn.addEventListener("click", unfreezeApp);
 
 // PeerConnection Factory
 function initPeerConnection(targetUser) {
@@ -240,7 +307,6 @@ function initPeerConnection(targetUser) {
     pc.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", pc.iceConnectionState);
         if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
-            console.log("Call disconnected");
             endCall(false);
         }
     };
@@ -249,7 +315,7 @@ function initPeerConnection(targetUser) {
     return pc;
 }
 
-// Flush queued ICE Candidates after setRemoteDescription
+// Flush queued ICE Candidates
 async function flushPendingCandidates(pc) {
     while (pendingIceCandidates.length > 0) {
         const candidate = pendingIceCandidates.shift();
@@ -261,7 +327,7 @@ async function flushPendingCandidates(pc) {
     }
 }
 
-// Start Call (Caller side)
+// Start Call
 async function startCall(targetUser) {
     if (!targetUser) return;
     if (targetUser === myUsername) {
@@ -293,7 +359,7 @@ async function startCall(targetUser) {
     }
 }
 
-// Handle Incoming Offer (Receiver side)
+// Handle Incoming Offer
 socket.on("offer", async ({ from, to, offer }) => {
     console.log(`Received call offer from ${from}`);
     try {
@@ -318,7 +384,7 @@ socket.on("offer", async ({ from, to, offer }) => {
     }
 });
 
-// Handle Incoming Answer (Caller receives answer)
+// Handle Incoming Answer
 socket.on("answer", async ({ from, to, answer }) => {
     console.log(`Received answer from ${from}`);
     if (peerConnection) {
@@ -372,7 +438,7 @@ endCallBtn.addEventListener("click", () => {
 });
 
 socket.on("end-call", ({ from, to }) => {
-    console.log(`Call ended by remote peer`);
+    console.log(`Call ended by peer`);
     endCall(false);
 });
 

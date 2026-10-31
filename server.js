@@ -15,8 +15,8 @@ const io = new Server(server, {
     }
 });
 
-// Store all connected users: socketId -> { username, id }
-// And username -> { username, id }
+// Store connected active users who have entered a name:
+// socketId -> { username, id }
 const usersBySocket = new Map();
 
 function getAllUsersPayload() {
@@ -37,24 +37,18 @@ app.get("/", (req, res) => {
 });
 
 io.on("connection", (socket) => {
-    // Generate an automatic distinct guest name immediately on connection
-    const autoUsername = `Guest_${socket.id.slice(0, 5)}`;
-    usersBySocket.set(socket.id, { username: autoUsername, id: socket.id });
-    console.log(`User connected: ${autoUsername} (${socket.id})`);
+    console.log(`Socket connected: ${socket.id}`);
 
-    // Send assigned name to client
-    socket.emit("assigned-username", autoUsername);
+    // Send currently joined users (empty until someone sets a name)
+    socket.emit("joined", getAllUsersPayload());
 
-    // Broadcast updated participant list to everyone immediately
-    io.emit("joined", getAllUsersPayload());
-
-    // User sets/updates their custom name
+    // User joins by explicitly submitting their name
     socket.on("join-user", (requestedName) => {
         if (!requestedName || typeof requestedName !== "string") return;
         const cleanName = requestedName.trim();
         if (!cleanName) return;
 
-        // Check if name is already taken by someone else
+        // Ensure unique name
         let finalName = cleanName;
         let suffix = 1;
         for (const [sId, u] of usersBySocket.entries()) {
@@ -63,18 +57,47 @@ io.on("connection", (socket) => {
             }
         }
 
-        const userObj = { username: finalName, id: socket.id };
-        usersBySocket.set(socket.id, userObj);
-        console.log(`Socket ${socket.id} renamed to "${finalName}"`);
+        usersBySocket.set(socket.id, { username: finalName, id: socket.id });
+        console.log(`User joined: "${finalName}" (${socket.id})`);
 
         socket.emit("name-confirmed", finalName);
         io.emit("joined", getAllUsersPayload());
     });
 
+    // Freeze / Leave event - remove user from participants list
+    socket.on("freeze-user", () => {
+        if (usersBySocket.has(socket.id)) {
+            const u = usersBySocket.get(socket.id);
+            console.log(`User frozen / left: ${u.username} (${socket.id})`);
+            usersBySocket.delete(socket.id);
+            io.emit("joined", getAllUsersPayload());
+        }
+    });
+
+    // Kick / Delete participant
+    socket.on("kick-user", ({ targetUser }) => {
+        console.log(`Kick request for: "${targetUser}" by socket ${socket.id}`);
+        let targetSocketId = null;
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username === targetUser || sId === targetUser) {
+                targetSocketId = sId;
+                break;
+            }
+        }
+
+        if (targetSocketId) {
+            usersBySocket.delete(targetSocketId);
+            // Notify the kicked user
+            io.to(targetSocketId).emit("kicked", { targetUser });
+            io.to(targetSocketId).emit("end-call", { from: "system", to: targetUser });
+            // Broadcast updated list to all
+            io.emit("joined", getAllUsersPayload());
+        }
+    });
+
     // WebRTC Offer
     socket.on("offer", ({ from, to, offer }) => {
         console.log(`Call offer: ${from} -> ${to}`);
-        // Find target socket
         let targetSocketId = null;
         for (const [sId, u] of usersBySocket.entries()) {
             if (u.username === to || sId === to) {
@@ -86,7 +109,7 @@ io.on("connection", (socket) => {
         if (targetSocketId) {
             io.to(targetSocketId).emit("offer", { from, to, offer });
         } else {
-            console.warn(`Offer target "${to}" not found`);
+            console.warn(`Target user "${to}" not found for offer`);
         }
     });
 
@@ -104,7 +127,7 @@ io.on("connection", (socket) => {
         if (targetSocketId) {
             io.to(targetSocketId).emit("answer", { from, to, answer });
         } else {
-            console.warn(`Answer target "${to}" not found`);
+            console.warn(`Target user "${to}" not found for answer`);
         }
     });
 
@@ -124,7 +147,7 @@ io.on("connection", (socket) => {
         }
     });
 
-    // End call
+    // End Call
     socket.on("end-call", ({ from, to }) => {
         console.log(`Call ended: ${from} <-> ${to}`);
         let targetSocketId = null;
@@ -141,11 +164,12 @@ io.on("connection", (socket) => {
 
     // Disconnect cleanup
     socket.on("disconnect", (reason) => {
-        const u = usersBySocket.get(socket.id);
-        const name = u ? u.username : socket.id;
-        console.log(`User disconnected: ${name} (${socket.id}) - ${reason}`);
-        usersBySocket.delete(socket.id);
-        io.emit("joined", getAllUsersPayload());
+        if (usersBySocket.has(socket.id)) {
+            const u = usersBySocket.get(socket.id);
+            console.log(`User left: ${u.username} (${socket.id}) - ${reason}`);
+            usersBySocket.delete(socket.id);
+            io.emit("joined", getAllUsersPayload());
+        }
     });
 });
 
