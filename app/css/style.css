@@ -1809,17 +1809,17 @@ input:checked + .slider:before {
 
 .chat-bar-above-input .chat-peer-id {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
     color: #e5e7eb;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
     letter-spacing: 0.3px;
 }
 
 .chat-bar-above-input .chat-sep {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 400;
     color: #9ca3af;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .btn-chat-close-text {
@@ -1830,9 +1830,9 @@ input:checked + .slider:before {
     padding: 0;
     margin: 0;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
     color: #e5e7eb;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
     cursor: pointer;
     transition: color 0.15s ease, opacity 0.15s ease;
 }
@@ -1940,54 +1940,42 @@ input:checked + .slider:before {
 .chat-msg-time {
     color: #9ca3af !important;
     font-size: 10px;
-    font-weight: 600;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.9);
+    font-weight: 400;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
 }
 
-/* Words Styling: Solid Color with Crisp Black Border Shadows */
+/* Words Styling: Subtle Hairline Stroke Outline (Not Over-highlighted) */
 .chat-msg-text {
     font-size: 14px;
-    line-height: 1.4;
-    font-weight: 600;
+    line-height: 1.45;
+    font-weight: 500;
     color: #d1d5db !important;
     word-break: break-word;
     white-space: pre-wrap;
-    /* Edge-enhancing black shadow around the border of words */
-    text-shadow:
-        -1.5px -1.5px 0 #000000,
-         1.5px -1.5px 0 #000000,
-        -1.5px  1.5px 0 #000000,
-         1.5px  1.5px 0 #000000,
-         0 2px 4px rgba(0, 0, 0, 1),
-         0 0 10px rgba(0, 0, 0, 0.95);
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
-    transition: font-size 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease, text-shadow 0.2s ease;
+    /* Clean, fine hairline stroke without heavy dark drop shadows */
+    -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.7);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    transition: font-size 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
 }
 
-/* Sent (My message) - Crisp pure white */
+/* Sent (My message) - Crisp white with light hairline stroke */
 .chat-msg.mine .chat-msg-text {
-    color: #ffffff !important;
+    color: #f3f4f6 !important;
 }
 
-/* Received (Peer message) - Subtle gray */
+/* Received (Peer message) - Subtle gray with light hairline stroke */
 .chat-msg.peer .chat-msg-text {
     color: #d1d5db !important;
 }
 
-/* Click-to-Magnify / Highlight for effortless reading over bright video backgrounds */
+/* Click-to-Magnify / Highlight: Readable without muddy blur */
 .chat-msg.magnified .chat-msg-text {
-    font-size: 20px !important;
+    font-size: 18px !important;
     line-height: 1.45 !important;
     color: #ffffff !important;
-    font-weight: 700 !important;
-    text-shadow:
-        -2px -2px 0 #000000,
-         2px -2px 0 #000000,
-        -2px  2px 0 #000000,
-         2px  2px 0 #000000,
-         0 3px 8px rgba(0, 0, 0, 1),
-         0 0 16px rgba(0, 0, 0, 1) !important;
-    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 1));
+    font-weight: 600 !important;
+    -webkit-text-stroke: 0.45px rgba(0, 0, 0, 0.85);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
 /* Attachments in Chat */
