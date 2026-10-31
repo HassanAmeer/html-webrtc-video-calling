@@ -348,13 +348,16 @@
                 </div>
             </div>
 
-            <!-- Single Volume Progress Bar: Left Sound Icon + 1 Gray-to-White Bar -->
+            <!-- Single Volume Progress Bar: Left Sound Icon + 1 Gray-to-White Bar + Right Mute Button -->
             <div id="volume-hud-bar" class="volume-hud-bar" style="display: none;">
                 <div class="volume-hud-inner">
-                    <i id="volume-hud-icon" class="fas fa-volume-up volume-hud-sound-icon" title="Toggle Mute / Volume"></i>
-                    <div class="volume-hud-track-container" id="volume-hud-track" title="Click or Drag to Adjust Volume">
+                    <i id="volume-hud-icon" class="fas fa-volume-up volume-hud-sound-icon" title="Sound Volume"></i>
+                    <div class="volume-hud-track-container" id="volume-hud-track" title="Click, Drag, or Scroll to Adjust Volume">
                         <div class="volume-hud-fill" id="volume-hud-fill" style="width: 100%;"></div>
                     </div>
+                    <button type="button" id="btn-hud-mute" class="volume-hud-mute-btn" title="Click to Mute / Unmute" aria-label="Toggle Mute">
+                        <i class="fas fa-volume-mute" id="hud-mute-icon"></i>
+                    </button>
                 </div>
             </div>
 

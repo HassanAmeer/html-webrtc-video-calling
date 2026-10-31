@@ -384,18 +384,19 @@ html, body {
 }
 
 .volume-hud-sound-icon.muted {
-    color: #ef4444;
+    color: #9ca3af;
 }
 
 /* Single Track Container */
 .volume-hud-track-container {
     position: relative;
-    width: 130px;
+    width: 125px;
     height: 7px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.12);
     overflow: hidden;
     cursor: pointer;
+    touch-action: none;
 }
 
 /* Single Progress Bar: Subtle Gray to White Gradient */
@@ -412,6 +413,33 @@ html, body {
 
 .volume-hud-fill.muted {
     background: #4b5563 !important;
+}
+
+/* Right Side One-Click Mute Button (Monochrome Gray) */
+.volume-hud-mute-btn {
+    background: none !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 2px 4px !important;
+    margin: 0 !important;
+    font-size: 13px;
+    color: #9ca3af;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease, transform 0.15s ease;
+    flex-shrink: 0;
+}
+
+.volume-hud-mute-btn:hover {
+    color: #ffffff;
+    transform: scale(1.15);
+}
+
+.volume-hud-mute-btn.is-muted {
+    color: #d1d5db;
 }
 
 /* Horizontal Scrollable Controls Wrapper */

@@ -188,6 +188,13 @@ function updateVolumeHudUI() {
             volumeHudIcon.title = `Volume: ${currentVolume}% (Click to Mute)`;
         }
     }
+    const btnHudMute = document.getElementById("btn-hud-mute");
+    const hudMuteIcon = document.getElementById("hud-mute-icon");
+    if (btnHudMute && hudMuteIcon) {
+        btnHudMute.classList.toggle("is-muted", isMuted);
+        btnHudMute.title = isMuted ? "Click to Unmute" : "Click to Mute";
+        hudMuteIcon.className = isMuted ? "fas fa-volume-up" : "fas fa-volume-mute";
+    }
 }
 
 function startSoundMeterLoop() {
@@ -414,16 +421,59 @@ if (volumeHudIcon) {
         toggleSpeakerMute();
     });
 }
-if (volumeHudTrack) {
-    const handleHudTrackSeek = (e) => {
+
+const btnHudMute = document.getElementById("btn-hud-mute");
+if (btnHudMute) {
+    btnHudMute.addEventListener("click", (e) => {
         e.stopPropagation();
+        toggleSpeakerMute();
+    });
+}
+
+if (volumeHudTrack) {
+    let isDraggingTrack = false;
+    const seekFromEvent = (e) => {
         const rect = volumeHudTrack.getBoundingClientRect();
         const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
         const percent = Math.max(0, Math.min(100, Math.round(((clientX - rect.left) / rect.width) * 100)));
         setIncomingVolume(percent, false);
     };
-    volumeHudTrack.addEventListener("click", handleHudTrackSeek);
-    volumeHudTrack.addEventListener("touchstart", handleHudTrackSeek, { passive: true });
+
+    volumeHudTrack.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        isDraggingTrack = true;
+        volumeHudTrack.setPointerCapture?.(e.pointerId);
+        seekFromEvent(e);
+    });
+
+    volumeHudTrack.addEventListener("pointermove", (e) => {
+        if (!isDraggingTrack) return;
+        e.stopPropagation();
+        seekFromEvent(e);
+    });
+
+    const stopDrag = () => { isDraggingTrack = false; };
+    volumeHudTrack.addEventListener("pointerup", stopDrag);
+    volumeHudTrack.addEventListener("pointercancel", stopDrag);
+
+    // Touch drag on mobile
+    volumeHudTrack.addEventListener("touchstart", (e) => {
+        e.stopPropagation();
+        seekFromEvent(e);
+    }, { passive: true });
+
+    volumeHudTrack.addEventListener("touchmove", (e) => {
+        e.stopPropagation();
+        seekFromEvent(e);
+    }, { passive: true });
+
+    // Scroll / Wheel: scroll up increases volume, scroll down decreases volume
+    volumeHudTrack.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaY < 0 ? 5 : -5;
+        setIncomingVolume(currentVolume + delta, false);
+    }, { passive: false });
 }
 
 // System/Keyboard Volume Hotkeys (Arrow Up/Down, M key)
