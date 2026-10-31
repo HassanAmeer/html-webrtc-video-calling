@@ -1279,15 +1279,64 @@ function hasDirectIdInUrl() {
     }
 }
 
+// Unified Full App Activation: Identical execution whether unlocked via PIN or bypassed via ID link
+async function activateFullAppSession() {
+    isAppUnlocked = true;
+    if (securityLockOverlay) {
+        securityLockOverlay.classList.remove("active");
+        securityLockOverlay.style.display = "none";
+    }
+
+    // 1. Process URL Parameters (?id=xxx, ?to=xxx, ?chat=1)
+    handleUrlQueryParams();
+
+    // 2. Start Camera & Microphone Streams (Guaranteed Live Activation)
+    try {
+        await ensureLocalStream(true);
+        if (localVideo && localStream) {
+            localVideo.srcObject = localStream;
+            localVideo.play().catch(() => {});
+            applyMirrorState();
+        }
+    } catch (e) {
+        console.warn("activateFullAppSession stream error:", e);
+    }
+
+    // 3. Update Participant List, Floating Buttons & Chat
+    renderParticipantsList();
+    updateFloatingEndCallBtn();
+    updateChatHeaderTitle();
+
+    // 4. Auto-call target if specified in URL
+    if (autoCallTarget) {
+        setTimeout(() => {
+            if (!callingPeer && !activePeer && autoCallTarget) {
+                callUser(autoCallTarget);
+            }
+        }, 700);
+    }
+}
+
+// Mobile & Browser Gesture Fallback: Wakes up camera/mic on first tap if browser delayed autoplay
+const ensureActiveOnFirstTouch = () => {
+    if (isAppUnlocked) {
+        if (!localStream || !localStream.active || !localStream.getVideoTracks().some(t => t.readyState === "live")) {
+            ensureLocalStream(true).catch(() => {});
+        }
+        if (localVideo && localVideo.srcObject && localVideo.paused) {
+            localVideo.play().catch(() => {});
+        }
+    }
+};
+window.addEventListener("click", ensureActiveOnFirstTouch, { passive: true });
+window.addEventListener("touchstart", ensureActiveOnFirstTouch, { passive: true });
+
 function setupSecurityLockHandler() {
     if (!btnSecurityBack || !securityLockOverlay) return;
 
-    // If opened via link with an ID, bypass lock screen completely (no popup)
+    // If opened via link with an ID, automatically activate full app session (Zero popup, fully active)
     if (hasDirectIdInUrl()) {
-        isAppUnlocked = true;
-        securityLockOverlay.classList.remove("active");
-        securityLockOverlay.style.display = "none";
-        ensureLocalStream(true).catch(() => {});
+        activateFullAppSession();
         return;
     }
 
@@ -1320,19 +1369,15 @@ function setupSecurityLockHandler() {
 
             const enteredKey = securityPinInput ? securityPinInput.value.trim() : "";
             if (enteredKey === SECURITY_PIN) {
-                // Correct 0000 PIN -> Unlock app
-                isAppUnlocked = true;
+                // Correct 0000 PIN -> Automatically activate full app session
                 if (securityPinInput) {
                     securityPinInput.value = "";
                     securityPinInput.blur();
                 }
                 if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
-                securityLockOverlay.classList.remove("active");
-                securityLockOverlay.style.display = "none";
                 showToast("Verified");
 
-                // Start media & connection now that app is unlocked
-                ensureLocalStream(true).catch(() => {});
+                activateFullAppSession();
             } else {
                 // Wrong PIN -> Show Error: Try again later after 10 minutes
                 triggerUnavailableError("Error: Try again later after 10 minutes.");
@@ -1388,11 +1433,50 @@ function setupSecurityLockHandler() {
     }
 }
 
-setupSecurityLockHandler();
+// URL Query Parameter Auto-Join & Auto-Call Integration (?id=xxx or ?uid=xxx or ?user=xxx)
+function handleUrlQueryParams() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const uidParam = urlParams.get("id") || urlParams.get("uid") || urlParams.get("user") || urlParams.get("userId") || urlParams.get("username") || urlParams.get("name");
+        const targetParam = urlParams.get("call") || urlParams.get("target") || urlParams.get("to") || urlParams.get("peer");
+        const openChatParam = urlParams.get("chat");
 
-// Start local camera on page load only if unlocked
-if (isAppUnlocked) {
-    ensureLocalStream().catch(() => {});
+        if (targetParam) {
+            autoCallTarget = targetParam.trim().substring(0, 30);
+        }
+
+        if (uidParam) {
+            const cleanUid = uidParam.trim().substring(0, 30);
+            if (cleanUid) {
+                myUsername = cleanUid;
+                hasJoined = true;
+                if (usernameInput) {
+                    usernameInput.value = cleanUid;
+                    usernameInput.placeholder = "Change Name";
+                }
+                if (createUserBtn) {
+                    createUserBtn.textContent = "Update";
+                }
+                const emitJoin = () => {
+                    socket.emit("join-user", myUsername);
+                    showToast(`Connected ID: ${myUsername}`);
+                };
+                if (socket.connected) {
+                    emitJoin();
+                } else {
+                    socket.once("connect", emitJoin);
+                }
+            }
+        }
+
+        if (openChatParam === "1" || openChatParam === "true") {
+            setTimeout(() => {
+                toggleChatOverlay(true);
+            }, 500);
+        }
+    } catch (e) {
+        console.warn("Error parsing URL parameters:", e);
+    }
 }
 
 // Socket lifecycle
@@ -1420,6 +1504,7 @@ function handleJoinOrUpdate() {
         return;
     }
     myUsername = val;
+    hasJoined = true;
     socket.emit("join-user", myUsername);
     ensureLocalStream(true).catch(() => {});
 }
@@ -1435,47 +1520,8 @@ if (usernameInput) {
     });
 }
 
-// URL Query Parameter Auto-Join & Auto-Call Integration (?id=xxx or ?uid=xxx or ?user=xxx)
-function handleUrlQueryParams() {
-    try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const uidParam = urlParams.get("id") || urlParams.get("uid") || urlParams.get("user") || urlParams.get("userId") || urlParams.get("username") || urlParams.get("name");
-        const targetParam = urlParams.get("call") || urlParams.get("target") || urlParams.get("to") || urlParams.get("peer");
-        const openChatParam = urlParams.get("chat");
-
-        if (targetParam) {
-            autoCallTarget = targetParam.trim().substring(0, 30);
-        }
-
-        if (uidParam) {
-            const cleanUid = uidParam.trim().substring(0, 30);
-            if (cleanUid) {
-                myUsername = cleanUid;
-                if (usernameInput) {
-                    usernameInput.value = cleanUid;
-                }
-                const emitJoin = () => {
-                    socket.emit("join-user", myUsername);
-                    showToast(`Connected ID: ${myUsername}`);
-                };
-                if (socket.connected) {
-                    emitJoin();
-                } else {
-                    socket.once("connect", emitJoin);
-                }
-            }
-        }
-
-        if (openChatParam === "1" || openChatParam === "true") {
-            setTimeout(() => {
-                toggleChatOverlay(true);
-            }, 500);
-        }
-    } catch (e) {
-        console.warn("Error parsing URL parameters:", e);
-    }
-}
-handleUrlQueryParams();
+// Initialize Lock Handler (evaluates direct ID link or displays lock screen)
+setupSecurityLockHandler();
 
 // Render participant list
 function renderParticipantsList() {
