@@ -126,9 +126,10 @@ function showToast(message) {
     toast.textContent = message;
     toast.classList.add("show");
     if (toastTimeout) clearTimeout(toastTimeout);
+    const duration = Math.max(3200, Math.min(5200, (message ? message.length : 0) * 70));
     toastTimeout = setTimeout(() => {
         toast.classList.remove("show");
-    }, 2800);
+    }, duration);
 }
 
 // ==============================================================
@@ -2952,6 +2953,12 @@ let currentScreenStream = null;
 if (toggleScreen) {
     toggleScreen.addEventListener("click", async () => {
         if (!isScreenSharing) {
+            const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
+            if (isMobile) {
+                showToast("From mobile cannot share screen without AnyDesk / Meet app");
+                return;
+            }
+
             let getDisplayMedia = null;
             if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === "function") {
                 getDisplayMedia = (c) => navigator.mediaDevices.getDisplayMedia(c);
@@ -2960,17 +2967,7 @@ if (toggleScreen) {
             }
 
             if (!getDisplayMedia) {
-                const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-                if (isMobile) {
-                    showToast("📱 Mobile browser policy blocks OS screen recording. Use Back Camera to share screen/desk.");
-                    setTimeout(() => {
-                        if (confirm("Mobile browser security (Android/iOS) blocks web pages from capturing your phone's OS screen (only native Play Store apps like AnyDesk APK can do that).\n\nWould you like to switch to Back Camera (Rear Lens) to live stream your screen, papers, or surroundings to Desktop?")) {
-                            switchCamera("environment");
-                        }
-                    }, 350);
-                } else {
-                    showToast("⚠️ Screen sharing requires Google Chrome, Edge, or Firefox on Desktop/Laptop.");
-                }
+                showToast("⚠️ Screen sharing requires Google Chrome, Edge, or Firefox on Desktop/Laptop.");
                 return;
             }
 
@@ -3047,10 +3044,15 @@ if (toggleScreen) {
 
             } catch (err) {
                 console.error("Screen share error:", err);
+                const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
+                if (isMobile) {
+                    showToast("From mobile cannot share screen without AnyDesk / Meet app");
+                    return;
+                }
                 if (err.name === "NotAllowedError" || err.name === "AbortError" || err.name === "PermissionDeniedError") {
                     showToast("⚠️ Screen Share: Permission cancelled. Tap Share Screen to retry.");
                 } else if (err.name === "NotSupportedError") {
-                    showToast("Screen sharing not supported on this browser (Open in Chrome on Desktop or Android)");
+                    showToast("⚠️ Screen sharing requires Google Chrome, Edge, or Firefox on Desktop/Laptop.");
                 } else {
                     showToast(`Screen share error: ${err.message || err.name || "Failed"}`);
                 }
