@@ -2229,9 +2229,13 @@ let outgoingWaveGainNode = null;
 let outgoingWaveFilterNode = null;
 let outgoingWaveSubOsc = null;
 let outgoingWaveSubGain = null;
+let outgoingWaveLFO = null;
+let outgoingWaveLFOGain = null;
+let outgoingWaveFilterLFOGain = null;
+let outgoingWaveMaster = null;
 let isOutgoingWavePlaying = false;
 
-// 1. Caller Side: Authentic Sea Waves Sound (Rising & Falling Oceanic Swells)
+// 1. Caller Side: Authentic Continuous Sea Waves (Hardware-clocked LFO Swells - Kabhi Kam, Kabhi Zyada)
 function startOutgoingWaveTone() {
     try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -2246,77 +2250,72 @@ function startOutgoingWaveTone() {
         stopOutgoingWaveTone();
         isOutgoingWavePlaying = true;
 
-        // 1. Generate organic pink noise for ambient ocean surf
-        const noiseBuffer = createPinkNoiseBuffer(outgoingAudioCtx, 5);
+        const now = outgoingAudioCtx.currentTime;
 
-        // 2. Loop the noise source
+        // 1. Master Output Gain for smooth fade-in and instant fade-out
+        outgoingWaveMaster = outgoingAudioCtx.createGain();
+        outgoingWaveMaster.gain.setValueAtTime(0.001, now);
+        outgoingWaveMaster.gain.linearRampToValueAtTime(1.0, now + 0.5);
+        outgoingWaveMaster.connect(outgoingAudioCtx.destination);
+
+        // 2. Generate organic pink noise buffer for realistic ocean surf
+        const noiseBuffer = createPinkNoiseBuffer(outgoingAudioCtx, 6);
+
+        // 3. Pink Noise Buffer Source (Looping)
         outgoingWaveNoiseNode = outgoingAudioCtx.createBufferSource();
         outgoingWaveNoiseNode.buffer = noiseBuffer;
         outgoingWaveNoiseNode.loop = true;
 
-        // 3. Resonant low-pass filter (sweeps to simulate sea waves surging toward shore and receding)
+        // 4. Low-pass resonant filter for sweeping ocean waves
         outgoingWaveFilterNode = outgoingAudioCtx.createBiquadFilter();
         outgoingWaveFilterNode.type = "lowpass";
-        outgoingWaveFilterNode.Q.setValueAtTime(2.2, outgoingAudioCtx.currentTime);
-        outgoingWaveFilterNode.frequency.setValueAtTime(200, outgoingAudioCtx.currentTime);
+        outgoingWaveFilterNode.Q.setValueAtTime(2.2, now);
+        outgoingWaveFilterNode.frequency.setValueAtTime(580, now); // Center frequency
 
-        // 4. Wave swell master gain
+        // 5. Wave swell gain node
         outgoingWaveGainNode = outgoingAudioCtx.createGain();
-        outgoingWaveGainNode.gain.setValueAtTime(0.01, outgoingAudioCtx.currentTime);
+        outgoingWaveGainNode.gain.setValueAtTime(0.20, now); // Base gain
 
-        // Connect noise pipeline: Noise -> Filter -> Gain -> Audio Destination
-        outgoingWaveNoiseNode.connect(outgoingWaveFilterNode);
-        outgoingWaveFilterNode.connect(outgoingWaveGainNode);
-        outgoingWaveGainNode.connect(outgoingAudioCtx.destination);
-
-        // 5. Deep ocean sub-bass rumble (60 Hz deep oceanic water body)
+        // 6. Deep ocean sub-bass rumble (55 Hz oceanic body)
         outgoingWaveSubOsc = outgoingAudioCtx.createOscillator();
         outgoingWaveSubOsc.type = "sine";
-        outgoingWaveSubOsc.frequency.setValueAtTime(60, outgoingAudioCtx.currentTime);
+        outgoingWaveSubOsc.frequency.setValueAtTime(55, now);
 
         outgoingWaveSubGain = outgoingAudioCtx.createGain();
-        outgoingWaveSubGain.gain.setValueAtTime(0.001, outgoingAudioCtx.currentTime);
+        outgoingWaveSubGain.gain.setValueAtTime(0.035, now);
 
+        // 7. Continuous Hardware-clocked LFO (Low-Frequency Oscillator)
+        // 0.28 Hz = ~3.5 seconds per natural oceanic swell cycle (never stops, never drifts!)
+        outgoingWaveLFO = outgoingAudioCtx.createOscillator();
+        outgoingWaveLFO.type = "sine";
+        outgoingWaveLFO.frequency.setValueAtTime(0.28, now);
+
+        // LFO modulates amplitude: gain rises to ~0.37 and falls to ~0.03 continuously
+        outgoingWaveLFOGain = outgoingAudioCtx.createGain();
+        outgoingWaveLFOGain.gain.setValueAtTime(0.17, now);
+        outgoingWaveLFO.connect(outgoingWaveLFOGain);
+        outgoingWaveLFOGain.connect(outgoingWaveGainNode.gain);
+
+        // LFO modulates filter: frequency sweeps between ~220 Hz and ~940 Hz continuously
+        outgoingWaveFilterLFOGain = outgoingAudioCtx.createGain();
+        outgoingWaveFilterLFOGain.gain.setValueAtTime(360, now);
+        outgoingWaveLFO.connect(outgoingWaveFilterLFOGain);
+        outgoingWaveFilterLFOGain.connect(outgoingWaveFilterNode.frequency);
+
+        // Connect audio pipeline:
+        // Noise -> Filter -> WaveGain -> Master -> Audio Destination
+        outgoingWaveNoiseNode.connect(outgoingWaveFilterNode);
+        outgoingWaveFilterNode.connect(outgoingWaveGainNode);
+        outgoingWaveGainNode.connect(outgoingWaveMaster);
+
+        // SubOsc -> SubGain -> Master -> Audio Destination
         outgoingWaveSubOsc.connect(outgoingWaveSubGain);
-        outgoingWaveSubGain.connect(outgoingAudioCtx.destination);
+        outgoingWaveSubGain.connect(outgoingWaveMaster);
 
-        outgoingWaveNoiseNode.start();
-        outgoingWaveSubOsc.start();
-
-        // 6. Natural ocean swell cycle (~3.6s per wave)
-        const WAVE_CYCLE_SEC = 3.6;
-        const scheduleWaveSwell = () => {
-            if (!isOutgoingWavePlaying || !outgoingAudioCtx) return;
-            const now = outgoingAudioCtx.currentTime;
-
-            // Wave Surge (Water swells up, volume increases, frequency opens)
-            outgoingWaveGainNode.gain.cancelScheduledValues(now);
-            outgoingWaveGainNode.gain.setValueAtTime(Math.max(0.01, outgoingWaveGainNode.gain.value), now);
-            outgoingWaveGainNode.gain.linearRampToValueAtTime(0.26, now + 1.8);
-
-            outgoingWaveFilterNode.frequency.cancelScheduledValues(now);
-            outgoingWaveFilterNode.frequency.setValueAtTime(Math.max(180, outgoingWaveFilterNode.frequency.value), now);
-            outgoingWaveFilterNode.frequency.exponentialRampToValueAtTime(880, now + 1.8);
-
-            outgoingWaveSubGain.gain.cancelScheduledValues(now);
-            outgoingWaveSubGain.gain.setValueAtTime(Math.max(0.001, outgoingWaveSubGain.gain.value), now);
-            outgoingWaveSubGain.gain.linearRampToValueAtTime(0.045, now + 1.8);
-
-            // Wave Recede (Water rolls back out to sea, volume softens, frequency muffles)
-            outgoingWaveGainNode.gain.linearRampToValueAtTime(0.015, now + WAVE_CYCLE_SEC);
-            outgoingWaveFilterNode.frequency.exponentialRampToValueAtTime(190, now + WAVE_CYCLE_SEC);
-            outgoingWaveSubGain.gain.linearRampToValueAtTime(0.001, now + WAVE_CYCLE_SEC);
-        };
-
-        scheduleWaveSwell();
-        if (outgoingWaveInterval) clearInterval(outgoingWaveInterval);
-        outgoingWaveInterval = setInterval(() => {
-            if (!isOutgoingWavePlaying || !callingPeer) {
-                stopOutgoingWaveTone();
-                return;
-            }
-            scheduleWaveSwell();
-        }, WAVE_CYCLE_SEC * 1000);
+        // Start all sound generators
+        outgoingWaveNoiseNode.start(now);
+        outgoingWaveSubOsc.start(now);
+        outgoingWaveLFO.start(now);
 
     } catch (e) {
         console.warn("Outgoing ocean wave audio init error:", e);
@@ -2325,22 +2324,11 @@ function startOutgoingWaveTone() {
 
 function stopOutgoingWaveTone() {
     isOutgoingWavePlaying = false;
-    if (outgoingWaveInterval) {
-        clearInterval(outgoingWaveInterval);
-        outgoingWaveInterval = null;
-    }
-    if (outgoingWaveGainNode && outgoingAudioCtx) {
+    if (outgoingWaveMaster && outgoingAudioCtx) {
         try {
             const now = outgoingAudioCtx.currentTime;
-            outgoingWaveGainNode.gain.cancelScheduledValues(now);
-            outgoingWaveGainNode.gain.linearRampToValueAtTime(0, now + 0.25);
-        } catch (_) {}
-    }
-    if (outgoingWaveSubGain && outgoingAudioCtx) {
-        try {
-            const now = outgoingAudioCtx.currentTime;
-            outgoingWaveSubGain.gain.cancelScheduledValues(now);
-            outgoingWaveSubGain.gain.linearRampToValueAtTime(0, now + 0.25);
+            outgoingWaveMaster.gain.cancelScheduledValues(now);
+            outgoingWaveMaster.gain.linearRampToValueAtTime(0, now + 0.2);
         } catch (_) {}
     }
     setTimeout(() => {
@@ -2355,8 +2343,37 @@ function stopOutgoingWaveTone() {
                 outgoingWaveSubOsc.disconnect();
                 outgoingWaveSubOsc = null;
             }
+            if (outgoingWaveLFO) {
+                outgoingWaveLFO.stop();
+                outgoingWaveLFO.disconnect();
+                outgoingWaveLFO = null;
+            }
+            if (outgoingWaveLFOGain) {
+                outgoingWaveLFOGain.disconnect();
+                outgoingWaveLFOGain = null;
+            }
+            if (outgoingWaveFilterLFOGain) {
+                outgoingWaveFilterLFOGain.disconnect();
+                outgoingWaveFilterLFOGain = null;
+            }
+            if (outgoingWaveFilterNode) {
+                outgoingWaveFilterNode.disconnect();
+                outgoingWaveFilterNode = null;
+            }
+            if (outgoingWaveGainNode) {
+                outgoingWaveGainNode.disconnect();
+                outgoingWaveGainNode = null;
+            }
+            if (outgoingWaveSubGain) {
+                outgoingWaveSubGain.disconnect();
+                outgoingWaveSubGain = null;
+            }
+            if (outgoingWaveMaster) {
+                outgoingWaveMaster.disconnect();
+                outgoingWaveMaster = null;
+            }
         } catch (_) {}
-    }, 280);
+    }, 220);
 }
 
 // 2. Callee Side: Clean Electronic Beep repeating every 2 seconds
