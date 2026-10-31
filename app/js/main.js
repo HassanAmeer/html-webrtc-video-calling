@@ -2255,9 +2255,6 @@ function hideSelfView() {
     if (localVideoContainer) {
         localVideoContainer.classList.add("hidden-preview");
     }
-    if (btnRestoreLocal) {
-        btnRestoreLocal.style.display = "inline-flex";
-    }
     if (localVideoToggleIcon) {
         localVideoToggleIcon.classList.add("active");
         const icon = localVideoToggleIcon.querySelector("i");
@@ -2270,9 +2267,6 @@ function showSelfView() {
     isLocalVideoVisible = true;
     if (localVideoContainer) {
         localVideoContainer.classList.remove("hidden-preview");
-    }
-    if (btnRestoreLocal) {
-        btnRestoreLocal.style.display = "none";
     }
     if (localVideoToggleIcon) {
         localVideoToggleIcon.classList.remove("active");
