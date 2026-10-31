@@ -6,16 +6,46 @@
     <title>Meeting App</title>
     <link rel="stylesheet" href="css/style.css">
     <script>
-        // Instant check to bypass lock screen if launched via link with ID (?id=xxx, ?uid=xxx, etc.)
+        // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
             try {
                 var s = window.location.search;
-                if (s) {
+                var h = window.location.hash;
+                var foundId = "";
+                var keys = ['ui', 'uid', 'id', 'u', 'user', 'userId', 'username', 'name', 'target', 'to', 'call', 'peer', 'room', 'deal', 'token', 'code', 'pin', 'key'];
+                if (s && s.length > 1) {
                     var p = new URLSearchParams(s);
-                    var idVal = p.get('id') || p.get('uid') || p.get('user') || p.get('userId') || p.get('username') || p.get('name') || p.get('target') || p.get('to') || p.get('call') || p.get('peer') || p.get('room') || p.get('pin') || p.get('key');
-                    if (idVal && idVal.trim().length > 0) {
-                        document.documentElement.classList.add('bypass-lock');
+                    for (var i = 0; i < keys.length; i++) {
+                        var v = p.get(keys[i]);
+                        if (v && v.trim().length > 0) {
+                            foundId = v.trim();
+                            break;
+                        }
                     }
+                    if (!foundId) {
+                        p.forEach(function(val, key) {
+                            if (!foundId && key.toLowerCase() !== 'lock') {
+                                if (val && val.trim().length > 0) foundId = val.trim();
+                                else if (key && key.trim().length > 0) foundId = key.trim();
+                            }
+                        });
+                    }
+                }
+                if (!foundId && h && h.length > 1) {
+                    var hashPart = h.substring(1);
+                    if (hashPart.indexOf('=') !== -1) {
+                        var hp = new URLSearchParams(hashPart);
+                        for (var j = 0; j < keys.length; j++) {
+                            var hv = hp.get(keys[j]);
+                            if (hv && hv.trim().length > 0) { foundId = hv.trim(); break; }
+                        }
+                    } else if (hashPart.toLowerCase().indexOf('lock') === -1) {
+                        foundId = hashPart.trim();
+                    }
+                }
+                if (foundId) {
+                    window.__DIRECT_URL_ID__ = foundId;
+                    document.documentElement.classList.add('bypass-lock');
                 }
             } catch(e) {}
         })();

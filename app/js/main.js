@@ -1265,37 +1265,72 @@ let securityHoldStartTime = 0;
 let isSecurityHolding = false;
 let isAppUnlocked = false;
 
-// Check if app was opened via link with an ID parameter (?id=xxx, ?uid=xxx, ?user=xxx, etc.)
-function hasDirectIdInUrl() {
+// Extract ID passed in URL via any parameter (?ui=xxx, ?uid=xxx, ?id=xxx, ?user=xxx, etc.)
+function getDirectIdFromUrl() {
     try {
+        if (typeof window !== "undefined" && window.__DIRECT_URL_ID__) {
+            return String(window.__DIRECT_URL_ID__).trim();
+        }
         const params = new URLSearchParams(window.location.search);
-        const idVal = params.get("id") || params.get("uid") || params.get("user") || 
-                      params.get("username") || params.get("userId") || params.get("name") ||
-                      params.get("room") || params.get("target") || params.get("call") || 
-                      params.get("to") || params.get("peer") || params.get("pin") || params.get("key");
-        return !!(idVal && idVal.trim().length > 0);
-    } catch (_) {
-        return false;
-    }
+        const keys = [
+            "ui", "uid", "id", "u", "user", "userId", "username", "name",
+            "room", "roomId", "target", "to", "call", "peer",
+            "deal", "token", "code", "pin", "key"
+        ];
+        for (const k of keys) {
+            const v = params.get(k);
+            if (v && v.trim().length > 0) return v.trim();
+        }
+        for (const [k, v] of params.entries()) {
+            if (k.toLowerCase() === "lock") continue;
+            if (v && v.trim().length > 0) return v.trim();
+            if (k && k.trim().length > 0 && !v) return k.trim();
+        }
+        if (window.location.hash && window.location.hash.length > 1) {
+            const hash = window.location.hash.substring(1);
+            if (hash.includes("=")) {
+                const hp = new URLSearchParams(hash);
+                for (const k of keys) {
+                    const v = hp.get(k);
+                    if (v && v.trim().length > 0) return v.trim();
+                }
+            } else if (!hash.toLowerCase().includes("lock")) {
+                return hash.trim();
+            }
+        }
+    } catch (_) {}
+    return "";
+}
+
+// Check if app was opened via link with an ID parameter (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
+function hasDirectIdInUrl() {
+    return !!getDirectIdFromUrl();
 }
 
 // Unified Full App Activation: Identical execution whether unlocked via PIN or bypassed via ID link
 async function activateFullAppSession() {
     isAppUnlocked = true;
+    document.documentElement.classList.add("bypass-lock");
     if (securityLockOverlay) {
         securityLockOverlay.classList.remove("active");
         securityLockOverlay.style.display = "none";
     }
 
-    // 1. Process URL Parameters (?id=xxx, ?to=xxx, ?chat=1)
+    // 1. Process URL Parameters (?ui=xxx, ?id=xxx, ?to=xxx, ?chat=1)
     handleUrlQueryParams();
 
     // 2. Start Camera & Microphone Streams (Guaranteed Live Activation)
     try {
+        console.log("Activating camera and microphone session...");
         await ensureLocalStream(true);
         if (localVideo && localStream) {
             localVideo.srcObject = localStream;
-            localVideo.play().catch(() => {});
+            localVideo.muted = true;
+            try {
+                await localVideo.play();
+            } catch (playErr) {
+                console.warn("Auto-play local video delayed by browser:", playErr);
+            }
             applyMirrorState();
         }
     } catch (e) {
@@ -1311,9 +1346,9 @@ async function activateFullAppSession() {
     if (autoCallTarget) {
         setTimeout(() => {
             if (!callingPeer && !activePeer && autoCallTarget) {
-                callUser(autoCallTarget);
+                startCall(autoCallTarget).catch(err => console.log("Auto-call error:", err));
             }
-        }, 700);
+        }, 800);
     }
 }
 
@@ -1433,11 +1468,11 @@ function setupSecurityLockHandler() {
     }
 }
 
-// URL Query Parameter Auto-Join & Auto-Call Integration (?id=xxx or ?uid=xxx or ?user=xxx)
+// URL Query Parameter Auto-Join & Auto-Call Integration (?ui=xxx or ?id=xxx or ?uid=xxx)
 function handleUrlQueryParams() {
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const uidParam = urlParams.get("id") || urlParams.get("uid") || urlParams.get("user") || urlParams.get("userId") || urlParams.get("username") || urlParams.get("name");
+        const uidParam = getDirectIdFromUrl();
         const targetParam = urlParams.get("call") || urlParams.get("target") || urlParams.get("to") || urlParams.get("peer");
         const openChatParam = urlParams.get("chat");
 
