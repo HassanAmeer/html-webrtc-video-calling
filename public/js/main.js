@@ -2023,7 +2023,7 @@ if (toggleCamera) {
             videoTrack.enabled = isCameraOn;
             toggleCamera.classList.toggle("camera-blocked", !isCameraOn);
             const icon = toggleCamera.querySelector("i");
-            if (icon) icon.className = isCameraOn ? "fas fa-video" : "fas fa-video-slash";
+            if (icon) icon.className = isCameraOn ? "fas fa-user" : "fas fa-user-slash";
             
             // Broadcast camera blocked state to peer so peer's screen shows blocked card
             if (activePeer) {
