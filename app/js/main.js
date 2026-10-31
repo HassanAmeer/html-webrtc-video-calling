@@ -2217,32 +2217,89 @@ if (localVideoToggleIcon) {
     });
 }
 
+let currentScreenStream = null;
+
 if (toggleScreen) {
     toggleScreen.addEventListener("click", async () => {
         if (!isScreenSharing) {
+            // Check browser support for getDisplayMedia
+            const getDisplayMediaFn = (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)
+                ? navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices)
+                : (navigator.getDisplayMedia ? navigator.getDisplayMedia.bind(navigator) : null);
+
+            if (!getDisplayMediaFn) {
+                showToast("Screen sharing is not supported by this browser (Try Chrome, Edge, or Safari).");
+                return;
+            }
+
             try {
-                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                let screenStream = null;
+                // Try clean video-only screen capture (widely supported on desktop & mobile Android)
+                try {
+                    screenStream = await getDisplayMediaFn({
+                        video: {
+                            cursor: "always"
+                        },
+                        audio: false
+                    });
+                } catch (firstErr) {
+                    if (firstErr.name === "NotAllowedError" || firstErr.name === "AbortError") {
+                        showToast("Screen share cancelled");
+                        return;
+                    }
+                    console.warn("Attempt 1 getDisplayMedia with constraints failed, trying basic { video: true }:", firstErr);
+                    // Fallback to basic { video: true }
+                    screenStream = await getDisplayMediaFn({ video: true });
+                }
+
+                if (!screenStream || screenStream.getVideoTracks().length === 0) {
+                    showToast("No screen video track captured");
+                    return;
+                }
+
+                currentScreenStream = screenStream;
                 const screenTrack = screenStream.getVideoTracks()[0];
 
+                // Replace or Add Track on PeerConnection so peer immediately sees the screen
                 if (peerConnection) {
-                    const sender = peerConnection.getSenders().find((s) => s.track && s.track.kind === "video");
-                    if (sender) {
-                        sender.replaceTrack(screenTrack);
+                    const senders = peerConnection.getSenders();
+                    const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+                    if (videoSender) {
+                        await videoSender.replaceTrack(screenTrack);
+                        console.log("WebRTC video sender replaced with screenTrack");
+                    } else {
+                        peerConnection.addTrack(screenTrack, screenStream);
+                        console.log("WebRTC added screenTrack to peerConnection");
                     }
                 }
 
                 localVideo.srcObject = screenStream;
+                localVideo.style.transform = "none";
+                localVideo.style.webkitTransform = "none";
+                localVideo.play().catch(() => {});
+
                 isScreenSharing = true;
                 toggleScreen.classList.add("active");
-                toggleScreen.querySelector("i").className = "fas fa-stop";
+                const icon = toggleScreen.querySelector("i");
+                if (icon) icon.className = "fas fa-stop";
+                toggleScreen.title = "Stop Screen Sharing";
                 showToast("Screen Sharing: Active");
 
+                // Native browser "Stop sharing" floating bar listener
                 screenTrack.onended = () => {
+                    console.log("Screen track ended via browser UI");
                     revertToCameraTrack();
                 };
+
             } catch (err) {
                 console.error("Screen share error:", err);
-                showToast("Screen share cancelled or not supported");
+                if (err.name === "NotAllowedError" || err.name === "AbortError") {
+                    showToast("Screen share cancelled");
+                } else if (err.name === "NotSupportedError") {
+                    showToast("Screen sharing not supported on this device/browser");
+                } else {
+                    showToast(`Screen share error: ${err.message || err.name || "Failed"}`);
+                }
             }
         } else {
             revertToCameraTrack();
@@ -2250,21 +2307,43 @@ if (toggleScreen) {
     });
 }
 
-function revertToCameraTrack() {
+async function revertToCameraTrack() {
+    if (!isScreenSharing) return;
     isScreenSharing = false;
     toggleScreen.classList.remove("active");
-    toggleScreen.querySelector("i").className = "fas fa-desktop";
+    const icon = toggleScreen.querySelector("i");
+    if (icon) icon.className = "fas fa-desktop";
+    toggleScreen.title = "Share Screen";
 
-    if (localStream) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        if (peerConnection && videoTrack) {
-            const sender = peerConnection.getSenders().find((s) => s.track && s.track.kind === "video");
-            if (sender) {
-                sender.replaceTrack(videoTrack);
-            }
-        }
-        localVideo.srcObject = localStream;
+    // Stop active screen capture
+    if (currentScreenStream) {
+        currentScreenStream.getTracks().forEach((track) => track.stop());
+        currentScreenStream = null;
     }
+
+    // Restore camera
+    try {
+        await ensureLocalStream(true);
+        if (localStream) {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (peerConnection) {
+                const senders = peerConnection.getSenders();
+                const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+                if (videoSender && videoTrack) {
+                    await videoSender.replaceTrack(videoTrack);
+                } else if (videoTrack) {
+                    peerConnection.addTrack(videoTrack, localStream);
+                }
+            }
+            localVideo.srcObject = localStream;
+            localVideo.play().catch(() => {});
+            applyMirrorState();
+        }
+    } catch (err) {
+        console.warn("Could not restore camera track after screen share:", err);
+    }
+
+    showToast("Screen Sharing: Stopped (Camera Restored)");
 }
 
 // Participants Drawer Toggles
