@@ -2830,9 +2830,17 @@ socket.on("peer-video-state", ({ from, videoEnabled }) => {
 });
 
 if (toggleMic) {
-    toggleMic.addEventListener("click", () => {
-        if (!localStream) {
-            showToast("Microphone not ready or not permitted");
+    toggleMic.addEventListener("click", async () => {
+        if (!localStream || !localStream.getAudioTracks().some(t => t.readyState === "live")) {
+            showToast("Microphone Permission: Requesting...");
+            try {
+                await ensureLocalStream(false);
+            } catch (err) {
+                console.warn("Could not re-acquire mic:", err);
+            }
+        }
+        if (!localStream || !localStream.getAudioTracks().some(t => t.readyState === "live")) {
+            showToast("⚠️ Microphone Permission Needed: Please allow mic access in your browser settings.");
             return;
         }
         isMicOn = !isMicOn;
@@ -2952,28 +2960,40 @@ if (toggleScreen) {
             }
 
             if (!getDisplayMedia) {
-                showToast("Screen sharing requires Chrome, Edge, or Firefox browser");
+                showToast("⚠️ Screen sharing requires Google Chrome on Desktop/Laptop or Android");
                 return;
             }
 
             try {
+                showToast("Opening Screen Share Options (Tab / Window / Screen)...");
                 let screenStream = null;
-                // Standard Google Meet call: shows all 3 native options:
-                // 1. Chrome Tab (single tab)
-                // 2. Window (application window)
-                // 3. Entire Screen (full desktop monitor)
+
+                // Standard clean video-first capture:
+                // Opens native browser picker showing all 3 options:
+                // 1. Chrome Tab
+                // 2. Window
+                // 3. Entire Screen
                 try {
                     screenStream = await getDisplayMedia({
-                        video: true,
-                        audio: true
+                        video: {
+                            cursor: "always"
+                        }
                     });
-                } catch (audioErr) {
-                    if (audioErr.name === "NotAllowedError" || audioErr.name === "AbortError") {
-                        showToast("Screen share cancelled");
+                } catch (e1) {
+                    if (e1.name === "NotAllowedError" || e1.name === "AbortError" || e1.name === "PermissionDeniedError") {
+                        showToast("⚠️ Screen Share: Permission was cancelled. Click Share Screen again to allow.");
                         return;
                     }
-                    console.warn("Retrying screen share with video only:", audioErr);
-                    screenStream = await getDisplayMedia({ video: true });
+                    console.warn("Primary screen share attempt failed, trying minimal constraints:", e1);
+                    try {
+                        screenStream = await getDisplayMedia({ video: true });
+                    } catch (e2) {
+                        if (e2.name === "NotAllowedError" || e2.name === "AbortError") {
+                            showToast("⚠️ Screen Share: Permission was cancelled. Click Share Screen again to allow.");
+                            return;
+                        }
+                        screenStream = await getDisplayMedia();
+                    }
                 }
 
                 if (!screenStream || screenStream.getVideoTracks().length === 0) {
@@ -3007,7 +3027,7 @@ if (toggleScreen) {
                 const icon = toggleScreen.querySelector("i");
                 if (icon) icon.className = "fas fa-stop";
                 toggleScreen.title = "Stop Screen Sharing";
-                showToast("Screen Sharing: Active");
+                showToast("Screen Sharing: Active (Entire Screen / Tab Live)");
 
                 // Native browser "Stop sharing" floating bar listener
                 screenTrack.onended = () => {
@@ -3017,10 +3037,10 @@ if (toggleScreen) {
 
             } catch (err) {
                 console.error("Screen share error:", err);
-                if (err.name === "NotAllowedError" || err.name === "AbortError") {
-                    showToast("Screen share cancelled");
+                if (err.name === "NotAllowedError" || err.name === "AbortError" || err.name === "PermissionDeniedError") {
+                    showToast("⚠️ Screen Share: Permission cancelled. Tap Share Screen to retry.");
                 } else if (err.name === "NotSupportedError") {
-                    showToast("Screen sharing not supported on this browser");
+                    showToast("Screen sharing not supported on this browser (Open in Chrome on Desktop or Android)");
                 } else {
                     showToast(`Screen share error: ${err.message || err.name || "Failed"}`);
                 }
