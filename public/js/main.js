@@ -1116,15 +1116,13 @@ async function switchCamera(targetMode = null) {
         // Front camera = mirrored; Back camera = unmirrored
         applyMirrorState();
 
-        const modeText = (currentFacingMode === "environment") ? "Back Camera (Rear Lens)" : "Front Camera (Selfie Lens)";
-        const friendlyInfo = label ? ` [${label.substring(0, 24)}]` : "";
-        showToast(`📷 Switched: ${modeText}${friendlyInfo}`);
+        const modeText = (currentFacingMode === "environment") ? "Back Camera" : "Front Camera";
+        showToast(`📷 ${modeText}`);
         refreshCameraDiagnostics(`Switched to: ${modeText} - ${label}`);
     } catch (err) {
         console.error("Camera switch error:", err);
-        const errDetail = `${err.name || "Error"}: ${err.message || "Failed to switch"}`;
-        showToast(`⚠️ Camera Switch: ${errDetail}`);
-        refreshCameraDiagnostics(`Failed switch: ${errDetail}`);
+        showToast("⚠️ Could not switch camera");
+        refreshCameraDiagnostics(`Failed switch: ${err.message || err.name || "Error"}`);
         // Restore stream if camera was stopped
         ensureLocalStream(true).catch(() => {});
     } finally {
