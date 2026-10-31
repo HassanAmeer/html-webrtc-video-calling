@@ -534,23 +534,45 @@ function revertToCameraTrack() {
 // Layout toggles
 const bottomSheetToggle = document.querySelector(".bottom-sheet-toggle");
 const callerListWrapper = document.querySelector(".caller-list-wrapper");
-const callControlsToggle = document.querySelector(".call-controls-toggle");
-const callControls = document.querySelector(".call-controls");
+const closeParticipantsBtn = document.getElementById("close-participants-btn");
 
-bottomSheetToggle.addEventListener("click", () => {
-    callerListWrapper.classList.toggle("expanded");
-});
+if (bottomSheetToggle) {
+    bottomSheetToggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        callerListWrapper.classList.toggle("expanded");
+    });
+}
 
-callControlsToggle.addEventListener("click", () => {
-    callControls.classList.toggle("expanded");
+if (closeParticipantsBtn) {
+    closeParticipantsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        callerListWrapper.classList.remove("expanded");
+    });
+}
+
+// Close participant popup when clicking anywhere outside it
+document.addEventListener("click", (e) => {
+    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
+        if (!callerListWrapper.contains(e.target) && !bottomSheetToggle.contains(e.target)) {
+            callerListWrapper.classList.remove("expanded");
+        }
+    }
 });
 
 // Click local/remote video swap
-document.querySelector(".local-video").addEventListener("click", function () {
+document.querySelector(".local-video").addEventListener("click", function (e) {
+    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
+        callerListWrapper.classList.remove("expanded");
+        return;
+    }
     this.classList.toggle("active");
     document.querySelector(".remote-video").classList.toggle("active");
 });
-document.querySelector(".remote-video").addEventListener("click", function () {
+document.querySelector(".remote-video").addEventListener("click", function (e) {
+    if (callerListWrapper && callerListWrapper.classList.contains("expanded")) {
+        callerListWrapper.classList.remove("expanded");
+        return;
+    }
     this.classList.toggle("active");
     document.querySelector(".local-video").classList.toggle("active");
 });

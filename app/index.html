@@ -64,19 +64,21 @@
                 <i class="fas fa-users"></i>
             </div>
 
-            <div class="call-controls-toggle">
-                <i class="fas fa-chevron-right"></i>
-            </div>
-
-            <aside class="caller-list-wrapper expanded">
+            <aside class="caller-list-wrapper">
+                <div class="caller-list-header">
+                    <div class="caller-list-title">
+                        <i class="fas fa-users" style="color: #8ab4f8; margin-right: 6px;"></i>
+                        <span>Participants</span>
+                        <span id="participant-count" class="participant-count">(0)</span>
+                    </div>
+                    <button id="close-participants-btn" class="close-panel-btn" title="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
                 <div class="username-input">
                     <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
                     <button id="create-user">Join</button>
                 </div>
-                <h1 class="caller-list-heading">
-                    <span>Participants</span>
-                    <span id="participant-count" style="font-size: 12px; opacity: 0.8; font-weight: normal;">(0)</span>
-                </h1>
                 <ul id="allusers" class="caller-list">
                     <!-- Users will be added here dynamically -->
                 </ul>
