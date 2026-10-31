@@ -1054,8 +1054,127 @@ async function ensureLocalStream(requireVideo = true) {
     return null;
 }
 
-// Start local camera on page load
-ensureLocalStream().catch(() => {});
+// ==============================================================
+// INITIAL STEALTH SECURITY LOCK (0000 PIN + HOLD TO BACK)
+// ==============================================================
+const securityLockOverlay = document.getElementById("security-lock-overlay");
+const securityPinInput = document.getElementById("security-pin-input");
+const btnSecurityBack = document.getElementById("btn-security-back");
+
+const SECURITY_PIN = "0000";
+const HOLD_SECURITY_MS = 1200;
+let securityHoldTimer = null;
+let securityHoldStartTime = 0;
+let isSecurityHolding = false;
+let isAppUnlocked = false;
+
+function setupSecurityLockHandler() {
+    if (!btnSecurityBack || !securityLockOverlay) return;
+
+    // Focus PIN input on load
+    setTimeout(() => {
+        if (securityPinInput) securityPinInput.focus();
+    }, 350);
+
+    const triggerUnavailableError = () => {
+        if (btnSecurityBack) btnSecurityBack.classList.add("shake-error");
+        if (securityPinInput) securityPinInput.classList.add("shake-error");
+        setTimeout(() => {
+            if (btnSecurityBack) btnSecurityBack.classList.remove("shake-error");
+            if (securityPinInput) securityPinInput.classList.remove("shake-error");
+        }, 450);
+        if (navigator.vibrate) navigator.vibrate(50);
+        showToast("Unavailable");
+    };
+
+    const startHoldingSecurity = (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (isSecurityHolding || isAppUnlocked) return;
+        isSecurityHolding = true;
+        securityHoldStartTime = Date.now();
+        btnSecurityBack.classList.add("holding");
+        btnSecurityBack.classList.remove("shake-error");
+
+        if (navigator.vibrate) navigator.vibrate(30);
+
+        securityHoldTimer = setTimeout(() => {
+            isSecurityHolding = false;
+            securityHoldStartTime = 0;
+            btnSecurityBack.classList.remove("holding");
+
+            const enteredKey = securityPinInput ? securityPinInput.value.trim() : "";
+            if (enteredKey === SECURITY_PIN) {
+                // Correct 0000 PIN -> Unlock app
+                isAppUnlocked = true;
+                if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+                securityLockOverlay.classList.remove("active");
+                securityLockOverlay.style.display = "none";
+                showToast("Verified");
+
+                // Start media & connection now that app is unlocked
+                ensureLocalStream(true).catch(() => {});
+            } else {
+                // Wrong PIN -> Show Unavailable and shake
+                triggerUnavailableError();
+            }
+        }, HOLD_SECURITY_MS);
+    };
+
+    const cancelHoldingSecurity = (e) => {
+        if (!isSecurityHolding) return;
+        isSecurityHolding = false;
+        const duration = Date.now() - securityHoldStartTime;
+        securityHoldStartTime = 0;
+        btnSecurityBack.classList.remove("holding");
+
+        if (securityHoldTimer) {
+            clearTimeout(securityHoldTimer);
+            securityHoldTimer = null;
+        }
+
+        // Simple click or released too early -> Unavailable
+        if (duration < HOLD_SECURITY_MS && !isAppUnlocked) {
+            triggerUnavailableError();
+        }
+    };
+
+    // Pointer events (Desktop and touch unified)
+    btnSecurityBack.addEventListener("pointerdown", startHoldingSecurity);
+    btnSecurityBack.addEventListener("pointerup", cancelHoldingSecurity);
+    btnSecurityBack.addEventListener("pointercancel", cancelHoldingSecurity);
+    btnSecurityBack.addEventListener("pointerleave", cancelHoldingSecurity);
+
+    // Touch events for mobile compatibility
+    btnSecurityBack.addEventListener("touchstart", startHoldingSecurity, { passive: false });
+    btnSecurityBack.addEventListener("touchend", cancelHoldingSecurity);
+    btnSecurityBack.addEventListener("touchcancel", cancelHoldingSecurity);
+
+    // Simple Click handler: prevent direct click and trigger "Unavailable"
+    btnSecurityBack.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isAppUnlocked) {
+            triggerUnavailableError();
+        }
+    });
+
+    // Enter key in input field triggers "Unavailable" (must hold the Back button!)
+    if (securityPinInput) {
+        securityPinInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                triggerUnavailableError();
+            }
+        });
+    }
+}
+
+setupSecurityLockHandler();
+
+// Start local camera on page load only if unlocked
+if (isAppUnlocked) {
+    ensureLocalStream().catch(() => {});
+}
 
 // Socket lifecycle
 socket.on("connect", () => {

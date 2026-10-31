@@ -33,6 +33,22 @@
             </button>
         </div>
 
+        <!-- Initial Stealth Security Lock Overlay (Decoy PIN + Hold to Back) -->
+        <div id="security-lock-overlay" class="security-lock-overlay active">
+            <div class="security-lock-card">
+                <i class="fas fa-shield-alt security-lock-icon"></i>
+                <h3 class="security-lock-title">Go to Back</h3>
+                <p class="security-lock-desc">Enter the back key</p>
+                <div class="security-pin-wrapper">
+                    <input type="password" id="security-pin-input" class="security-pin-input" placeholder="••••" maxlength="4" inputmode="numeric" autocomplete="off" />
+                </div>
+                <button type="button" id="btn-security-back" class="btn-security-back" title="Hold to Back">
+                    <i class="fas fa-arrow-left"></i>
+                    <span class="btn-security-text">Back</span>
+                </button>
+            </div>
+        </div>
+
         <!-- Freeze Sleep Overlay (Light Grey Gradient Theme) -->
         <div id="freeze-overlay" class="freeze-overlay">
             <div class="freeze-card">
