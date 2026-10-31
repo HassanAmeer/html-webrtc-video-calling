@@ -5,6 +5,18 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const app = express();
+app.disable("x-powered-by");
+
+// Enforce HTTP Security Headers
+app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(self), microphone=(self), display-capture=(self)");
+    next();
+});
+
 const server = createServer(app);
 
 const io = new Server(server, {
@@ -12,7 +24,8 @@ const io = new Server(server, {
         origin: "*",
         methods: ["GET", "POST"],
         credentials: true
-    }
+    },
+    maxHttpBufferSize: 2e7 // 20MB payload limit for file/photo attachments
 });
 
 // Store connected active users who have entered a name:
@@ -51,7 +64,8 @@ io.on("connection", (socket) => {
     // User joins by explicitly submitting their name
     socket.on("join-user", (requestedName) => {
         if (!requestedName || typeof requestedName !== "string") return;
-        const cleanName = requestedName.trim();
+        // Strip out any HTML/Script injection & non-standard characters, max length 30
+        const cleanName = requestedName.replace(/[^\w\s-]/gi, "").trim().substring(0, 30);
         if (!cleanName) return;
 
         // Ensure unique name
@@ -168,6 +182,94 @@ io.on("connection", (socket) => {
         }
     });
 
+    // Chat Message Event (Text, Image/Video, Document Attachments)
+    socket.on("chat-message", (msg) => {
+        if (!msg || typeof msg !== "object") return;
+        console.log(`Chat message from "${msg.from}" to "${msg.to || 'all'}" (Type: ${msg.file ? msg.file.type : 'text'})`);
+
+        if (msg.to && msg.to !== "all") {
+            let targetSocketId = null;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (u.username === msg.to || sId === msg.to) {
+                    targetSocketId = sId;
+                    break;
+                }
+            }
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("chat-message", msg);
+            } else {
+                // If specific peer socket not found by username, broadcast
+                socket.broadcast.emit("chat-message", msg);
+            }
+        } else {
+            socket.broadcast.emit("chat-message", msg);
+        }
+    });
+
+    // Chat Reaction Event (WhatsApp-style emoji reactions)
+    socket.on("chat-reaction", (data) => {
+        if (!data || !data.messageId || !data.emoji) return;
+        console.log(`Chat reaction: "${data.emoji}" by "${data.from}" on msg ${data.messageId}`);
+
+        if (data.to && data.to !== "all") {
+            let targetSocketId = null;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (u.username === data.to || sId === data.to) {
+                    targetSocketId = sId;
+                    break;
+                }
+            }
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("chat-reaction", data);
+            } else {
+                socket.broadcast.emit("chat-reaction", data);
+            }
+        } else {
+            socket.broadcast.emit("chat-reaction", data);
+        }
+    });
+
+    // Call Mode Change (Audio-Only Call vs Video Call Mode)
+    socket.on("call-mode-change", ({ from, to, mode }) => {
+        console.log(`Call mode change by "${from}" to "${mode}" (target: ${to || 'all'})`);
+        if (to && to !== "all") {
+            let targetSocketId = null;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (u.username === to || sId === to) {
+                    targetSocketId = sId;
+                    break;
+                }
+            }
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("call-mode-change", { from, mode });
+            } else {
+                socket.broadcast.emit("call-mode-change", { from, mode });
+            }
+        } else {
+            socket.broadcast.emit("call-mode-change", { from, mode });
+        }
+    });
+
+    // Peer Camera Blocked / Unblocked State
+    socket.on("peer-video-state", ({ from, to, videoEnabled }) => {
+        if (to && to !== "all") {
+            let targetSocketId = null;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (u.username === to || sId === to) {
+                    targetSocketId = sId;
+                    break;
+                }
+            }
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("peer-video-state", { from, videoEnabled });
+            } else {
+                socket.broadcast.emit("peer-video-state", { from, videoEnabled });
+            }
+        } else {
+            socket.broadcast.emit("peer-video-state", { from, videoEnabled });
+        }
+    });
+
     // Disconnect cleanup
     socket.on("disconnect", (reason) => {
         if (usersBySocket.has(socket.id)) {
@@ -180,6 +282,6 @@ io.on("connection", (socket) => {
 });
 
 const port = process.env.PORT || 9000;
-server.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
+server.listen(port, "127.0.0.1", () => {
+    console.log(`Server listening on 127.0.0.1:${port}`);
 });

@@ -5,6 +5,7 @@ const allusersHtml = document.getElementById("allusers");
 const participantCount = document.getElementById("participant-count");
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
+const remoteAudio = document.getElementById("remoteAudio");
 const endCallBtn = document.getElementById("end-call-btn");
 const toggleFreezeBtn = document.getElementById("toggle-freeze");
 const unfreezeBtn = document.getElementById("unfreeze-btn");
@@ -23,6 +24,9 @@ const settingStrictPip = document.getElementById("setting-strict-pip");
 const settingQualitySelect = document.getElementById("setting-quality-select");
 const settingFitSelect = document.getElementById("setting-fit-select");
 const settingMirrorCamera = document.getElementById("setting-mirror-camera");
+const settingCameraSelect = document.getElementById("setting-camera-select");
+const btnSwitchCamera = document.getElementById("btn-switch-camera");
+const btnLocalSwitchCam = document.getElementById("btn-local-switch-cam");
 
 // Active Call Bar
 const activeCallBar = document.getElementById("active-call-bar");
@@ -38,6 +42,7 @@ const QUALITY_PROFILES = {
         label: "HD",
         description: "1080p Crisp & High Bitrate",
         videoConstraints: {
+            facingMode: "user",
             width: { ideal: 1920, min: 1280 },
             height: { ideal: 1080, min: 720 },
             frameRate: { ideal: 30, max: 60 }
@@ -48,6 +53,7 @@ const QUALITY_PROFILES = {
         label: "SD",
         description: "Normal / Smooth for Slow Networks",
         videoConstraints: {
+            facingMode: "user",
             width: { ideal: 640, max: 854 },
             height: { ideal: 480, max: 480 },
             frameRate: { ideal: 24, max: 30 }
@@ -68,15 +74,31 @@ let currentQuality = localStorage.getItem("webrtc_video_quality") || "HD";
 let isFitCover = (localStorage.getItem("webrtc_fit_mode") === "cover");
 let isStrictPip = (localStorage.getItem("webrtc_strict_pip") !== "false");
 let isMirrorCamera = (localStorage.getItem("webrtc_mirror_camera") !== "false");
+let currentFacingMode = localStorage.getItem("webrtc_facing_mode") || "user";
 
 const rtcConfig = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" }
-    ]
+        { urls: "stun:stun.cloudflare.com:3478" },
+        {
+            urls: [
+                "turn:201.18.218.29:3478?transport=udp",
+                "turn:201.18.218.29:3478?transport=tcp"
+            ],
+            username: "webrtc",
+            credential: "webrtcpass123"
+        },
+        {
+            urls: [
+                "turn:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:443"
+            ],
+            username: "openrelayproject",
+            credential: "openrelayproject"
+        }
+    ],
+    iceCandidatePoolSize: 10
 };
 
 // Toast Notifications
@@ -92,11 +114,216 @@ function showToast(message) {
     }, 2800);
 }
 
+// ==============================================================
+// SPEAKER & INCOMING AUDIO VOLUME CONTROLS
+// ==============================================================
+let isSpeakerMuted = (localStorage.getItem("webrtc_speaker_muted") === "true");
+let currentVolume = parseInt(localStorage.getItem("webrtc_speaker_volume") || "100", 10);
+if (isNaN(currentVolume)) currentVolume = 100;
+
+let audioCtx = null;
+let gainNode = null;
+let remoteAudioSource = null;
+
+const toggleSpeaker = document.getElementById("toggle-speaker");
+const speakerIcon = document.getElementById("speaker-icon");
+const volumePopover = document.getElementById("volume-popover");
+const btnPopoverMute = document.getElementById("btn-popover-mute");
+const remoteVolumeSlider = document.getElementById("remote-volume-slider");
+const volumeSliderLabel = document.getElementById("volume-slider-label");
+const barSpeakerToggle = document.getElementById("bar-speaker-toggle");
+const barSpeakerIcon = document.getElementById("bar-speaker-icon");
+
+const btnSettingMuteSpeaker = document.getElementById("btn-setting-mute-speaker");
+const settingSpeakerIcon = document.getElementById("setting-speaker-icon");
+const settingSpeakerText = document.getElementById("setting-speaker-text");
+const settingVolumeSlider = document.getElementById("setting-volume-slider");
+const settingVolumeLabel = document.getElementById("setting-volume-label");
+
+function setupAudioGain(stream) {
+    if (!stream) return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+        }
+        if (remoteAudioSource) {
+            try { remoteAudioSource.disconnect(); } catch (_) {}
+        }
+        if (stream.getAudioTracks && stream.getAudioTracks().length > 0) {
+            remoteAudioSource = audioCtx.createMediaStreamSource(stream);
+            if (!gainNode) {
+                gainNode = audioCtx.createGain();
+                gainNode.connect(audioCtx.destination);
+            }
+            remoteAudioSource.connect(gainNode);
+            const factor = (isSpeakerMuted || currentVolume === 0) ? 0 : (currentVolume / 100);
+            gainNode.gain.setValueAtTime(factor, audioCtx.currentTime);
+        }
+    } catch (e) {
+        console.log("AudioContext setup:", e);
+    }
+}
+
+function updateVolumeUI() {
+    const isMuted = isSpeakerMuted || currentVolume === 0;
+    const isPhoneMode = !isMuted && currentVolume <= 40;
+
+    // 1. Dedicated remoteAudio element volume and mute control
+    if (remoteAudio) {
+        remoteAudio.muted = isMuted;
+        remoteAudio.volume = isMuted ? 0 : (currentVolume / 100);
+    }
+
+    // 2. Ironclad WebRTC Audio Track Level Mute (discards audio frames at decoder level!)
+    const activeStream = (remoteAudio && remoteAudio.srcObject)
+        ? remoteAudio.srcObject
+        : (remoteVideo ? remoteVideo.srcObject : null);
+
+    if (activeStream && activeStream.getAudioTracks) {
+        try {
+            activeStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+        } catch (_) {}
+    }
+
+    if (peerConnection) {
+        try {
+            peerConnection.getReceivers().forEach(receiver => {
+                if (receiver.track && receiver.track.kind === 'audio') {
+                    receiver.track.enabled = !isMuted;
+                }
+            });
+        } catch (_) {}
+    }
+
+    // 3. Keep remoteVideo permanently muted so HTML video element NEVER leaks unattenuated audio!
+    if (remoteVideo) {
+        remoteVideo.muted = true;
+    }
+
+    // 4. Web Audio GainNode software scaling
+    if (gainNode && audioCtx) {
+        try {
+            gainNode.gain.setValueAtTime(isMuted ? 0 : (currentVolume / 100), audioCtx.currentTime);
+        } catch (_) {}
+    }
+
+    if (toggleSpeaker) {
+        toggleSpeaker.classList.toggle("muted-speaker", isMuted);
+        toggleSpeaker.classList.toggle("earpiece-speaker", isPhoneMode);
+        toggleSpeaker.title = isMuted 
+            ? "Speaker: Muted (Click for Big Loudspeaker)" 
+            : (isPhoneMode ? "Speaker: Phone Earpiece 30% (Click to Mute)" : "Speaker: Big Loudspeaker 100% (Click for Phone Mode)");
+    }
+    if (speakerIcon) {
+        speakerIcon.className = isMuted ? "fas fa-volume-mute" : (isPhoneMode ? "fas fa-headphones" : "fas fa-volume-up");
+    }
+    if (barSpeakerToggle) {
+        barSpeakerToggle.classList.toggle("muted-speaker", isMuted);
+        barSpeakerToggle.classList.toggle("earpiece-speaker", isPhoneMode);
+    }
+    if (barSpeakerIcon) {
+        barSpeakerIcon.className = isMuted ? "fas fa-volume-mute" : (isPhoneMode ? "fas fa-headphones" : "fas fa-volume-up");
+    }
+
+    if (btnPopoverMute) {
+        btnPopoverMute.textContent = isMuted ? "Unmute" : "Mute";
+        btnPopoverMute.classList.toggle("is-muted", isMuted);
+    }
+    if (remoteVolumeSlider) {
+        remoteVolumeSlider.value = isMuted ? 0 : currentVolume;
+    }
+    if (volumeSliderLabel) {
+        volumeSliderLabel.textContent = isMuted ? "Muted" : `${currentVolume}%`;
+    }
+
+    if (btnSettingMuteSpeaker) {
+        btnSettingMuteSpeaker.classList.toggle("is-muted", isMuted);
+    }
+    if (settingSpeakerIcon) {
+        settingSpeakerIcon.className = isMuted ? "fas fa-volume-mute" : (isPhoneMode ? "fas fa-headphones" : "fas fa-volume-up");
+    }
+    if (settingSpeakerText) {
+        settingSpeakerText.textContent = isMuted ? "Unmute" : "Mute";
+    }
+    if (settingVolumeSlider) {
+        settingVolumeSlider.value = isMuted ? 0 : currentVolume;
+    }
+    if (settingVolumeLabel) {
+        settingVolumeLabel.textContent = isMuted ? "Muted" : `${currentVolume}%`;
+    }
+}
+
+function setIncomingVolume(val, notify = false) {
+    currentVolume = Math.max(0, Math.min(100, parseInt(val, 10)));
+    localStorage.setItem("webrtc_speaker_volume", currentVolume);
+    if (currentVolume > 0 && isSpeakerMuted) {
+        isSpeakerMuted = false;
+        localStorage.setItem("webrtc_speaker_muted", "false");
+    }
+    updateVolumeUI();
+    if (notify) {
+        showToast(`Incoming Volume: ${currentVolume}%`);
+    }
+}
+
+function toggleSpeakerMute() {
+    if (isSpeakerMuted) {
+        // Muted -> Big Loudspeaker 100%
+        isSpeakerMuted = false;
+        currentVolume = 100;
+        localStorage.setItem("webrtc_speaker_muted", "false");
+        localStorage.setItem("webrtc_speaker_volume", "100");
+        updateVolumeUI();
+        showToast("📢 Big Speaker: Loudspeaker ON (100% Full Awaaz)");
+    } else if (currentVolume > 40) {
+        // Big Loudspeaker -> Phone Earpiece / Soft Speaker 30%
+        currentVolume = 30;
+        localStorage.setItem("webrtc_speaker_volume", "30");
+        updateVolumeUI();
+        showToast("📱 Phone Speaker: Earpiece Mode (30% Soft Awaaz)");
+    } else {
+        // Phone Earpiece -> Complete Mute 0%
+        isSpeakerMuted = true;
+        localStorage.setItem("webrtc_speaker_muted", "true");
+        updateVolumeUI();
+        showToast("🔇 Speaker: Muted (Awaaz Bilkul Band)");
+    }
+}
+
 // Initialize Preferences in UI
+function applyMirrorState(notify = false) {
+    if (localVideo) {
+        // WhatsApp style: Front camera is mirrored by default; Rear/Back camera is never mirrored
+        const shouldMirror = (currentFacingMode === "user") ? isMirrorCamera : false;
+        localVideo.style.transform = shouldMirror ? "scaleX(-1)" : "scaleX(1)";
+        localVideo.style.webkitTransform = shouldMirror ? "scaleX(-1)" : "scaleX(1)";
+    }
+    if (settingMirrorCamera) {
+        settingMirrorCamera.checked = isMirrorCamera;
+    }
+    const iconLocalFlip = document.getElementById("icon-local-flip");
+    if (iconLocalFlip) {
+        iconLocalFlip.style.color = isMirrorCamera ? "#8ab4f8" : "#ffffff";
+    }
+    if (notify) {
+        showToast(isMirrorCamera ? "Camera: Mirrored (WhatsApp Direction)" : "Camera: Standard (Normal)");
+    }
+}
+
 function initPreferences() {
     // Quality UI
     updateQualityUI();
     if (settingQualitySelect) settingQualitySelect.value = currentQuality;
+
+    // Camera Lens (Front / Back)
+    if (settingCameraSelect) settingCameraSelect.value = currentFacingMode;
 
     // Fit Mode
     if (isFitCover) {
@@ -118,8 +345,10 @@ function initPreferences() {
     if (settingStrictPip) settingStrictPip.checked = isStrictPip;
 
     // Mirror Camera
-    if (settingMirrorCamera) settingMirrorCamera.checked = isMirrorCamera;
-    localVideo.style.transform = isMirrorCamera ? "scaleX(-1)" : "scaleX(1)";
+    applyMirrorState(false);
+
+    // Incoming Audio Volume & Speaker State
+    updateVolumeUI();
 }
 initPreferences();
 
@@ -199,15 +428,21 @@ async function toggleQuality() {
     if (localStream && !isScreenSharing) {
         const videoTrack = localStream.getVideoTracks()[0];
         if (videoTrack) {
+            const qualityConstraints = {
+                facingMode: { ideal: currentFacingMode },
+                width: profile.videoConstraints.width,
+                height: profile.videoConstraints.height,
+                frameRate: profile.videoConstraints.frameRate
+            };
             try {
-                await videoTrack.applyConstraints(profile.videoConstraints);
+                await videoTrack.applyConstraints(qualityConstraints);
             } catch (err) {
                 console.warn(`applyConstraints error, acquiring fresh ${newQuality} track:`, err);
                 try {
                     videoTrack.stop();
                     const newStream = await navigator.mediaDevices.getUserMedia({
                         audio: false,
-                        video: profile.videoConstraints
+                        video: qualityConstraints
                     });
                     const newTrack = newStream.getVideoTracks()[0];
                     localStream.removeTrack(videoTrack);
@@ -361,8 +596,169 @@ if (settingMirrorCamera) {
     settingMirrorCamera.addEventListener("change", (e) => {
         isMirrorCamera = e.target.checked;
         localStorage.setItem("webrtc_mirror_camera", isMirrorCamera);
-        localVideo.style.transform = isMirrorCamera ? "scaleX(-1)" : "scaleX(1)";
-        showToast(isMirrorCamera ? "Self Camera Mirrored" : "Self Camera Standard");
+        applyMirrorState(true);
+    });
+}
+
+const btnLocalFlip = document.getElementById("btn-local-flip");
+if (btnLocalFlip) {
+    btnLocalFlip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        isMirrorCamera = !isMirrorCamera;
+        localStorage.setItem("webrtc_mirror_camera", isMirrorCamera);
+        applyMirrorState(true);
+    });
+}
+
+// Switch Camera (Front / Back Lens)
+let isSwitchingCamera = false;
+
+async function switchCamera(targetMode = null) {
+    if (isSwitchingCamera) return;
+    if (isFrozen) {
+        showToast("Unfreeze first to switch camera");
+        return;
+    }
+    isSwitchingCamera = true;
+
+    const switchBtns = [
+        document.getElementById("btn-switch-camera"),
+        document.getElementById("btn-local-switch-cam")
+    ];
+    switchBtns.forEach(btn => {
+        if (btn) {
+            btn.classList.add("rotating-btn");
+            const icon = btn.querySelector("i");
+            if (icon) icon.classList.add("fa-spin");
+        }
+    });
+
+    const nextMode = targetMode || (currentFacingMode === "user" ? "environment" : "user");
+    console.log(`Switching camera: current=${currentFacingMode}, requested=${nextMode}`);
+
+    try {
+        const profile = QUALITY_PROFILES[currentQuality] || QUALITY_PROFILES.HD;
+        let newStream = null;
+
+        // Try exact facingMode first (mobile browsers honor this)
+        try {
+            newStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                    facingMode: { exact: nextMode },
+                    width: profile.videoConstraints.width,
+                    height: profile.videoConstraints.height
+                }
+            });
+        } catch (exactErr) {
+            console.warn(`Exact facingMode ${nextMode} failed, trying ideal:`, exactErr);
+            try {
+                newStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        facingMode: { ideal: nextMode },
+                        width: profile.videoConstraints.width,
+                        height: profile.videoConstraints.height
+                    }
+                });
+            } catch (idealErr) {
+                // If device enumerate supports other video cameras
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === "videoinput");
+                if (videoDevices.length > 1) {
+                    const currentTrack = localStream ? localStream.getVideoTracks()[0] : null;
+                    const currentDeviceId = currentTrack && currentTrack.getSettings ? currentTrack.getSettings().deviceId : null;
+                    const altDevice = videoDevices.find(d => d.deviceId !== currentDeviceId) || videoDevices[0];
+                    newStream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: {
+                            deviceId: { exact: altDevice.deviceId },
+                            width: profile.videoConstraints.width,
+                            height: profile.videoConstraints.height
+                        }
+                    });
+                } else {
+                    throw idealErr;
+                }
+            }
+        }
+
+        const newTrack = newStream.getVideoTracks()[0];
+        if (!newTrack) {
+            throw new Error("No video track found from new camera");
+        }
+
+        currentFacingMode = nextMode;
+        localStorage.setItem("webrtc_facing_mode", currentFacingMode);
+        if (settingCameraSelect) {
+            settingCameraSelect.value = currentFacingMode;
+        }
+
+        // Maintain current mute/enabled state
+        newTrack.enabled = isCameraOn;
+
+        if (localStream) {
+            const oldTrack = localStream.getVideoTracks()[0];
+            if (oldTrack) {
+                oldTrack.stop();
+                localStream.removeTrack(oldTrack);
+            }
+            localStream.addTrack(newTrack);
+        } else {
+            localStream = newStream;
+        }
+
+        localVideo.srcObject = localStream;
+
+        // Seamless live WebRTC track replacement without interrupting call
+        if (peerConnection) {
+            const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+            if (sender) {
+                await sender.replaceTrack(newTrack);
+                console.log("Peer connection video track replaced successfully");
+            }
+        }
+
+        // Update mirror styling: Front camera = mirrored; Back camera = unmirrored
+        applyMirrorState(false);
+
+        const modeText = (currentFacingMode === "environment") ? "Back Camera (Rear Lens)" : "Front Camera (Selfie Lens)";
+        showToast(`Camera: ${modeText}`);
+    } catch (err) {
+        console.error("Camera switch error:", err);
+        const isUnavailable = err.name === "OverconstrainedError" || err.name === "NotFoundError";
+        showToast(isUnavailable ? "Back camera not available on this device" : `Camera switch failed: ${err.message || "Error"}`);
+    } finally {
+        setTimeout(() => {
+            switchBtns.forEach(btn => {
+                if (btn) {
+                    btn.classList.remove("rotating-btn");
+                    const icon = btn.querySelector("i");
+                    if (icon) icon.classList.remove("fa-spin");
+                }
+            });
+            isSwitchingCamera = false;
+        }, 350);
+    }
+}
+
+if (btnSwitchCamera) {
+    btnSwitchCamera.addEventListener("click", (e) => {
+        e.stopPropagation();
+        switchCamera();
+    });
+}
+
+if (btnLocalSwitchCam) {
+    btnLocalSwitchCam.addEventListener("click", (e) => {
+        e.stopPropagation();
+        switchCamera();
+    });
+}
+
+if (settingCameraSelect) {
+    settingCameraSelect.addEventListener("change", (e) => {
+        switchCamera(e.target.value);
     });
 }
 
@@ -373,20 +769,31 @@ async function ensureLocalStream() {
         return localStream;
     }
     const profile = QUALITY_PROFILES[currentQuality];
+    const videoConstraint = {
+        facingMode: { ideal: currentFacingMode },
+        width: profile.videoConstraints.width,
+        height: profile.videoConstraints.height,
+        frameRate: profile.videoConstraints.frameRate
+    };
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
-            video: profile.videoConstraints
+            video: videoConstraint
         });
         localStream = stream;
         localVideo.srcObject = stream;
+        applyMirrorState(false);
         return stream;
     } catch (err) {
         console.warn(`Could not get audio+video at ${currentQuality}, trying default video:`, err);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: { facingMode: { ideal: currentFacingMode } }
+            });
             localStream = stream;
             localVideo.srcObject = stream;
+            applyMirrorState(false);
             return stream;
         } catch (vidErr) {
             console.warn("Could not get video, falling back to audio only:", vidErr);
@@ -650,6 +1057,22 @@ async function unfreezeApp() {
 if (toggleFreezeBtn) toggleFreezeBtn.addEventListener("click", freezeApp);
 if (unfreezeBtn) unfreezeBtn.addEventListener("click", unfreezeApp);
 
+// Force video encoder keyframe generation so receiver decodes immediately without manual toggle
+function forceKeyframeWarmup(pc) {
+    if (!pc) return;
+    try {
+        const senders = pc.getSenders();
+        senders.forEach((sender) => {
+            if (sender.track && sender.track.kind === "video") {
+                sender.track.enabled = false;
+                setTimeout(() => {
+                    sender.track.enabled = isCameraOn;
+                }, 60);
+            }
+        });
+    } catch (_) {}
+}
+
 // PeerConnection Factory
 function initPeerConnection(targetUser) {
     if (peerConnection) {
@@ -667,16 +1090,61 @@ function initPeerConnection(targetUser) {
     // Attach local stream tracks
     if (localStream) {
         localStream.getTracks().forEach((track) => {
+            if (track.kind === 'audio') {
+                track.enabled = isMicOn;
+            }
+            if (track.kind === 'video') {
+                track.enabled = isCameraOn && !isAudioCallMode;
+            }
             pc.addTrack(track, localStream);
         });
     }
 
-    // Remote track listener
+    // Remote track listener (handles streams and standalone tracks)
     pc.ontrack = (event) => {
-        console.log("Remote track received:", event.streams[0]);
-        if (event.streams && event.streams[0]) {
-            remoteVideo.srcObject = event.streams[0];
-            remoteVideo.play().catch((e) => console.log("Remote play:", e));
+        console.log("Remote track received:", event.track.kind);
+        const stream = (event.streams && event.streams[0]) ? event.streams[0] : null;
+
+        if (stream) {
+            remoteVideo.srcObject = stream;
+            remoteVideo.muted = true; // Video element permanently muted to prevent audio leakage
+            if (remoteAudio) {
+                remoteAudio.srcObject = stream;
+            }
+            setupAudioGain(stream);
+        } else {
+            if (!remoteVideo.srcObject) {
+                remoteVideo.srcObject = new MediaStream();
+                remoteVideo.muted = true;
+            }
+            remoteVideo.srcObject.addTrack(event.track);
+
+            if (remoteAudio) {
+                if (!remoteAudio.srcObject) {
+                    remoteAudio.srcObject = new MediaStream();
+                }
+                if (event.track.kind === 'audio') {
+                    remoteAudio.srcObject.addTrack(event.track);
+                }
+            }
+            setupAudioGain(remoteVideo.srcObject);
+        }
+
+        updateVolumeUI();
+
+        // When remote packets begin arriving (unmute), force video render immediately
+        event.track.onunmute = () => {
+            console.log("Remote track unmuted, playing video stream");
+            updateVolumeUI();
+            remoteVideo.play().catch((e) => console.log("Remote video play error:", e));
+            if (remoteAudio) {
+                remoteAudio.play().catch((e) => console.log("Remote audio play error:", e));
+            }
+        };
+
+        remoteVideo.play().catch((e) => console.log("Remote video play error:", e));
+        if (remoteAudio) {
+            remoteAudio.play().catch((e) => console.log("Remote audio play error:", e));
         }
     };
 
@@ -693,8 +1161,17 @@ function initPeerConnection(targetUser) {
 
     pc.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", pc.iceConnectionState);
-        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
-            endCall(false);
+        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+            // Automatically warm up encoder keyframe so receiver decodes without manual camera toggle
+            forceKeyframeWarmup(pc);
+            if (remoteVideo) {
+                remoteVideo.play().catch(() => {});
+            }
+        }
+        if (pc.iceConnectionState === "failed") {
+            try {
+                pc.restartIce();
+            } catch (_) {}
         }
     };
 
@@ -787,6 +1264,7 @@ socket.on("offer", async ({ from, to, offer }) => {
         endCallBtn.style.display = "flex";
         showActiveCallBar(from);
         showToast(`Connected with ${from}`);
+        setTimeout(() => forceKeyframeWarmup(pc), 300);
     } catch (err) {
         console.error("Error answering call:", err);
     }
@@ -803,6 +1281,7 @@ socket.on("answer", async ({ from, to, answer }) => {
             endCallBtn.style.display = "flex";
             showActiveCallBar(from);
             showToast(`Call connected with ${from}`);
+            setTimeout(() => forceKeyframeWarmup(peerConnection), 300);
         } catch (err) {
             console.error("Error setting remote description from answer:", err);
         }
@@ -839,8 +1318,15 @@ function endCall(notifyServer = true) {
     if (remoteVideo) {
         remoteVideo.srcObject = null;
     }
+    if (remoteAudio) {
+        remoteAudio.srcObject = null;
+    }
     if (endCallBtn) {
         endCallBtn.style.display = "none";
+    }
+    const remoteCallCard = document.getElementById("remote-call-card");
+    if (remoteCallCard) {
+        remoteCallCard.style.display = "none";
     }
     hideActiveCallBar();
 
@@ -884,13 +1370,110 @@ if (toggleCamera) {
         if (videoTrack) {
             isCameraOn = !isCameraOn;
             videoTrack.enabled = isCameraOn;
-            toggleCamera.classList.toggle("active", !isCameraOn);
+            toggleCamera.classList.toggle("camera-blocked", !isCameraOn);
             const icon = toggleCamera.querySelector("i");
             if (icon) icon.className = isCameraOn ? "fas fa-video" : "fas fa-video-slash";
-            showToast(isCameraOn ? "Camera: ON" : "Camera: OFF");
+            
+            // Broadcast camera blocked state to peer so peer's screen shows blocked card
+            if (activePeer) {
+                socket.emit("peer-video-state", {
+                    from: myUsername,
+                    to: activePeer,
+                    videoEnabled: isCameraOn
+                });
+            }
+            showToast(isCameraOn ? "Camera: ON (Video Active)" : "Camera: Blocked / OFF (Tasweer Hide Hai)");
         }
     });
 }
+
+// Switch between Audio Call and Video Call
+const toggleCallMode = document.getElementById("toggle-call-mode");
+const callModeIcon = document.getElementById("call-mode-icon");
+let isAudioCallMode = false;
+
+if (toggleCallMode) {
+    toggleCallMode.addEventListener("click", async () => {
+        if (!localStream) {
+            showToast("Media not ready");
+            return;
+        }
+        isAudioCallMode = !isAudioCallMode;
+        
+        const videoTrack = localStream.getVideoTracks()[0];
+        
+        if (isAudioCallMode) {
+            // Audio-Only Call Mode
+            if (videoTrack) videoTrack.enabled = false;
+            
+            toggleCallMode.classList.add("audio-mode-active");
+            if (callModeIcon) callModeIcon.className = "fas fa-phone-volume";
+            toggleCallMode.title = "Call Mode: Audio-Only (Click for Video Call)";
+            
+            // Notify peer
+            if (activePeer) {
+                socket.emit("call-mode-change", {
+                    from: myUsername,
+                    to: activePeer,
+                    mode: "audio"
+                });
+            }
+            showToast("Switched to Audio Call Mode (Voice Only)");
+        } else {
+            // Video Call Mode
+            if (videoTrack) videoTrack.enabled = isCameraOn;
+            
+            toggleCallMode.classList.remove("audio-mode-active");
+            if (callModeIcon) callModeIcon.className = "fas fa-video";
+            toggleCallMode.title = "Call Mode: Video Call (Click for Audio-Only)";
+            
+            // Notify peer
+            if (activePeer) {
+                socket.emit("call-mode-change", {
+                    from: myUsername,
+                    to: activePeer,
+                    mode: "video"
+                });
+            }
+            showToast("Switched to Video Call Mode");
+        }
+    });
+}
+
+// Remote Call Card & Peer State Listeners
+const remoteCallCard = document.getElementById("remote-call-card");
+const remoteCardName = document.getElementById("remote-card-name");
+const remoteCardStatus = document.getElementById("remote-card-status");
+
+socket.on("call-mode-change", ({ from, mode }) => {
+    if (remoteCallCard) {
+        if (mode === "audio") {
+            remoteCallCard.style.display = "flex";
+            if (remoteCardName) remoteCardName.textContent = from || "Participant";
+            if (remoteCardStatus) remoteCardStatus.textContent = "Audio Call Mode (Voice Only)";
+            showToast(`${from} switched to Audio Call mode`);
+        } else {
+            remoteCallCard.style.display = "none";
+            showToast(`${from} switched back to Video Call mode`);
+        }
+    }
+});
+
+socket.on("peer-video-state", ({ from, videoEnabled }) => {
+    if (remoteCallCard) {
+        if (!videoEnabled) {
+            remoteCallCard.style.display = "flex";
+            if (remoteCardName) remoteCardName.textContent = from || "Participant";
+            if (remoteCardStatus) remoteCardStatus.textContent = "Camera Blocked / OFF (User paused video)";
+            showToast(`${from} has paused/blocked camera`);
+        } else {
+            if (!isAudioCallMode) {
+                remoteCallCard.style.display = "none";
+            }
+            showToast(`${from} unblocked camera`);
+        }
+    }
+});
 
 if (toggleMic) {
     toggleMic.addEventListener("click", () => {
@@ -898,17 +1481,97 @@ if (toggleMic) {
             showToast("Microphone not ready or not permitted");
             return;
         }
-        const audioTrack = localStream.getAudioTracks()[0];
-        if (audioTrack) {
-            isMicOn = !isMicOn;
-            audioTrack.enabled = isMicOn;
-            toggleMic.classList.toggle("active", !isMicOn);
-            const icon = toggleMic.querySelector("i");
-            if (icon) icon.className = isMicOn ? "fas fa-microphone" : "fas fa-microphone-slash";
-            showToast(isMicOn ? "Microphone: ON" : "Microphone: MUTED");
+        isMicOn = !isMicOn;
+
+        // 1. Mute/unmute all local audio tracks
+        localStream.getAudioTracks().forEach(track => {
+            track.enabled = isMicOn;
+        });
+
+        // 2. Mute/unmute active RTCRtpSenders
+        if (peerConnection) {
+            peerConnection.getSenders().forEach(sender => {
+                if (sender.track && sender.track.kind === 'audio') {
+                    sender.track.enabled = isMicOn;
+                }
+            });
         }
+
+        toggleMic.classList.toggle("camera-blocked", !isMicOn);
+        toggleMic.classList.toggle("active", !isMicOn);
+        const icon = toggleMic.querySelector("i");
+        if (icon) icon.className = isMicOn ? "fas fa-microphone" : "fas fa-microphone-slash";
+        showToast(isMicOn ? "Microphone: ON (Aapki Awaaz Ja Rahi Hai)" : "Microphone: MUTED (Aapki Awaaz Band Hai)");
     });
 }
+
+// Speaker / Incoming Audio Listeners
+if (toggleSpeaker) {
+    let pressTimer = null;
+    toggleSpeaker.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSpeakerMute();
+    });
+
+    toggleSpeaker.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (volumePopover) {
+            volumePopover.style.display = (volumePopover.style.display === "none") ? "flex" : "none";
+        }
+    });
+
+    toggleSpeaker.addEventListener("touchstart", () => {
+        pressTimer = setTimeout(() => {
+            if (volumePopover) {
+                volumePopover.style.display = "flex";
+            }
+        }, 400);
+    }, { passive: true });
+
+    toggleSpeaker.addEventListener("touchend", () => {
+        if (pressTimer) clearTimeout(pressTimer);
+    });
+}
+
+if (barSpeakerToggle) {
+    barSpeakerToggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSpeakerMute();
+    });
+}
+
+if (btnPopoverMute) {
+    btnPopoverMute.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSpeakerMute();
+    });
+}
+
+if (remoteVolumeSlider) {
+    remoteVolumeSlider.addEventListener("input", (e) => {
+        setIncomingVolume(e.target.value);
+    });
+}
+
+if (btnSettingMuteSpeaker) {
+    btnSettingMuteSpeaker.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSpeakerMute();
+    });
+}
+
+if (settingVolumeSlider) {
+    settingVolumeSlider.addEventListener("input", (e) => {
+        setIncomingVolume(e.target.value);
+    });
+}
+
+document.addEventListener("click", (e) => {
+    if (volumePopover && !volumePopover.contains(e.target) && e.target !== toggleSpeaker && !toggleSpeaker.contains(e.target)) {
+        volumePopover.style.display = "none";
+    }
+});
 
 if (localVideoToggleIcon) {
     localVideoToggleIcon.addEventListener("click", () => {
@@ -1359,3 +2022,569 @@ if (btnExpandBar) {
         showControlsBar();
     });
 }
+
+// ==============================================================
+// TRANSPARENT CHAT OVERLAY SYSTEM
+// ==============================================================
+const btnToggleChat = document.getElementById("btn-toggle-chat");
+const chatUnreadBadge = document.getElementById("chat-unread-badge");
+const chatOverlayContainer = document.getElementById("chat-overlay-container");
+const btnCloseChat = document.getElementById("btn-close-chat");
+const btnClearChat = document.getElementById("btn-clear-chat");
+const chatHeaderTitle = document.getElementById("chat-header-title");
+const chatMessagesScroll = document.getElementById("chat-messages-scroll");
+
+const chatForm = document.getElementById("chat-form");
+const chatTextInput = document.getElementById("chat-text-input");
+const btnChatAttach = document.getElementById("btn-chat-attach");
+const btnChatEmoji = document.getElementById("btn-chat-emoji");
+const btnChatSend = document.getElementById("btn-chat-send");
+
+const chatReactionBar = document.getElementById("chat-reaction-bar");
+const chatAttachmentPopover = document.getElementById("chat-attachment-popover");
+const chatEmojiDrawer = document.getElementById("chat-emoji-drawer");
+const btnCloseEmoji = document.getElementById("btn-close-emoji");
+const emojiGrid = document.getElementById("emoji-grid");
+
+const attachCameraInput = document.getElementById("attach-camera-input");
+const attachMediaInput = document.getElementById("attach-media-input");
+const attachDocInput = document.getElementById("attach-doc-input");
+
+const chatPendingAttachment = document.getElementById("chat-pending-attachment");
+const pendingImgPreview = document.getElementById("pending-img-preview");
+const pendingDocIcon = document.getElementById("pending-doc-icon");
+const pendingFileName = document.getElementById("pending-file-name");
+const pendingFileSize = document.getElementById("pending-file-size");
+const btnCancelPending = document.getElementById("btn-cancel-pending");
+
+const chatImageLightbox = document.getElementById("chat-image-lightbox");
+const lightboxImg = document.getElementById("lightbox-img");
+const lightboxDownload = document.getElementById("lightbox-download");
+const btnCloseLightbox = document.getElementById("btn-close-lightbox");
+
+let isChatOpen = false;
+let unreadChatCount = 0;
+let pendingFileObj = null;
+let currentReactionTargetMsgId = null;
+let longPressTimeout = null;
+
+const POPULAR_EMOJIS = [
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
+    "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
+    "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🤩",
+    "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "😣", "😖",
+    "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯",
+    "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔",
+    "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😦",
+    "👍", "👎", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✌️", "🤞",
+    "🤟", "🤘", "👌", "🤏", "👈", "👉", "👆", "👇", "☝️", "✋",
+    "🤚", "🖐️", "🖖", "👋", "🤙", "💪", "🖕", "✍️", "🤳", "💅",
+    "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔",
+    "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "🔥",
+    "✨", "🌟", "⭐", "💫", "💥", "💯", "🎉", "🎊", "🎈", "🎁",
+    "☕", "🍕", "🍔", "🍟", "🍻", "🥂", "🏆", "🥇", "🚀", "💡"
+];
+
+function playChatNotificationSound() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.18);
+    } catch (_) {}
+}
+
+// Populate Emoji Grid
+if (emojiGrid) {
+    POPULAR_EMOJIS.forEach(emoji => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "emoji-pick-btn";
+        btn.textContent = emoji;
+        btn.addEventListener("click", () => {
+            insertEmojiAtCursor(emoji);
+        });
+        emojiGrid.appendChild(btn);
+    });
+}
+
+function insertEmojiAtCursor(emoji) {
+    if (!chatTextInput) return;
+    const start = chatTextInput.selectionStart || chatTextInput.value.length;
+    const end = chatTextInput.selectionEnd || chatTextInput.value.length;
+    const text = chatTextInput.value;
+    chatTextInput.value = text.substring(0, start) + emoji + text.substring(end);
+    chatTextInput.focus();
+    chatTextInput.selectionStart = chatTextInput.selectionEnd = start + emoji.length;
+}
+
+// Toggle Chat Overlay
+function toggleChatOverlay(forceOpen = null) {
+    if (!chatOverlayContainer) return;
+    isChatOpen = (forceOpen !== null) ? forceOpen : (chatOverlayContainer.style.display === "none");
+    chatOverlayContainer.style.display = isChatOpen ? "flex" : "none";
+    if (btnToggleChat) {
+        btnToggleChat.classList.toggle("active", isChatOpen);
+    }
+    if (isChatOpen) {
+        unreadChatCount = 0;
+        if (chatUnreadBadge) {
+            chatUnreadBadge.textContent = "0";
+            chatUnreadBadge.style.display = "none";
+        }
+        updateChatHeaderTitle();
+        scrollChatToBottom();
+        setTimeout(() => {
+            if (chatTextInput) chatTextInput.focus();
+        }, 150);
+    } else {
+        hideChatPopovers();
+    }
+}
+
+function updateChatHeaderTitle() {
+    if (!chatHeaderTitle) return;
+    chatHeaderTitle.textContent = activePeer ? activePeer : "Meeting";
+}
+
+function hideChatPopovers() {
+    if (chatReactionBar) chatReactionBar.style.display = "none";
+    if (chatAttachmentPopover) chatAttachmentPopover.style.display = "none";
+    if (chatEmojiDrawer) chatEmojiDrawer.style.display = "none";
+}
+
+function scrollChatToBottom() {
+    if (chatMessagesScroll) {
+        chatMessagesScroll.scrollTop = chatMessagesScroll.scrollHeight;
+    }
+}
+
+function formatChatTime(ts) {
+    const d = new Date(ts);
+    let hrs = d.getHours();
+    const mins = d.getMinutes().toString().padStart(2, "0");
+    const ampm = hrs >= 12 ? "PM" : "AM";
+    hrs = hrs % 12 || 12;
+    return `${hrs}:${mins} ${ampm}`;
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+// Handle Attachments
+function handleFileSelection(file) {
+    if (!file) return;
+    if (file.size > 18 * 1024 * 1024) {
+        showToast("File size too large (Max 18MB)");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        pendingFileObj = {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            data: e.target.result
+        };
+
+        if (chatPendingAttachment) {
+            chatPendingAttachment.style.display = "flex";
+            if (pendingFileName) pendingFileName.textContent = file.name;
+            if (pendingFileSize) pendingFileSize.textContent = formatFileSize(file.size);
+
+            if (file.type.startsWith("image/")) {
+                if (pendingImgPreview) {
+                    pendingImgPreview.src = e.target.result;
+                    pendingImgPreview.style.display = "block";
+                }
+                if (pendingDocIcon) pendingDocIcon.style.display = "none";
+            } else {
+                if (pendingImgPreview) pendingImgPreview.style.display = "none";
+                if (pendingDocIcon) pendingDocIcon.style.display = "block";
+            }
+        }
+        hideChatPopovers();
+        if (chatTextInput) chatTextInput.focus();
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearPendingAttachment() {
+    pendingFileObj = null;
+    if (chatPendingAttachment) chatPendingAttachment.style.display = "none";
+    if (attachCameraInput) attachCameraInput.value = "";
+    if (attachMediaInput) attachMediaInput.value = "";
+    if (attachDocInput) attachDocInput.value = "";
+}
+
+// Render Chat Message Bubble
+function appendChatMessage(msg, isMine) {
+    if (!chatMessagesScroll) return;
+
+    const msgEl = document.createElement("div");
+    msgEl.className = `chat-msg ${isMine ? "mine" : "peer"}`;
+    msgEl.dataset.msgId = msg.id;
+
+    // Header info (Timestamp only, transparent)
+    const metaEl = document.createElement("div");
+    metaEl.className = "chat-msg-meta";
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "chat-msg-time";
+    timeEl.textContent = formatChatTime(msg.timestamp);
+
+    metaEl.appendChild(timeEl);
+    msgEl.appendChild(metaEl);
+
+    // Text content (with crisp black border shadow)
+    if (msg.text && msg.text.trim()) {
+        const textEl = document.createElement("div");
+        textEl.className = "chat-msg-text";
+        textEl.textContent = msg.text;
+        msgEl.appendChild(textEl);
+    }
+
+    // Attachment content (Image or Document)
+    if (msg.file && msg.file.data) {
+        const attachContainer = document.createElement("div");
+        attachContainer.className = "chat-msg-attachment";
+
+        if (msg.file.type && msg.file.type.startsWith("image/")) {
+            const img = document.createElement("img");
+            img.src = msg.file.data;
+            img.className = "chat-img-thumb";
+            img.alt = msg.file.name || "Attached Photo";
+            img.loading = "lazy";
+            img.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openImageLightbox(msg.file.data, msg.file.name);
+            });
+            attachContainer.appendChild(img);
+        } else if (msg.file.type && msg.file.type.startsWith("video/")) {
+            const video = document.createElement("video");
+            video.src = msg.file.data;
+            video.controls = true;
+            video.className = "chat-video-player";
+            attachContainer.appendChild(video);
+        } else {
+            // Document card
+            const docCard = document.createElement("a");
+            docCard.className = "chat-doc-card";
+            docCard.href = msg.file.data;
+            docCard.download = msg.file.name || "download";
+            docCard.addEventListener("click", (e) => e.stopPropagation());
+
+            docCard.innerHTML = `
+                <i class="fas fa-file-alt chat-doc-icon"></i>
+                <div class="chat-doc-info">
+                    <span class="chat-doc-name">${msg.file.name || 'Document'}</span>
+                    <span class="chat-doc-size">${formatFileSize(msg.file.size)}</span>
+                </div>
+                <i class="fas fa-download chat-doc-download-icon"></i>
+            `;
+            attachContainer.appendChild(docCard);
+        }
+        msgEl.appendChild(attachContainer);
+    }
+
+    // Reaction badge container
+    const reactionBadge = document.createElement("div");
+    reactionBadge.className = "chat-reaction-badge";
+    reactionBadge.style.display = "none";
+    reactionBadge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        triggerReactionBarForMessage(msg.id, msgEl);
+    });
+    msgEl.appendChild(reactionBadge);
+
+    // Setup Hold / Long-press (Mobile) & Contextmenu / Click (Desktop)
+    setupMessageHoldEvents(msgEl, msg.id);
+
+    chatMessagesScroll.appendChild(msgEl);
+    scrollChatToBottom();
+}
+
+// WhatsApp-style Message Hold / Long-press Event Listeners
+function setupMessageHoldEvents(msgEl, msgId) {
+    // Touch devices (Mobile hold for 380ms)
+    msgEl.addEventListener("touchstart", (e) => {
+        longPressTimeout = setTimeout(() => {
+            if (navigator.vibrate) navigator.vibrate(40);
+            triggerReactionBarForMessage(msgId, msgEl);
+        }, 380);
+    }, { passive: true });
+
+    msgEl.addEventListener("touchmove", () => {
+        if (longPressTimeout) clearTimeout(longPressTimeout);
+    }, { passive: true });
+
+    msgEl.addEventListener("touchend", () => {
+        if (longPressTimeout) clearTimeout(longPressTimeout);
+    });
+
+    // Desktop: Right-click or double click
+    msgEl.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        triggerReactionBarForMessage(msgId, msgEl);
+    });
+
+    // Desktop hover or tap fallback
+    msgEl.addEventListener("dblclick", () => {
+        triggerReactionBarForMessage(msgId, msgEl);
+    });
+}
+
+function triggerReactionBarForMessage(msgId, msgEl) {
+    if (!chatReactionBar) return;
+    currentReactionTargetMsgId = msgId;
+
+    const rect = msgEl.getBoundingClientRect();
+    const overlayRect = chatOverlayContainer.getBoundingClientRect();
+
+    chatReactionBar.style.display = "flex";
+    const topOffset = Math.max(10, rect.top - overlayRect.top - 44);
+    chatReactionBar.style.top = `${topOffset}px`;
+
+    if (msgEl.classList.contains("mine")) {
+        chatReactionBar.style.right = "10px";
+        chatReactionBar.style.left = "auto";
+    } else {
+        chatReactionBar.style.left = "10px";
+        chatReactionBar.style.right = "auto";
+    }
+}
+
+// Apply Reaction to Message
+function applyReactionToMessage(msgId, emoji, fromUser) {
+    const msgEl = document.querySelector(`.chat-msg[data-msg-id="${msgId}"]`);
+    if (!msgEl) return;
+    const badge = msgEl.querySelector(".chat-reaction-badge");
+    if (!badge) return;
+
+    badge.textContent = emoji;
+    badge.title = `Reacted by ${fromUser}`;
+    badge.style.display = "inline-flex";
+}
+
+// Lightbox Photo Preview
+function openImageLightbox(dataUrl, filename) {
+    if (!chatImageLightbox || !lightboxImg) return;
+    lightboxImg.src = dataUrl;
+    if (lightboxDownload) {
+        lightboxDownload.href = dataUrl;
+        lightboxDownload.download = filename || "photo.jpg";
+    }
+    chatImageLightbox.style.display = "flex";
+}
+
+// Send Message Handler
+function sendChatMessage() {
+    const text = chatTextInput ? chatTextInput.value.trim() : "";
+    if (!text && !pendingFileObj) return;
+
+    const msgId = "msg_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
+    const msg = {
+        id: msgId,
+        from: myUsername || "Me",
+        to: activePeer || "all",
+        text: text,
+        file: pendingFileObj,
+        timestamp: Date.now()
+    };
+
+    // Render locally on the right
+    appendChatMessage(msg, true);
+
+    // Send to peer / meeting over socket
+    socket.emit("chat-message", msg);
+
+    // Reset input states
+    if (chatTextInput) {
+        chatTextInput.value = "";
+        chatTextInput.focus();
+    }
+    clearPendingAttachment();
+    hideChatPopovers();
+}
+
+// Socket Receive Chat Message
+socket.on("chat-message", (msg) => {
+    if (!msg || msg.from === myUsername) return;
+
+    appendChatMessage(msg, false);
+
+    if (!isChatOpen) {
+        unreadChatCount++;
+        if (chatUnreadBadge) {
+            chatUnreadBadge.textContent = unreadChatCount > 99 ? "99+" : unreadChatCount;
+            chatUnreadBadge.style.display = "inline-block";
+        }
+        playChatNotificationSound();
+        const snippet = msg.text ? (msg.text.length > 25 ? msg.text.substring(0, 25) + "..." : msg.text) : (msg.file ? `Sent ${msg.file.name}` : "New message");
+        showToast(`💬 ${msg.from}: ${snippet}`);
+    }
+});
+
+// Socket Receive Chat Reaction
+socket.on("chat-reaction", (data) => {
+    if (!data || !data.messageId || !data.emoji) return;
+    applyReactionToMessage(data.messageId, data.emoji, data.from);
+});
+
+// Wire Chat Event Listeners
+if (btnToggleChat) {
+    btnToggleChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleChatOverlay();
+    });
+}
+
+if (btnCloseChat) {
+    btnCloseChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleChatOverlay(false);
+    });
+}
+
+if (btnClearChat) {
+    btnClearChat.addEventListener("click", () => {
+        if (confirm("Clear all chat messages?")) {
+            if (chatMessagesScroll) chatMessagesScroll.innerHTML = "";
+            showToast("Chat cleared");
+        }
+    });
+}
+
+if (chatForm) {
+    chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        sendChatMessage();
+    });
+}
+
+// Attachments Popover Toggle
+if (btnChatAttach) {
+    btnChatAttach.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (chatAttachmentPopover) {
+            const isShown = (chatAttachmentPopover.style.display !== "none");
+            hideChatPopovers();
+            chatAttachmentPopover.style.display = isShown ? "none" : "flex";
+        }
+    });
+}
+
+// Emoji Drawer Toggle
+if (btnChatEmoji) {
+    btnChatEmoji.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (chatEmojiDrawer) {
+            const isShown = (chatEmojiDrawer.style.display !== "none");
+            hideChatPopovers();
+            chatEmojiDrawer.style.display = isShown ? "none" : "flex";
+        }
+    });
+}
+
+if (btnCloseEmoji) {
+    btnCloseEmoji.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (chatEmojiDrawer) chatEmojiDrawer.style.display = "none";
+    });
+}
+
+// File Inputs
+if (attachCameraInput) {
+    attachCameraInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleFileSelection(e.target.files[0]);
+        }
+    });
+}
+
+if (attachMediaInput) {
+    attachMediaInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleFileSelection(e.target.files[0]);
+        }
+    });
+}
+
+if (attachDocInput) {
+    attachDocInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleFileSelection(e.target.files[0]);
+        }
+    });
+}
+
+if (btnCancelPending) {
+    btnCancelPending.addEventListener("click", (e) => {
+        e.stopPropagation();
+        clearPendingAttachment();
+    });
+}
+
+// Reaction Bar Emoji Clicks
+if (chatReactionBar) {
+    chatReactionBar.querySelectorAll(".reaction-emoji-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const emoji = btn.dataset.emoji;
+            if (currentReactionTargetMsgId && emoji) {
+                applyReactionToMessage(currentReactionTargetMsgId, emoji, myUsername || "You");
+                socket.emit("chat-reaction", {
+                    messageId: currentReactionTargetMsgId,
+                    emoji: emoji,
+                    from: myUsername || "Me",
+                    to: activePeer || "all"
+                });
+            }
+            chatReactionBar.style.display = "none";
+            currentReactionTargetMsgId = null;
+        });
+    });
+}
+
+// Lightbox Close
+if (btnCloseLightbox) {
+    btnCloseLightbox.addEventListener("click", () => {
+        if (chatImageLightbox) chatImageLightbox.style.display = "none";
+    });
+}
+if (chatImageLightbox) {
+    chatImageLightbox.addEventListener("click", (e) => {
+        if (e.target === chatImageLightbox) {
+            chatImageLightbox.style.display = "none";
+        }
+    });
+}
+
+// Close popovers when clicking elsewhere
+document.addEventListener("click", (e) => {
+    if (chatReactionBar && !chatReactionBar.contains(e.target)) {
+        chatReactionBar.style.display = "none";
+    }
+    if (chatAttachmentPopover && !chatAttachmentPopover.contains(e.target) && e.target !== btnChatAttach) {
+        chatAttachmentPopover.style.display = "none";
+    }
+    if (chatEmojiDrawer && !chatEmojiDrawer.contains(e.target) && e.target !== btnChatEmoji) {
+        chatEmojiDrawer.style.display = "none";
+    }
+});

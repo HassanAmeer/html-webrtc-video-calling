@@ -18,6 +18,9 @@
         <div id="active-call-bar" class="active-call-bar" style="display: none;">
             <span class="call-pulse-dot"></span>
             <span id="active-call-name">Connected</span>
+            <button id="bar-speaker-toggle" class="call-bar-badge" title="Mute/Unmute Incoming Sound (Awaaz)">
+                <i class="fas fa-volume-up" id="bar-speaker-icon"></i>
+            </button>
             <button id="bar-quality-toggle" class="call-bar-badge hd" title="Quality: HD 1080p. Tap to switch to SD for slow network.">
                 <i class="fas fa-bolt"></i>
                 <span id="bar-quality-text">HD</span>
@@ -107,6 +110,34 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+
+                    <!-- Camera Source / Lens Switch -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Camera Lens (Front / Back)</span>
+                            <span class="setting-desc">Switch between Front (Selfie) and Back (Rear) camera</span>
+                        </div>
+                        <select id="setting-camera-select" class="setting-select">
+                            <option value="user">Front Camera (Selfie)</option>
+                            <option value="environment">Back Camera (Rear)</option>
+                        </select>
+                    </div>
+
+                    <!-- Incoming Audio Volume & Speaker Control -->
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <span class="setting-label">Incoming Sound & Volume</span>
+                            <span class="setting-desc">Mute incoming sound completely or adjust call loudness</span>
+                        </div>
+                        <div class="setting-volume-controls">
+                            <button id="btn-setting-mute-speaker" class="setting-vol-btn" title="Toggle Incoming Mute">
+                                <i class="fas fa-volume-up" id="setting-speaker-icon"></i>
+                                <span id="setting-speaker-text">Mute</span>
+                            </button>
+                            <input type="range" id="setting-volume-slider" min="0" max="100" value="100" class="volume-range-input">
+                            <span id="setting-volume-label" class="volume-val-badge">100%</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -167,22 +198,41 @@
         <section class="video-call-container">
             <div class="video-streams">
                 <div class="remote-video">
-                    <video id="remoteVideo" autoplay playsinline></video>
+                    <video id="remoteVideo" autoplay playsinline webkit-playsinline muted></video>
+                    <audio id="remoteAudio" autoplay playsinline></audio>
+                    <!-- Audio Call Mode Card / Camera Blocked Overlay -->
+                    <div id="remote-call-card" class="remote-call-card" style="display: none;">
+                        <div class="call-card-avatar-ring">
+                            <i class="fas fa-user call-card-avatar-icon"></i>
+                            <div class="audio-wave-pulse"></div>
+                        </div>
+                        <h3 id="remote-card-name" class="call-card-name">Participant</h3>
+                        <p id="remote-card-status" class="call-card-status">Audio Call Mode (Voice Only)</p>
+                        <div class="call-card-audio-indicator">
+                            <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                        </div>
+                    </div>
                     <div class="user-avatar d-none">
                         <i class="fas fa-user"></i>
                     </div>
                 </div>
                 <div class="local-video" id="local-video-container">
-                    <video id="localVideo" autoplay muted playsinline></video>
+                    <video id="localVideo" autoplay muted playsinline webkit-playsinline></video>
                     <div class="user-avatar d-none">
                         <i class="fas fa-user"></i>
                     </div>
-                    <!-- Local Camera Overlay: Drag Indicator, Resize, and Hide -->
+                    <!-- Local Camera Overlay: Drag Indicator, Resize, Flip, and Hide -->
                     <div class="local-camera-overlay" id="local-camera-overlay">
                         <span class="local-drag-hint" title="Drag anywhere to move camera position">
                             <i class="fas fa-arrows-alt"></i>
                         </span>
                         <div class="local-action-buttons">
+                            <button id="btn-local-switch-cam" class="local-overlay-btn" title="Switch Camera (Front / Back Lens)">
+                                <i class="fas fa-camera-rotate" id="icon-local-switch-cam"></i>
+                            </button>
+                            <button id="btn-local-flip" class="local-overlay-btn" title="Flip / Mirror Camera (WhatsApp Direction)">
+                                <i class="fas fa-arrows-alt-h" id="icon-local-flip"></i>
+                            </button>
                             <button id="btn-local-size" class="local-overlay-btn" title="Resize Camera (Mini / Normal / Large)">
                                 <i class="fas fa-compress-arrows-alt" id="icon-local-size"></i>
                             </button>
@@ -201,42 +251,192 @@
                 <i class="fas fa-video"></i> <span>Show Self</span>
             </button>
 
-            <!-- iOS-style Floating Call Controls Dock (Max 85% width, Scrollable with Static Right Toggle) -->
+            <!-- Floating Volume Adjuster Popover for Incoming Audio -->
+            <div id="volume-popover" class="volume-popover" style="display: none;">
+                <div class="volume-popover-header">
+                    <span>Incoming Volume</span>
+                    <button id="btn-popover-mute" class="popover-mute-link">Mute</button>
+                </div>
+                <div class="volume-popover-slider-row">
+                    <i class="fas fa-volume-down" style="font-size: 11px; opacity: 0.7;"></i>
+                    <input type="range" id="remote-volume-slider" min="0" max="100" value="100" class="volume-range-input">
+                    <i class="fas fa-volume-up" style="font-size: 11px; opacity: 0.7;"></i>
+                    <span id="volume-slider-label" class="volume-val-badge">100%</span>
+                </div>
+            </div>
+
+            <!-- Floating Transparent Chat Overlay (WhatsApp-style reactions, attachments, emojis) -->
+            <div id="chat-overlay-container" class="chat-overlay-container" style="display: none;">
+                <!-- Overlay Header (Static Bar at Top with Glowing Pulse, Peer Name & Large Close Cross) -->
+                <div class="chat-overlay-header">
+                    <div class="chat-header-info">
+                        <span class="chat-pulse-indicator" title="Connected"></span>
+                        <span class="chat-header-title" id="chat-header-title">Meeting</span>
+                    </div>
+                    <button type="button" id="btn-close-chat" class="chat-close-btn-large" title="Close Chat" aria-label="Close Chat">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <!-- Messages Stream: Fully Transparent Background, Black Text-Shadow for Words -->
+                <div id="chat-messages-scroll" class="chat-messages-scroll">
+                    <!-- Dynamic chat messages stream -->
+                </div>
+
+                <!-- WhatsApp-style Floating Emoji Reaction Bar on Hold/Long-press -->
+                <div id="chat-reaction-bar" class="chat-reaction-bar" style="display: none;">
+                    <button type="button" class="reaction-emoji-btn" data-emoji="👍">👍</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="❤️">❤️</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="😂">😂</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="😮">😮</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="😢">😢</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="🙏">🙏</button>
+                    <button type="button" class="reaction-emoji-btn" data-emoji="🔥">🔥</button>
+                </div>
+
+                <!-- Attachment Picker Menu: Camera / Photos / Documents -->
+                <div id="chat-attachment-popover" class="chat-attachment-popover" style="display: none;">
+                    <label class="attachment-action-item">
+                        <input type="file" id="attach-camera-input" accept="image/*" capture="environment" style="display: none;">
+                        <span class="attachment-action-icon camera-bg"><i class="fas fa-camera"></i></span>
+                        <span class="attachment-action-text">Camera Photo</span>
+                    </label>
+                    <label class="attachment-action-item">
+                        <input type="file" id="attach-media-input" accept="image/*,video/*" style="display: none;">
+                        <span class="attachment-action-icon media-bg"><i class="fas fa-images"></i></span>
+                        <span class="attachment-action-text">Photo / Video</span>
+                    </label>
+                    <label class="attachment-action-item">
+                        <input type="file" id="attach-doc-input" accept="*/*" style="display: none;">
+                        <span class="attachment-action-icon doc-bg"><i class="fas fa-file-alt"></i></span>
+                        <span class="attachment-action-text">Document / File</span>
+                    </label>
+                </div>
+
+                <!-- Emoji Drawer Popover for Chat Input -->
+                <div id="chat-emoji-drawer" class="chat-emoji-drawer" style="display: none;">
+                    <div class="emoji-drawer-header">
+                        <span>Select Emoji</span>
+                        <button type="button" id="btn-close-emoji" class="chat-icon-btn"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="emoji-grid" id="emoji-grid"></div>
+                </div>
+
+                <!-- Pending Attachment Preview Pill -->
+                <div id="chat-pending-attachment" class="chat-pending-attachment" style="display: none;">
+                    <div class="pending-preview-content">
+                        <img id="pending-img-preview" class="pending-img-preview" style="display: none;" />
+                        <i class="fas fa-paperclip pending-doc-icon" id="pending-doc-icon"></i>
+                        <div class="pending-meta">
+                            <span id="pending-file-name" class="pending-file-name">filename.ext</span>
+                            <span id="pending-file-size" class="pending-file-size">0 KB</span>
+                        </div>
+                    </div>
+                    <button type="button" id="btn-cancel-pending" class="pending-remove-btn" title="Cancel Attachment">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <!-- Chat Input Bar -->
+                <form id="chat-form" class="chat-input-bar">
+                    <button type="button" id="btn-chat-attach" class="chat-tool-btn" title="Attach Document, Photo or Camera">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <button type="button" id="btn-chat-emoji" class="chat-tool-btn" title="Choose Emoji">
+                        <i class="fas fa-face-smile"></i>
+                    </button>
+                    <input type="text" id="chat-text-input" class="chat-text-input" placeholder="Type message..." maxlength="1000" autocomplete="off">
+                    <button type="submit" id="btn-chat-send" class="chat-send-btn" title="Send (Enter)">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Image Lightbox Modal for Chat Photos -->
+            <div id="chat-image-lightbox" class="chat-image-lightbox" style="display: none;">
+                <button type="button" id="btn-close-lightbox" class="lightbox-close-btn" title="Close Preview"><i class="fas fa-times"></i></button>
+                <img id="lightbox-img" class="lightbox-img" src="" alt="Full preview" />
+                <a id="lightbox-download" class="lightbox-download-btn" href="" download="image.jpg"><i class="fas fa-download"></i> Download</a>
+            </div>
+
+            <!-- iOS-style Floating Call Controls Dock (Main Action Buttons First) -->
             <div class="call-controls" id="call-controls">
                 <div class="controls-scroll-wrapper" id="controls-scroll-wrapper">
-                    <button class="control-btn" id="toggle-camera" title="Toggle Camera">
+                    <!-- 1. End Call Button (Primary action during active call) -->
+                    <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
+                        <i class="fas fa-phone-slash"></i>
+                    </button>
+
+                    <!-- 2. Video Camera ON / OFF (Camera Block / Blindfold) -->
+                    <button class="control-btn" id="toggle-camera" title="Toggle Camera (Block/Unblock Video)">
                         <i class="fas fa-video"></i>
                     </button>
-                    <button class="control-btn" id="toggle-mic" title="Toggle Microphone">
+
+                    <!-- 3. Switch between Audio Call and Video Call Mode -->
+                    <button class="control-btn" id="toggle-call-mode" title="Switch Call Mode (Video Call / Audio-Only)">
+                        <i class="fas fa-video" id="call-mode-icon"></i>
+                    </button>
+
+                    <!-- 4. Microphone Mute / Unmute -->
+                    <button class="control-btn" id="toggle-mic" title="Toggle Microphone (My Voice)">
                         <i class="fas fa-microphone"></i>
                     </button>
+
+                    <!-- 5. Speaker Mode (Big Loudspeaker / Phone Earpiece / Mute) -->
+                    <button class="control-btn" id="toggle-speaker" title="Speaker Mode (Big Loudspeaker / Phone Earpiece / Mute)">
+                        <i class="fas fa-volume-up" id="speaker-icon"></i>
+                    </button>
+
+                    <!-- 6. Screen Share ON / OFF -->
+                    <button class="control-btn" id="toggle-screen" title="Share Screen">
+                        <i class="fas fa-desktop"></i>
+                    </button>
+
+                    <!-- 7. Switch Camera (Front / Back Lens) -->
+                    <button class="control-btn" id="btn-switch-camera" title="Switch Camera (Front / Back Lens)">
+                        <i class="fas fa-camera-rotate" id="switch-cam-icon"></i>
+                    </button>
+
+                    <!-- 8. Hide / Show Self Camera Window -->
+                    <button id="local-video-toggle-icon" class="control-btn" title="Hide/Show Self Camera Window">
+                        <i class="fas fa-eye"></i>
+                    </button>
+
+                    <!-- 9. Chat Overlay (Messages, Files & Emojis) -->
+                    <button class="control-btn" id="btn-toggle-chat" title="Chat Overlay (Messages, Files & Emojis)">
+                        <i class="fas fa-comment-dots"></i>
+                        <span id="chat-unread-badge" class="badge-mini chat-unread-badge" style="display: none;">0</span>
+                    </button>
+
+                    <!-- 10. Toggle Video Quality (HD / SD) -->
+                    <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
+                        <span id="quality-badge" class="quality-badge hd">HD</span>
+                    </button>
+
+                    <!-- 11. Fit / Fill Screen -->
+                    <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen / Fill Screen">
+                        <i class="fas fa-expand-arrows-alt"></i>
+                    </button>
+
+                    <!-- 12. Floating Picture-in-Picture -->
+                    <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
+                        <i class="fas fa-clone"></i>
+                    </button>
+
+                    <!-- 13. Open Participants Panel -->
                     <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
                         <i class="fas fa-users"></i>
                         <span id="badge-participant-count" class="badge-mini">0</span>
                     </button>
-                    <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / SD)">
-                        <span id="quality-badge" class="quality-badge hd">HD</span>
-                    </button>
-                    <button class="control-btn" id="toggle-fit" title="Toggle Fit Screen / Fill Screen">
-                        <i class="fas fa-expand-arrows-alt"></i>
-                    </button>
-                    <button class="control-btn" id="toggle-pip" title="Floating Window (Stays on top of other tabs)">
-                        <i class="fas fa-clone"></i>
-                    </button>
-                    <button class="control-btn" id="toggle-screen" title="Share Screen">
-                        <i class="fas fa-desktop"></i>
-                    </button>
+
+                    <!-- 14. Freeze App (Sleep & Stop Camera/Mic) -->
                     <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
                         <i class="fas fa-snowflake"></i>
                     </button>
-                    <button id="local-video-toggle-icon" class="control-btn" title="Toggle Local Video Preview">
-                        <i class="fas fa-eye"></i>
-                    </button>
+
+                    <!-- 15. Settings & Options -->
                     <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
                         <i class="fas fa-cog"></i>
-                    </button>
-                    <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
-                        <i class="fas fa-phone-slash"></i>
                     </button>
                 </div>
                 <!-- Pinned Static Right Button to Hide/Collapse Dock -->
