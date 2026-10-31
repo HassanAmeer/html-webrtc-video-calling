@@ -77,6 +77,15 @@ let isMirrorCamera = (localStorage.getItem("webrtc_mirror_camera") !== "false");
 let currentFacingMode = localStorage.getItem("webrtc_facing_mode") || "user";
 let autoCallTarget = null;
 let hasAutoCalled = false;
+let latestUsers = {};
+let callingPeer = null;
+let incomingCallData = null;
+let decoyClickCount = 0;
+let decoyToastTimeout = null;
+let holdAcceptTimer = null;
+let holdStartTime = 0;
+let ringAudioCtx = null;
+let ringInterval = null;
 
 const rtcConfig = {
     iceServers: [
@@ -987,49 +996,11 @@ function handleUrlQueryParams() {
 handleUrlQueryParams();
 
 // Render participant list
-socket.on("joined", (allusers) => {
-    console.log("Participants update:", allusers);
+function renderParticipantsList() {
+    if (!allusersHtml) return;
     allusersHtml.innerHTML = "";
 
-    // Gracefully clean up if active call peer disconnected / closed browser
-    if (activePeer && !allusers[activePeer]) {
-        console.log(`Active peer ${activePeer} left the meeting`);
-        showToast(`${activePeer} disconnected`);
-        endCall(false);
-    }
-
-    // Auto-call target if specified in URL query and online
-    if (autoCallTarget && autoCallTarget !== myUsername && allusers[autoCallTarget] && !activePeer && !hasAutoCalled) {
-        hasAutoCalled = true;
-        console.log(`Auto-calling target from URL: ${autoCallTarget}`);
-        showToast(`Auto-calling ${autoCallTarget}...`);
-        setTimeout(() => {
-            startCall(autoCallTarget).catch((err) => console.log("Auto-call error:", err));
-        }, 900);
-    } else if (!activePeer && !hasAutoCalled && myUsername) {
-        // Smart Auto-Connect for matching Deal/Room UID:
-        // If both users opened the exact same link (e.g. https://v.tokendeal.cloud/?uid=786)
-        // User 1 becomes '786', User 2 becomes '786_1'
-        const baseUid = myUsername.split("_")[0];
-        if (baseUid) {
-            const peerWithSameDeal = Object.keys(allusers).find(u => {
-                return u !== myUsername && u.split("_")[0] === baseUid;
-            });
-            if (peerWithSameDeal) {
-                hasAutoCalled = true;
-                // Second user who joined initiates call to the waiting user
-                if (myUsername.includes("_")) {
-                    console.log(`Auto-connecting to deal partner ${peerWithSameDeal} with matching UID ${baseUid}`);
-                    showToast(`Connecting with ${peerWithSameDeal}...`);
-                    setTimeout(() => {
-                        startCall(peerWithSameDeal).catch((err) => console.log("Auto-call error:", err));
-                    }, 1000);
-                }
-            }
-        }
-    }
-
-    const userKeys = Object.keys(allusers);
+    const userKeys = Object.keys(latestUsers || {});
     if (participantCount) {
         participantCount.textContent = userKeys.length;
     }
@@ -1058,6 +1029,51 @@ socket.on("joined", (allusers) => {
         const li = createParticipantItem(user, isCurrent);
         allusersHtml.appendChild(li);
     });
+}
+
+socket.on("joined", (allusers) => {
+    console.log("Participants update:", allusers);
+    latestUsers = allusers || {};
+
+    // Gracefully clean up if active call peer disconnected / closed browser
+    if (activePeer && !latestUsers[activePeer]) {
+        console.log(`Active peer ${activePeer} left the meeting`);
+        showToast(`${activePeer} disconnected`);
+        endCall(false);
+    }
+
+    // Auto-call target if specified in URL query and online
+    if (autoCallTarget && autoCallTarget !== myUsername && latestUsers[autoCallTarget] && !activePeer && !hasAutoCalled) {
+        hasAutoCalled = true;
+        console.log(`Auto-calling target from URL: ${autoCallTarget}`);
+        showToast(`Auto-calling ${autoCallTarget}...`);
+        setTimeout(() => {
+            startCall(autoCallTarget).catch((err) => console.log("Auto-call error:", err));
+        }, 900);
+    } else if (!activePeer && !hasAutoCalled && myUsername) {
+        // Smart Auto-Connect for matching Deal/Room UID:
+        // If both users opened the exact same link (e.g. https://v.tokendeal.cloud/?uid=786)
+        // User 1 becomes '786', User 2 becomes '786_1'
+        const baseUid = myUsername.split("_")[0];
+        if (baseUid) {
+            const peerWithSameDeal = Object.keys(latestUsers).find(u => {
+                return u !== myUsername && u.split("_")[0] === baseUid;
+            });
+            if (peerWithSameDeal) {
+                hasAutoCalled = true;
+                // Second user who joined initiates call to the waiting user
+                if (myUsername.includes("_")) {
+                    console.log(`Auto-connecting to deal partner ${peerWithSameDeal} with matching UID ${baseUid}`);
+                    showToast(`Connecting with ${peerWithSameDeal}...`);
+                    setTimeout(() => {
+                        startCall(peerWithSameDeal).catch((err) => console.log("Auto-call error:", err));
+                    }, 1000);
+                }
+            }
+        }
+    }
+
+    renderParticipantsList();
 });
 
 function createParticipantItem(user, isCurrent) {
@@ -1072,37 +1088,56 @@ function createParticipantItem(user, isCurrent) {
     userInfo.className = "user-info";
     userInfo.style.display = "flex";
     userInfo.style.alignItems = "center";
-    userInfo.style.gap = "10px";
+    userInfo.style.gap = "8px";
+    userInfo.style.flexWrap = "wrap";
 
     const avatar = document.createElement("div");
     avatar.className = "user-avatar";
-    avatar.style.width = "34px";
-    avatar.style.height = "34px";
+    avatar.style.width = "32px";
+    avatar.style.height = "32px";
     avatar.style.borderRadius = "50%";
-    avatar.style.backgroundColor = isCurrent ? "#1a73e8" : "#3c4043";
+    avatar.style.backgroundColor = isCurrent ? "rgba(26, 115, 232, 0.45)" : "rgba(60, 64, 67, 0.45)";
+    avatar.style.border = isCurrent ? "1px solid rgba(138, 180, 248, 0.35)" : "1px solid rgba(255, 255, 255, 0.1)";
     avatar.style.color = "#fff";
     avatar.style.display = "flex";
     avatar.style.alignItems = "center";
     avatar.style.justifyContent = "center";
-    avatar.style.fontSize = "14px";
+    avatar.style.fontSize = "13px";
     avatar.innerHTML = '<i class="fas fa-user"></i>';
 
     const span = document.createElement("span");
-    span.style.fontSize = "14px";
+    span.style.fontSize = "13px";
     span.style.color = isCurrent ? "#8ab4f8" : "#e8eaed";
     span.style.fontWeight = isCurrent ? "600" : "400";
     span.textContent = isCurrent ? `${user} (You)` : user;
 
     userInfo.appendChild(avatar);
     userInfo.appendChild(span);
+
+    // Dynamic call status badge according to status
+    const isThisUserInCall = (activePeer === user);
+    const isThisUserRinging = (callingPeer === user || (incomingCallData && incomingCallData.from === user));
+
+    if (isThisUserInCall) {
+        const pill = document.createElement("span");
+        pill.className = "participant-call-pill in-call";
+        pill.innerHTML = '<i class="fas fa-video"></i> In Call';
+        userInfo.appendChild(pill);
+    } else if (isThisUserRinging) {
+        const pill = document.createElement("span");
+        pill.className = "participant-call-pill ringing";
+        pill.innerHTML = '<i class="fas fa-phone-volume"></i> Ringing...';
+        userInfo.appendChild(pill);
+    }
+
     li.appendChild(userInfo);
 
-    // Actions container (Quality, Call & Delete)
+    // Actions container (Quality, Call/EndCall & Delete)
     const actionsDiv = document.createElement("div");
     actionsDiv.className = "participant-actions";
 
     if (!isCurrent) {
-        // If actively connected in call with this participant, show Quality Toggle Button right here!
+        // If actively connected in call with this participant, show Quality Toggle Button right here
         if (activePeer === user) {
             const peerQualityBtn = document.createElement("button");
             peerQualityBtn.className = `btn-peer-quality ${currentQuality.toLowerCase()}`;
@@ -1122,22 +1157,51 @@ function createParticipantItem(user, isCurrent) {
             actionsDiv.appendChild(peerQualityBtn);
         }
 
-        // Call button
+        // Call / End Call button with subtle opacity and status-driven styling
         const callBtn = document.createElement("button");
-        callBtn.className = "btn-action-call";
-        callBtn.title = `Call ${user} (${currentQuality} Mode)`;
-        callBtn.innerHTML = '<i class="fas fa-phone"></i>';
-        callBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (!hasJoined) {
-                alert("Please enter your name and click Join first before calling.");
-                return;
-            }
-            startCall(user);
-        });
+
+        if (isThisUserInCall) {
+            // Status: In Call -> Soft Red End Call button (with opacity)
+            callBtn.className = "btn-action-call status-in-call";
+            callBtn.title = `In Call with ${user} (Click to End Call)`;
+            callBtn.innerHTML = '<i class="fas fa-phone-slash"></i>';
+            callBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                endCall(true);
+            });
+        } else if (isThisUserRinging) {
+            // Status: Ringing -> Soft Amber Pulsing button (with opacity)
+            callBtn.className = "btn-action-call status-ringing";
+            callBtn.title = `Call ringing with ${user}...`;
+            callBtn.innerHTML = '<i class="fas fa-phone-volume"></i>';
+            callBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (callingPeer === user) {
+                    endCall(true);
+                }
+            });
+        } else if (activePeer && activePeer !== user) {
+            // Status: In call with someone else -> Dimmed disabled
+            callBtn.className = "btn-action-call status-disabled";
+            callBtn.title = `Already in active call with ${activePeer}`;
+            callBtn.innerHTML = '<i class="fas fa-phone"></i>';
+        } else {
+            // Status: Idle / Ready -> Soft Low Opacity Green button
+            callBtn.className = "btn-action-call status-idle";
+            callBtn.title = `Call ${user} (${currentQuality} Mode)`;
+            callBtn.innerHTML = '<i class="fas fa-phone"></i>';
+            callBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (!hasJoined) {
+                    alert("Please enter your name and click Join first before calling.");
+                    return;
+                }
+                startCall(user);
+            });
+        }
         actionsDiv.appendChild(callBtn);
 
-        // Delete / Kick button
+        // Delete / Kick button - Low opacity
         const deleteBtn = document.createElement("button");
         deleteBtn.className = "btn-action-delete";
         deleteBtn.title = `Delete / Remove ${user}`;
@@ -1150,7 +1214,7 @@ function createParticipantItem(user, isCurrent) {
         });
         actionsDiv.appendChild(deleteBtn);
     } else {
-        // Self-leave / delete button
+        // Self-leave / delete button - Low opacity
         const leaveBtn = document.createElement("button");
         leaveBtn.className = "btn-action-delete";
         leaveBtn.title = "Leave Room";
@@ -1387,6 +1451,9 @@ async function startCall(targetUser) {
     }
 
     console.log(`Calling ${targetUser}...`);
+    callingPeer = targetUser;
+    renderParticipantsList();
+
     try {
         await ensureLocalStream();
         const pc = initPeerConnection(targetUser);
@@ -1408,43 +1475,27 @@ async function startCall(targetUser) {
         showActiveCallBar(targetUser);
         showToast(`Calling ${targetUser}...`);
     } catch (err) {
+        callingPeer = null;
+        renderParticipantsList();
         console.error("Failed to start call:", err);
         alert("Failed to start call: " + err.message);
     }
 }
 
-// Handle Incoming Offer
+// Handle Incoming Offer - DO NOT AUTO ACCEPT! Alert user with ringing waves & rocking animation
 socket.on("offer", async ({ from, to, offer }) => {
     console.log(`Received call offer from ${from}`);
-    try {
-        await ensureLocalStream();
-        const pc = initPeerConnection(from);
-
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        await flushPendingCandidates(pc);
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        applyBitrateToSender(pc);
-
-        socket.emit("answer", {
-            from: myUsername,
-            to: from,
-            answer: pc.localDescription
-        });
-
-        endCallBtn.style.display = "flex";
-        showActiveCallBar(from);
-        showToast(`Connected with ${from}`);
-        setTimeout(() => forceKeyframeWarmup(pc), 300);
-    } catch (err) {
-        console.error("Error answering call:", err);
-    }
+    incomingCallData = { from, to, offer };
+    renderParticipantsList();
+    startIncomingCallAlert(from);
 });
 
 // Handle Incoming Answer
 socket.on("answer", async ({ from, to, answer }) => {
     console.log(`Received answer from ${from}`);
+    callingPeer = null;
+    renderParticipantsList();
+
     if (peerConnection) {
         try {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
@@ -1454,6 +1505,7 @@ socket.on("answer", async ({ from, to, answer }) => {
             showActiveCallBar(from);
             showToast(`Call connected with ${from}`);
             setTimeout(() => forceKeyframeWarmup(peerConnection), 300);
+            renderParticipantsList();
         } catch (err) {
             console.error("Error setting remote description from answer:", err);
         }
@@ -1479,6 +1531,13 @@ function endCall(notifyServer = true) {
     if (notifyServer && activePeer) {
         socket.emit("end-call", { from: myUsername, to: activePeer });
     }
+    if (notifyServer && callingPeer) {
+        socket.emit("end-call", { from: myUsername, to: callingPeer });
+    }
+    if (notifyServer && incomingCallData) {
+        socket.emit("end-call", { from: myUsername, to: incomingCallData.from });
+    }
+
     if (peerConnection) {
         try {
             peerConnection.close();
@@ -1486,7 +1545,12 @@ function endCall(notifyServer = true) {
         peerConnection = null;
     }
     activePeer = null;
+    callingPeer = null;
+    incomingCallData = null;
     pendingIceCandidates = [];
+
+    stopIncomingCallAlert();
+
     if (remoteVideo) {
         remoteVideo.srcObject = null;
     }
@@ -1506,6 +1570,8 @@ function endCall(notifyServer = true) {
     if (document.pictureInPictureElement) {
         document.exitPictureInPicture().catch(() => {});
     }
+
+    renderParticipantsList();
 }
 
 if (endCallBtn) {
@@ -1516,9 +1582,300 @@ if (endCallBtn) {
 
 socket.on("end-call", ({ from, to }) => {
     console.log(`Call ended by peer`);
+    if (incomingCallData && incomingCallData.from === from) {
+        stopIncomingCallAlert();
+        incomingCallData = null;
+    }
+    callingPeer = null;
     showToast("Call ended");
     endCall(false);
+    renderParticipantsList();
 });
+
+// Decoy Security Toast on single click
+function showDecoyToast() {
+    decoyClickCount++;
+    const decoyToast = document.getElementById("decoy-security-toast");
+    const decoyText = document.getElementById("decoy-toast-text");
+    if (!decoyToast || !decoyText) return;
+
+    let msg = "";
+    if (decoyClickCount === 1) {
+        msg = "⚠️ Cannot Attend Call: Handshake protocol timed out (2 retries remaining)";
+    } else if (decoyClickCount === 2) {
+        msg = "⚠️ Cannot Attend: Connection stream unavailable (Last Try Remaining)";
+    } else {
+        msg = "⛔ Cannot Attend: Security Protocol Disconnected. Session Locked.";
+    }
+    decoyText.textContent = msg;
+
+    decoyToast.style.display = "inline-flex";
+    requestAnimationFrame(() => {
+        decoyToast.classList.add("show");
+    });
+
+    if (navigator.vibrate) {
+        navigator.vibrate(60);
+    }
+
+    if (decoyToastTimeout) clearTimeout(decoyToastTimeout);
+    decoyToastTimeout = setTimeout(() => {
+        decoyToast.classList.remove("show");
+        setTimeout(() => {
+            decoyToast.style.display = "none";
+        }, 250);
+    }, 2800);
+}
+
+// Synthesized Dual-Tone Telephone Ring Cadence
+function startSynthesizedRingtone() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!ringAudioCtx) {
+            ringAudioCtx = new AudioCtx();
+        }
+        if (ringAudioCtx.state === 'suspended') {
+            ringAudioCtx.resume().catch(() => {});
+        }
+
+        const playRingPulse = () => {
+            if (!incomingCallData || !ringAudioCtx) return;
+            const now = ringAudioCtx.currentTime;
+            const osc1 = ringAudioCtx.createOscillator();
+            const osc2 = ringAudioCtx.createOscillator();
+            const gain = ringAudioCtx.createGain();
+
+            osc1.type = "sine";
+            osc1.frequency.setValueAtTime(440, now);
+            osc2.type = "sine";
+            osc2.frequency.setValueAtTime(480, now);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.04, now + 0.05);
+            gain.gain.setValueAtTime(0.04, now + 0.85);
+            gain.gain.linearRampToValueAtTime(0, now + 0.95);
+
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(ringAudioCtx.destination);
+
+            osc1.start(now);
+            osc2.start(now);
+            osc1.stop(now + 0.95);
+            osc2.stop(now + 0.95);
+        };
+
+        playRingPulse();
+        if (ringInterval) clearInterval(ringInterval);
+        ringInterval = setInterval(() => {
+            if (!incomingCallData) {
+                stopSynthesizedRingtone();
+                return;
+            }
+            playRingPulse();
+        }, 2500);
+    } catch (e) {
+        console.warn("Ringtone audio init error:", e);
+    }
+}
+
+function stopSynthesizedRingtone() {
+    if (ringInterval) {
+        clearInterval(ringInterval);
+        ringInterval = null;
+    }
+}
+
+// Start Incoming Call Alert (Ringing Waves + Phone Rocking Wobble)
+function startIncomingCallAlert(callerName) {
+    const incomingBar = document.getElementById("incoming-call-bar");
+    const callerNameSpan = document.getElementById("incoming-caller-name");
+    const callControls = document.getElementById("call-controls");
+    const holdCircle = document.getElementById("hold-progress-circle");
+
+    if (callerNameSpan) {
+        callerNameSpan.textContent = callerName || "Unknown Caller";
+    }
+    if (holdCircle) {
+        holdCircle.style.strokeDashoffset = "145";
+        holdCircle.classList.remove("animating");
+    }
+
+    if (incomingBar) {
+        incomingBar.style.display = "flex";
+    }
+    if (callControls) {
+        callControls.classList.add("incoming-ringing-waves");
+    }
+
+    decoyClickCount = 0;
+    startSynthesizedRingtone();
+}
+
+// Stop Incoming Call Alert
+function stopIncomingCallAlert() {
+    const incomingBar = document.getElementById("incoming-call-bar");
+    const callControls = document.getElementById("call-controls");
+    const holdCircle = document.getElementById("hold-progress-circle");
+    const acceptBtn = document.getElementById("btn-incoming-accept");
+
+    if (incomingBar) {
+        incomingBar.style.display = "none";
+    }
+    if (callControls) {
+        callControls.classList.remove("incoming-ringing-waves");
+    }
+    if (holdCircle) {
+        holdCircle.style.strokeDashoffset = "145";
+        holdCircle.classList.remove("animating");
+    }
+    if (acceptBtn) {
+        acceptBtn.classList.remove("holding", "shake-error");
+    }
+    if (holdAcceptTimer) {
+        clearTimeout(holdAcceptTimer);
+        holdAcceptTimer = null;
+    }
+
+    stopSynthesizedRingtone();
+}
+
+// Accept Incoming Call (Triggered ONLY on Full Long-Press Hold)
+async function acceptIncomingCall() {
+    if (!incomingCallData) return;
+    const { from, offer } = incomingCallData;
+    incomingCallData = null;
+    stopIncomingCallAlert();
+
+    console.log(`Accepted call offer from ${from}`);
+    try {
+        await ensureLocalStream();
+        const pc = initPeerConnection(from);
+
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPendingCandidates(pc);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        applyBitrateToSender(pc);
+
+        socket.emit("answer", {
+            from: myUsername,
+            to: from,
+            answer: pc.localDescription
+        });
+
+        endCallBtn.style.display = "flex";
+        showActiveCallBar(from);
+        showToast(`Connected with ${from}`);
+        renderParticipantsList();
+        setTimeout(() => forceKeyframeWarmup(pc), 300);
+    } catch (err) {
+        console.error("Error answering call:", err);
+        showToast("Error connecting call");
+        renderParticipantsList();
+    }
+}
+
+// Setup Hold-to-Accept & Decoy Handlers
+const HOLD_REQUIRED_MS = 1200;
+function setupIncomingCallHandlers() {
+    const btnIncomingAccept = document.getElementById("btn-incoming-accept");
+    const holdProgressCircle = document.getElementById("hold-progress-circle");
+    const btnIncomingDecline = document.getElementById("btn-incoming-decline");
+
+    if (!btnIncomingAccept) return;
+
+    let isHoldingActive = false;
+
+    const startHolding = (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (isHoldingActive || !incomingCallData) return;
+        isHoldingActive = true;
+        holdStartTime = Date.now();
+        btnIncomingAccept.classList.add("holding");
+        btnIncomingAccept.classList.remove("shake-error");
+
+        if (holdProgressCircle) {
+            holdProgressCircle.classList.add("animating");
+            holdProgressCircle.style.strokeDashoffset = "0";
+        }
+
+        if (navigator.vibrate) {
+            navigator.vibrate(30);
+        }
+
+        holdAcceptTimer = setTimeout(() => {
+            isHoldingActive = false;
+            btnIncomingAccept.classList.remove("holding");
+            if (navigator.vibrate) {
+                navigator.vibrate([40, 60, 40]);
+            }
+            acceptIncomingCall();
+        }, HOLD_REQUIRED_MS);
+    };
+
+    const cancelHolding = (e) => {
+        if (!isHoldingActive) return;
+        isHoldingActive = false;
+        const duration = Date.now() - holdStartTime;
+        holdStartTime = 0;
+        btnIncomingAccept.classList.remove("holding");
+
+        if (holdAcceptTimer) {
+            clearTimeout(holdAcceptTimer);
+            holdAcceptTimer = null;
+        }
+
+        if (holdProgressCircle) {
+            holdProgressCircle.classList.remove("animating");
+            holdProgressCircle.style.strokeDashoffset = "145";
+        }
+
+        // Single click or released early -> Trigger decoy toast!
+        if (duration < HOLD_REQUIRED_MS && incomingCallData) {
+            btnIncomingAccept.classList.add("shake-error");
+            setTimeout(() => btnIncomingAccept.classList.remove("shake-error"), 450);
+            showDecoyToast();
+        }
+    };
+
+    // Pointer events
+    btnIncomingAccept.addEventListener("pointerdown", startHolding);
+    btnIncomingAccept.addEventListener("pointerup", cancelHolding);
+    btnIncomingAccept.addEventListener("pointercancel", cancelHolding);
+    btnIncomingAccept.addEventListener("pointerleave", cancelHolding);
+
+    // Touch events for maximum mobile webview compatibility
+    btnIncomingAccept.addEventListener("touchstart", startHolding, { passive: false });
+    btnIncomingAccept.addEventListener("touchend", cancelHolding);
+    btnIncomingAccept.addEventListener("touchcancel", cancelHolding);
+
+    // Single click handler: cancel and trigger decoy
+    btnIncomingAccept.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (incomingCallData) {
+            btnIncomingAccept.classList.add("shake-error");
+            setTimeout(() => btnIncomingAccept.classList.remove("shake-error"), 450);
+            showDecoyToast();
+        }
+    });
+
+    if (btnIncomingDecline) {
+        btnIncomingDecline.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (incomingCallData) {
+                socket.emit("end-call", { from: myUsername, to: incomingCallData.from });
+                incomingCallData = null;
+            }
+            stopIncomingCallAlert();
+            renderParticipantsList();
+            showToast("Call declined");
+        });
+    }
+}
 
 // Media Controls
 const toggleCamera = document.getElementById("toggle-camera");
@@ -2803,3 +3160,6 @@ document.addEventListener("click", (e) => {
         chatEmojiDrawer.style.display = "none";
     }
 });
+
+// Initialize incoming call hold-to-accept & security decoy handlers
+setupIncomingCallHandlers();

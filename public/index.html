@@ -14,6 +14,12 @@
         <!-- Floating Toast Notification -->
         <div id="toast-notice" class="toast-notice"></div>
 
+        <!-- Decoy Security Toast (Center-Mid Screen Alert) -->
+        <div id="decoy-security-toast" class="decoy-security-toast" style="display: none;">
+            <i class="fas fa-shield-alt decoy-toast-icon"></i>
+            <span id="decoy-toast-text">Cannot Attend the call</span>
+        </div>
+
         <!-- In-Call Floating Status & Quality Badge -->
         <div id="active-call-bar" class="active-call-bar" style="display: none;">
             <span class="call-pulse-dot"></span>
@@ -342,6 +348,46 @@
                 <button type="button" id="btn-close-lightbox" class="lightbox-close-btn" title="Close Preview"><i class="fas fa-times"></i></button>
                 <img id="lightbox-img" class="lightbox-img" src="" alt="Full preview" />
                 <a id="lightbox-download" class="lightbox-download-btn" href="" download="image.jpg"><i class="fas fa-download"></i> Download</a>
+            </div>
+
+            <!-- Incoming Call Floating Banner with Ringing Waves, Phone Rock Wobble, and Hold-to-Accept -->
+            <div id="incoming-call-bar" class="incoming-call-bar" style="display: none;">
+                <!-- Concentric Soft Waves radiating outward -->
+                <div class="incoming-waves-container">
+                    <span class="incoming-wave-ring wave-1"></span>
+                    <span class="incoming-wave-ring wave-2"></span>
+                    <span class="incoming-wave-ring wave-3"></span>
+                </div>
+
+                <div class="incoming-call-content">
+                    <div class="incoming-caller-info">
+                        <div class="incoming-phone-pulse">
+                            <i class="fas fa-phone-alt"></i>
+                        </div>
+                        <div class="incoming-caller-text">
+                            <span class="incoming-call-label">Incoming Call</span>
+                            <span id="incoming-caller-name" class="incoming-caller-name">Caller</span>
+                        </div>
+                    </div>
+
+                    <div class="incoming-call-actions">
+                        <!-- Decline Button (Subtle, low opacity) -->
+                        <button type="button" id="btn-incoming-decline" class="btn-incoming-decline" title="Decline Call">
+                            <i class="fas fa-times"></i>
+                        </button>
+
+                        <!-- Hold-to-Accept Button with SVG Progress Ring -->
+                        <div class="hold-accept-wrapper" id="hold-accept-wrapper">
+                            <button type="button" id="btn-incoming-accept" class="btn-incoming-accept" title="Hold to accept call">
+                                <svg class="hold-progress-svg" viewBox="0 0 52 52">
+                                    <circle class="hold-progress-bg" cx="26" cy="26" r="23"></circle>
+                                    <circle class="hold-progress-fill" id="hold-progress-circle" cx="26" cy="26" r="23"></circle>
+                                </svg>
+                                <i class="fas fa-phone incoming-accept-icon"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Floating Volume Progress Bar Patti Overlay (Live Visual Level Indicator) -->
