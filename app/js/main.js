@@ -192,19 +192,38 @@ function updateVolumeHudUI() {
 
 function startSoundMeterLoop() {
     if (meterAnimFrame) cancelAnimationFrame(meterAnimFrame);
+    const audioCardBars = document.querySelectorAll("#call-card-audio-indicator .bar");
+    const audioWavePulse = document.getElementById("audio-wave-pulse");
+
     function checkLevel() {
-        if (analyserNode && analyserData && volumeHudMeter) {
+        if (analyserNode && analyserData) {
             analyserNode.getByteFrequencyData(analyserData);
             let sum = 0;
             for (let i = 0; i < analyserData.length; i++) {
                 sum += analyserData[i];
             }
             const avg = sum / analyserData.length;
-            const meterPct = Math.min(100, Math.round((avg / 128) * 100));
-            if (!isSpeakerMuted && currentVolume > 0) {
-                volumeHudMeter.style.width = `${meterPct}%`;
-            } else {
-                volumeHudMeter.style.width = "0%";
+            const volumePct = Math.min(100, Math.round((avg / 128) * 100));
+
+            // Dynamic voice activity response on audio call card waves (monochrome gray theme)
+            if (audioCardBars && audioCardBars.length > 0) {
+                audioCardBars.forEach((bar, idx) => {
+                    const freqVal = analyserData[idx * 4] || avg;
+                    const height = Math.max(5, Math.min(26, Math.round((freqVal / 255) * 26)));
+                    bar.style.height = `${height}px`;
+                    bar.style.opacity = (height > 6) ? "0.95" : "0.35";
+                });
+            }
+
+            // Avatar wave pulse reaction on voice
+            if (audioWavePulse) {
+                if (volumePct > 8) {
+                    audioWavePulse.style.transform = `scale(${1 + (volumePct / 240)})`;
+                    audioWavePulse.style.opacity = `${0.25 + (volumePct / 220)}`;
+                } else {
+                    audioWavePulse.style.transform = "scale(1)";
+                    audioWavePulse.style.opacity = "0.2";
+                }
             }
         }
         meterAnimFrame = requestAnimationFrame(checkLevel);
@@ -1905,6 +1924,14 @@ if (toggleCallMode) {
             if (callModeIcon) callModeIcon.className = "fas fa-phone-volume";
             toggleCallMode.title = "Call Mode: Audio-Only (Click for Video Call)";
             
+            if (remoteCallCard) {
+                remoteCallCard.style.display = "flex";
+                if (callCardAvatarId) {
+                    const cleanId = (activePeer || myUsername || "7").split("_")[0];
+                    callCardAvatarId.textContent = cleanId;
+                }
+            }
+
             // Notify peer
             if (activePeer) {
                 socket.emit("call-mode-change", {
@@ -1922,6 +1949,10 @@ if (toggleCallMode) {
             if (callModeIcon) callModeIcon.className = "fas fa-video";
             toggleCallMode.title = "Call Mode: Video Call (Click for Audio-Only)";
             
+            if (remoteCallCard) {
+                remoteCallCard.style.display = "none";
+            }
+
             // Notify peer
             if (activePeer) {
                 socket.emit("call-mode-change", {
@@ -1935,17 +1966,18 @@ if (toggleCallMode) {
     });
 }
 
-// Remote Call Card & Peer State Listeners
+// Remote Call Card & Peer State Listeners (Monochrome Gray Theme)
 const remoteCallCard = document.getElementById("remote-call-card");
-const remoteCardName = document.getElementById("remote-card-name");
-const remoteCardStatus = document.getElementById("remote-card-status");
+const callCardAvatarId = document.getElementById("call-card-avatar-id");
 
 socket.on("call-mode-change", ({ from, mode }) => {
     if (remoteCallCard) {
         if (mode === "audio") {
             remoteCallCard.style.display = "flex";
-            if (remoteCardName) remoteCardName.textContent = from || "Participant";
-            if (remoteCardStatus) remoteCardStatus.textContent = "Audio Call Mode (Voice Only)";
+            if (callCardAvatarId) {
+                const cleanId = (from || activePeer || "7").split("_")[0];
+                callCardAvatarId.textContent = cleanId;
+            }
             showToast(`${from} switched to Audio Call mode`);
         } else {
             remoteCallCard.style.display = "none";
@@ -1958,8 +1990,10 @@ socket.on("peer-video-state", ({ from, videoEnabled }) => {
     if (remoteCallCard) {
         if (!videoEnabled) {
             remoteCallCard.style.display = "flex";
-            if (remoteCardName) remoteCardName.textContent = from || "Participant";
-            if (remoteCardStatus) remoteCardStatus.textContent = "Camera Blocked / OFF (User paused video)";
+            if (callCardAvatarId) {
+                const cleanId = (from || activePeer || "7").split("_")[0];
+                callCardAvatarId.textContent = cleanId;
+            }
             showToast(`${from} has paused/blocked camera`);
         } else {
             if (!isAudioCallMode) {

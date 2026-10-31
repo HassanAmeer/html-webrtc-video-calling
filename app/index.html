@@ -197,13 +197,15 @@
                     <!-- Audio Call Mode Card / Camera Blocked Overlay -->
                     <div id="remote-call-card" class="remote-call-card" style="display: none;">
                         <div class="call-card-avatar-ring">
-                            <i class="fas fa-user call-card-avatar-icon"></i>
-                            <div class="audio-wave-pulse"></div>
+                            <span id="call-card-avatar-id" class="call-card-avatar-id">7</span>
+                            <div class="audio-wave-pulse" id="audio-wave-pulse"></div>
                         </div>
-                        <h3 id="remote-card-name" class="call-card-name">Participant</h3>
-                        <p id="remote-card-status" class="call-card-status">Audio Call Mode (Voice Only)</p>
-                        <div class="call-card-audio-indicator">
-                            <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                        <div class="call-card-audio-indicator" id="call-card-audio-indicator">
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
                         </div>
                     </div>
                     <div class="user-avatar d-none">

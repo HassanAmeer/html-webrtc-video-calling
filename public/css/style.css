@@ -523,8 +523,10 @@ html, body {
 }
 
 .control-btn.active {
-    background: #ea4335;
-    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #9ca3af !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: none !important;
 }
 
 .end-call-btn {
@@ -1600,42 +1602,47 @@ input:checked + .slider:before {
 }
 
 .setting-vol-btn.is-muted {
-    background: rgba(234, 67, 53, 0.25);
-    border-color: #ea4335;
-    color: #ea4335;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #9ca3af;
 }
 
 .control-btn.muted-speaker {
-    background: #ea4335 !important;
-    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #9ca3af !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: none !important;
 }
 
 .call-bar-badge.muted-speaker {
-    background: rgba(234, 67, 53, 0.3) !important;
-    color: #ea4335 !important;
-    border-color: #ea4335 !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #9ca3af !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
-/* Speaker Mode States */
+/* Speaker Mode States: Monochrome Gray Theme */
 .control-btn.earpiece-speaker {
-    background: #f59e0b !important;
-    color: #111827 !important;
-    box-shadow: 0 0 10px rgba(245, 158, 11, 0.5) !important;
+    background: rgba(255, 255, 255, 0.10) !important;
+    color: #d1d5db !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
 }
 
 .control-btn.audio-mode-active {
-    background: #00e676 !important;
-    color: #003314 !important;
-    box-shadow: 0 0 12px rgba(0, 230, 118, 0.5) !important;
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #e5e7eb !important;
+    border: 1px solid rgba(255, 255, 255, 0.20) !important;
+    box-shadow: none !important;
 }
 
 .control-btn.camera-blocked {
-    background: #ea4335 !important;
-    color: #ffffff !important;
-    box-shadow: 0 0 12px rgba(234, 67, 53, 0.5) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #9ca3af !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: none !important;
 }
 
-/* Remote Call Card (Audio Call Mode / Camera Blocked Screen) */
+/* Remote Call Card (Audio Call Mode / Camera Blocked Screen - Monochrome Gray Theme) */
 .remote-call-card {
     position: absolute;
     top: 0;
@@ -1646,7 +1653,7 @@ input:checked + .slider:before {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+    background: radial-gradient(circle at center, #181b20 0%, #0d0f12 100%);
     z-index: 5;
     padding: 20px;
     text-align: center;
@@ -1658,79 +1665,61 @@ input:checked + .slider:before {
     to { opacity: 1; transform: scale(1); }
 }
 
+/* Circular Gray Avatar with ID inside */
 .call-card-avatar-ring {
     position: relative;
-    width: 110px;
-    height: 110px;
+    width: 96px;
+    height: 96px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    background: rgba(36, 40, 48, 0.90);
+    border: 1.5px solid rgba(156, 163, 175, 0.35);
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 18px;
-    box-shadow: 0 8px 30px rgba(29, 78, 216, 0.4);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(156, 163, 175, 0.08);
 }
 
-.call-card-avatar-icon {
-    font-size: 50px;
-    color: #ffffff;
-    z-index: 2;
-}
-
-.audio-wave-pulse {
-    position: absolute;
-    top: -10px;
-    left: -10px;
-    right: -10px;
-    bottom: -10px;
-    border-radius: 50%;
-    border: 2px solid rgba(59, 130, 246, 0.6);
-    animation: wavePulse 2.2s infinite ease-out;
-}
-
-@keyframes wavePulse {
-    0% { transform: scale(0.95); opacity: 0.9; }
-    50% { transform: scale(1.22); opacity: 0.3; }
-    100% { transform: scale(1.45); opacity: 0; }
-}
-
-.call-card-name {
+.call-card-avatar-id {
     font-size: 22px;
     font-weight: 700;
-    color: #ffffff;
-    margin: 0 0 6px 0;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+    color: #e5e7eb;
+    letter-spacing: 0.5px;
+    z-index: 2;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
 }
 
-.call-card-status {
-    font-size: 13px;
-    font-weight: 500;
-    color: #94a3b8;
-    margin: 0 0 16px 0;
+/* Gray Pulse Wave around Avatar */
+.audio-wave-pulse {
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(156, 163, 175, 0.35);
+    transition: transform 0.08s ease-out, opacity 0.08s ease-out;
+    pointer-events: none;
+    opacity: 0.25;
 }
 
+/* Voice Activity Waves below Avatar (All in Gray) */
 .call-card-audio-indicator {
     display: flex;
     align-items: center;
-    gap: 4px;
-    height: 24px;
+    justify-content: center;
+    gap: 5px;
+    height: 28px;
 }
 
 .call-card-audio-indicator .bar {
-    width: 4px;
-    height: 8px;
-    background: #00e676;
+    width: 3.5px;
+    height: 6px;
+    background: linear-gradient(180deg, #d1d5db 0%, #6b7280 100%);
     border-radius: 3px;
-    animation: soundBar 1.2s infinite ease-in-out;
-}
-
-.call-card-audio-indicator .bar:nth-child(2) { animation-delay: 0.2s; }
-.call-card-audio-indicator .bar:nth-child(3) { animation-delay: 0.4s; }
-.call-card-audio-indicator .bar:nth-child(4) { animation-delay: 0.1s; }
-
-@keyframes soundBar {
-    0%, 100% { height: 6px; }
-    50% { height: 22px; }
+    transition: height 0.06s ease-out, opacity 0.06s ease-out;
+    opacity: 0.45;
 }
 
 /* ==============================================================
