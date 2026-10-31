@@ -857,6 +857,13 @@ socket.on("joined", (allusers) => {
     console.log("Participants update:", allusers);
     allusersHtml.innerHTML = "";
 
+    // Gracefully clean up if active call peer disconnected / closed browser
+    if (activePeer && !allusers[activePeer]) {
+        console.log(`Active peer ${activePeer} left the meeting`);
+        showToast(`${activePeer} disconnected`);
+        endCall(false);
+    }
+
     const userKeys = Object.keys(allusers);
     if (participantCount) {
         participantCount.textContent = userKeys.length;
