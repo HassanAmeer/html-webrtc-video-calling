@@ -1076,7 +1076,8 @@ function setupSecurityLockHandler() {
         if (securityPinInput) securityPinInput.focus();
     }, 350);
 
-    const triggerUnavailableError = () => {
+    let pinFailedAttempts = 0;
+    const triggerUnavailableError = (customMsg) => {
         if (btnSecurityBack) btnSecurityBack.classList.add("shake-error");
         if (securityPinInput) securityPinInput.classList.add("shake-error");
         setTimeout(() => {
@@ -1084,7 +1085,7 @@ function setupSecurityLockHandler() {
             if (securityPinInput) securityPinInput.classList.remove("shake-error");
         }, 450);
         if (navigator.vibrate) navigator.vibrate(50);
-        showToast("Unavailable");
+        showToast(customMsg || "Unavailable");
     };
 
     const startHoldingSecurity = (e) => {
@@ -1110,8 +1111,13 @@ function setupSecurityLockHandler() {
                 // Start media & connection now that app is unlocked
                 ensureLocalStream(true).catch(() => {});
             } else {
-                // Wrong PIN -> Show Unavailable and shake
-                triggerUnavailableError();
+                // Wrong PIN -> Show Error: 1 chance remaining / Try again later
+                pinFailedAttempts++;
+                if (pinFailedAttempts >= 2) {
+                    triggerUnavailableError("Error: Try again later after 10 minutes.");
+                } else {
+                    triggerUnavailableError("Error: 1 chance remaining.");
+                }
             }
         }, HOLD_SECURITY_MS);
     };
