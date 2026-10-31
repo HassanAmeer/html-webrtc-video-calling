@@ -2736,7 +2736,8 @@ function toggleChatOverlay(forceOpen = null) {
 
 function updateChatHeaderTitle() {
     if (!chatHeaderTitle) return;
-    chatHeaderTitle.textContent = activePeer ? activePeer : "Meeting";
+    const cleanId = activePeer ? activePeer.split('_')[0] : "All";
+    chatHeaderTitle.textContent = cleanId;
 }
 
 function hideChatPopovers() {
@@ -2823,17 +2824,6 @@ function appendChatMessage(msg, isMine) {
     msgEl.className = `chat-msg ${isMine ? "mine" : "peer"}`;
     msgEl.dataset.msgId = msg.id;
 
-    // Header info (Timestamp only, transparent)
-    const metaEl = document.createElement("div");
-    metaEl.className = "chat-msg-meta";
-
-    const timeEl = document.createElement("span");
-    timeEl.className = "chat-msg-time";
-    timeEl.textContent = formatChatTime(msg.timestamp);
-
-    metaEl.appendChild(timeEl);
-    msgEl.appendChild(metaEl);
-
     // Text content (with crisp black border shadow)
     if (msg.text && msg.text.trim()) {
         const textEl = document.createElement("div");
@@ -2885,6 +2875,17 @@ function appendChatMessage(msg, isMine) {
         msgEl.appendChild(attachContainer);
     }
 
+    // Bottom info (Timestamp at bottom of message)
+    const metaEl = document.createElement("div");
+    metaEl.className = "chat-msg-meta";
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "chat-msg-time";
+    timeEl.textContent = formatChatTime(msg.timestamp);
+
+    metaEl.appendChild(timeEl);
+    msgEl.appendChild(metaEl);
+
     // Reaction badge container
     const reactionBadge = document.createElement("div");
     reactionBadge.className = "chat-reaction-badge";
@@ -2894,6 +2895,12 @@ function appendChatMessage(msg, isMine) {
         triggerReactionBarForMessage(msg.id, msgEl);
     });
     msgEl.appendChild(reactionBadge);
+
+    // Tap / Click to toggle zoom / magnification / highlight for easy reading
+    msgEl.addEventListener("click", (e) => {
+        if (e.target.closest("img, video, a, button, .chat-reaction-badge")) return;
+        msgEl.classList.toggle("magnified");
+    });
 
     // Setup Hold / Long-press (Mobile) & Contextmenu / Click (Desktop)
     setupMessageHoldEvents(msgEl, msg.id);

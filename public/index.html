@@ -241,17 +241,6 @@
 
             <!-- Floating Transparent Chat Overlay (WhatsApp-style reactions, attachments, emojis) -->
             <div id="chat-overlay-container" class="chat-overlay-container" style="display: none;">
-                <!-- Overlay Header (Static Bar at Top with Glowing Pulse, Peer Name & Large Close Cross) -->
-                <div class="chat-overlay-header">
-                    <div class="chat-header-info">
-                        <span class="chat-pulse-indicator" title="Connected"></span>
-                        <span class="chat-header-title" id="chat-header-title">Meeting</span>
-                    </div>
-                    <button type="button" id="btn-close-chat" class="chat-close-btn-large" title="Close Chat" aria-label="Close Chat">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-
                 <!-- Messages Stream: Fully Transparent Background, Black Text-Shadow for Words -->
                 <div id="chat-messages-scroll" class="chat-messages-scroll">
                     <!-- Dynamic chat messages stream -->
@@ -309,6 +298,14 @@
                     <button type="button" id="btn-cancel-pending" class="pending-remove-btn" title="Cancel Attachment">
                         <i class="fas fa-times"></i>
                     </button>
+                </div>
+
+                <!-- Minimal Transparent Chat Status & Close Row (Above Input Field) -->
+                <div class="chat-bar-above-input">
+                    <span class="chat-pulse-indicator" title="Connected"></span>
+                    <span class="chat-peer-id" id="chat-header-title">7</span>
+                    <span class="chat-sep">:</span>
+                    <button type="button" id="btn-close-chat" class="btn-chat-close-text" title="Close Chat">Close</button>
                 </div>
 
                 <!-- Chat Input Bar -->
