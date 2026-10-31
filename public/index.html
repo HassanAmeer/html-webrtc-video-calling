@@ -11,6 +11,9 @@
 </head>
 <body>
     <main class="main-container">
+        <!-- Floating Toast Notification -->
+        <div id="toast-notice" class="toast-notice"></div>
+
         <!-- Freeze Sleep Overlay -->
         <div id="freeze-overlay" class="freeze-overlay">
             <div class="freeze-card">
@@ -48,6 +51,10 @@
                 </button>
                 <button class="control-btn" id="toggle-screen" title="Share Screen">
                     <i class="fas fa-desktop"></i>
+                </button>
+                <!-- HD / Normal Mode Quality Toggle Button -->
+                <button class="control-btn quality-toggle-btn" id="toggle-quality" title="Toggle Video Quality (HD / Normal)">
+                    <span id="quality-badge" class="quality-badge hd">HD</span>
                 </button>
                 <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Stop Camera, Mic & Sleep)">
                     <i class="fas fa-snowflake"></i>

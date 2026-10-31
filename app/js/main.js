@@ -9,8 +9,34 @@ const endCallBtn = document.getElementById("end-call-btn");
 const toggleFreezeBtn = document.getElementById("toggle-freeze");
 const unfreezeBtn = document.getElementById("unfreeze-btn");
 const freezeOverlay = document.getElementById("freeze-overlay");
+const toggleQualityBtn = document.getElementById("toggle-quality");
+const qualityBadge = document.getElementById("quality-badge");
 
 const socket = io();
+
+// Video Quality Profiles
+const QUALITY_PROFILES = {
+    HD: {
+        label: "HD",
+        description: "1080p Crisp & High Bitrate",
+        videoConstraints: {
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
+            frameRate: { ideal: 30, max: 60 }
+        },
+        maxBitrate: 3500000 // 3.5 Mbps for crystal clear HD
+    },
+    SD: {
+        label: "SD",
+        description: "Normal / Smooth for Slow Networks",
+        videoConstraints: {
+            width: { ideal: 640, max: 854 },
+            height: { ideal: 480, max: 480 },
+            frameRate: { ideal: 24, max: 30 }
+        },
+        maxBitrate: 800000 // 800 kbps for stable connection
+    }
+};
 
 // State
 let myUsername = "";
@@ -20,6 +46,7 @@ let peerConnection = null;
 let pendingIceCandidates = [];
 let localStream = null;
 let isFrozen = false;
+let currentQuality = localStorage.getItem("webrtc_video_quality") || "HD";
 
 const rtcConfig = {
     iceServers: [
@@ -31,27 +58,140 @@ const rtcConfig = {
     ]
 };
 
+// Toast Notifications
+let toastTimeout = null;
+function showToast(message) {
+    const toast = document.getElementById("toast-notice");
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add("show");
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 2800);
+}
+
+// Update Quality UI Button
+function updateQualityUI() {
+    if (!qualityBadge || !toggleQualityBtn) return;
+    qualityBadge.textContent = currentQuality;
+    if (currentQuality === "HD") {
+        qualityBadge.className = "quality-badge hd";
+        toggleQualityBtn.title = "Current: HD 1080p (Click to switch to Normal/SD)";
+    } else {
+        qualityBadge.className = "quality-badge sd";
+        toggleQualityBtn.title = "Current: Normal/SD (Click to switch to HD 1080p)";
+    }
+}
+updateQualityUI();
+
+// Apply bitrate & degradation preferences to WebRTC connection
+function applyBitrateToSender(pc) {
+    if (!pc) return;
+    const profile = QUALITY_PROFILES[currentQuality];
+    const senders = pc.getSenders();
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    if (videoSender && videoSender.getParameters) {
+        try {
+            const params = videoSender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) {
+                params.encodings = [{}];
+            }
+            params.encodings[0].maxBitrate = profile.maxBitrate;
+            params.degradationPreference = (currentQuality === "HD") ? "maintain-resolution" : "balanced";
+            videoSender.setParameters(params).catch(() => {});
+        } catch (e) {
+            console.warn("Could not set sender parameters:", e);
+        }
+    }
+}
+
+// Toggle HD / SD Quality Mode
+async function toggleQuality() {
+    const newQuality = (currentQuality === "HD") ? "SD" : "HD";
+    currentQuality = newQuality;
+    localStorage.setItem("webrtc_video_quality", newQuality);
+    updateQualityUI();
+
+    const profile = QUALITY_PROFILES[newQuality];
+
+    // Apply constraints live to current camera track
+    if (localStream && !isScreenSharing) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack) {
+            try {
+                await videoTrack.applyConstraints(profile.videoConstraints);
+                console.log(`Applied constraints for ${newQuality}`);
+            } catch (err) {
+                console.warn(`applyConstraints error, acquiring fresh ${newQuality} track:`, err);
+                try {
+                    videoTrack.stop();
+                    const newStream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: profile.videoConstraints
+                    });
+                    const newTrack = newStream.getVideoTracks()[0];
+                    localStream.removeTrack(videoTrack);
+                    localStream.addTrack(newTrack);
+                    localVideo.srcObject = localStream;
+
+                    if (peerConnection) {
+                        const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+                        if (sender) {
+                            await sender.replaceTrack(newTrack);
+                        }
+                    }
+                } catch (recErr) {
+                    console.error("Failed to re-acquire camera track:", recErr);
+                }
+            }
+        }
+    }
+
+    if (peerConnection) {
+        applyBitrateToSender(peerConnection);
+    }
+
+    showToast(`Video Mode: ${profile.label} (${profile.description})`);
+}
+
+if (toggleQualityBtn) {
+    toggleQualityBtn.addEventListener("click", toggleQuality);
+}
+
 // Initialize Camera & Microphone
 async function ensureLocalStream() {
     if (isFrozen) return null;
     if (localStream && localStream.active && localStream.getTracks().length > 0) {
         return localStream;
     }
+    const profile = QUALITY_PROFILES[currentQuality];
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: profile.videoConstraints
+        });
         localStream = stream;
         localVideo.srcObject = stream;
         return stream;
     } catch (err) {
-        console.warn("Could not get audio+video, falling back to audio only:", err);
+        console.warn(`Could not get audio+video at ${currentQuality}, trying default video:`, err);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
             localStream = stream;
             localVideo.srcObject = stream;
             return stream;
-        } catch (audioErr) {
-            console.error("Camera/Microphone permission denied:", audioErr);
-            return null;
+        } catch (vidErr) {
+            console.warn("Could not get video, falling back to audio only:", vidErr);
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                localStream = stream;
+                localVideo.srcObject = stream;
+                return stream;
+            } catch (audioErr) {
+                console.error("Camera/Microphone permission denied:", audioErr);
+                return null;
+            }
         }
     }
 }
@@ -345,6 +485,7 @@ async function startCall(targetUser) {
             offerToReceiveVideo: true
         });
         await pc.setLocalDescription(offer);
+        applyBitrateToSender(pc);
 
         socket.emit("offer", {
             from: myUsername,
@@ -353,6 +494,7 @@ async function startCall(targetUser) {
         });
 
         endCallBtn.style.display = "flex";
+        showToast(`Calling ${targetUser}...`);
     } catch (err) {
         console.error("Failed to start call:", err);
         alert("Failed to start call: " + err.message);
@@ -371,6 +513,7 @@ socket.on("offer", async ({ from, to, offer }) => {
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        applyBitrateToSender(pc);
 
         socket.emit("answer", {
             from: myUsername,
@@ -379,6 +522,7 @@ socket.on("offer", async ({ from, to, offer }) => {
         });
 
         endCallBtn.style.display = "flex";
+        showToast(`Connected with ${from}`);
     } catch (err) {
         console.error("Error answering call:", err);
     }
@@ -391,7 +535,9 @@ socket.on("answer", async ({ from, to, answer }) => {
         try {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
             await flushPendingCandidates(peerConnection);
+            applyBitrateToSender(peerConnection);
             endCallBtn.style.display = "flex";
+            showToast(`Call connected with ${from}`);
         } catch (err) {
             console.error("Error setting remote description from answer:", err);
         }
@@ -439,6 +585,7 @@ endCallBtn.addEventListener("click", () => {
 
 socket.on("end-call", ({ from, to }) => {
     console.log(`Call ended by peer`);
+    showToast("Call ended");
     endCall(false);
 });
 
