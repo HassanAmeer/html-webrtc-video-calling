@@ -2960,7 +2960,17 @@ if (toggleScreen) {
             }
 
             if (!getDisplayMedia) {
-                showToast("⚠️ Screen sharing requires Google Chrome on Desktop/Laptop or Android");
+                const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+                if (isMobile) {
+                    showToast("📱 Mobile browser policy blocks OS screen recording. Use Back Camera to share screen/desk.");
+                    setTimeout(() => {
+                        if (confirm("Mobile browser security (Android/iOS) blocks web pages from capturing your phone's OS screen (only native Play Store apps like AnyDesk APK can do that).\n\nWould you like to switch to Back Camera (Rear Lens) to live stream your screen, papers, or surroundings to Desktop?")) {
+                            switchCamera("environment");
+                        }
+                    }, 350);
+                } else {
+                    showToast("⚠️ Screen sharing requires Google Chrome, Edge, or Firefox on Desktop/Laptop.");
+                }
                 return;
             }
 
