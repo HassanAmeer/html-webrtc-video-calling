@@ -1092,15 +1092,11 @@ function setupSecurityLockHandler() {
         if (isSecurityHolding || isAppUnlocked) return;
         isSecurityHolding = true;
         securityHoldStartTime = Date.now();
-        btnSecurityBack.classList.add("holding");
         btnSecurityBack.classList.remove("shake-error");
-
-        if (navigator.vibrate) navigator.vibrate(30);
 
         securityHoldTimer = setTimeout(() => {
             isSecurityHolding = false;
             securityHoldStartTime = 0;
-            btnSecurityBack.classList.remove("holding");
 
             const enteredKey = securityPinInput ? securityPinInput.value.trim() : "";
             if (enteredKey === SECURITY_PIN) {
@@ -1125,7 +1121,6 @@ function setupSecurityLockHandler() {
         isSecurityHolding = false;
         const duration = Date.now() - securityHoldStartTime;
         securityHoldStartTime = 0;
-        btnSecurityBack.classList.remove("holding");
 
         if (securityHoldTimer) {
             clearTimeout(securityHoldTimer);

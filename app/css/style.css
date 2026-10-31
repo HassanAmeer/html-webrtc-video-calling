@@ -1206,22 +1206,24 @@ html, body {
 /* Floating Toast Notification */
 .toast-notice {
     position: fixed;
-    top: 20px;
+    top: 24px;
     left: 50%;
     transform: translate(-50%, -20px);
-    background: rgba(28, 31, 36, 0.95);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #e8eaed;
-    padding: 8px 18px;
-    border-radius: 24px;
+    background: #2b3038;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid #14171d;
+    color: #9ca3af;
+    padding: 8px 22px;
+    border-radius: 20px;
     font-size: 13px;
     font-weight: 500;
-    z-index: 10000;
+    letter-spacing: 0.25px;
+    z-index: 100200;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.25s ease, transform 0.25s ease;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     white-space: nowrap;
 }
 
@@ -1495,24 +1497,6 @@ input:checked + .slider:before {
 
 .btn-security-back:active {
     transform: scale(0.98);
-}
-
-.btn-security-back.holding {
-    transform: scale(0.96);
-    box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.4);
-}
-
-.btn-security-back.holding::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.4));
-    animation: securityHoldProgress 1.2s linear forwards;
-}
-
-@keyframes securityHoldProgress {
-    0% { width: 0%; }
-    100% { width: 100%; }
 }
 
 .btn-security-back.shake-error,
