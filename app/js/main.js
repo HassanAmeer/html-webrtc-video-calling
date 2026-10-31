@@ -159,6 +159,27 @@ if (toggleQualityBtn) {
     toggleQualityBtn.addEventListener("click", toggleQuality);
 }
 
+// Toggle Screen Fit (Contain vs Cover)
+const toggleFitBtn = document.getElementById("toggle-fit");
+let isFitCover = false;
+
+if (toggleFitBtn) {
+    toggleFitBtn.addEventListener("click", () => {
+        isFitCover = !isFitCover;
+        if (isFitCover) {
+            remoteVideo.classList.add("fit-cover");
+            toggleFitBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
+            toggleFitBtn.title = "View: Fill Screen (Zoomed) - Click to Fit";
+            showToast("View: Fill Screen (Zoomed)");
+        } else {
+            remoteVideo.classList.remove("fit-cover");
+            toggleFitBtn.innerHTML = '<i class="fas fa-expand-arrows-alt"></i>';
+            toggleFitBtn.title = "View: Fit Screen (Complete View) - Click to Fill";
+            showToast("View: Fit Screen (Complete View - No Crop)");
+        }
+    });
+}
+
 // Initialize Camera & Microphone
 async function ensureLocalStream() {
     if (isFrozen) return null;
