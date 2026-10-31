@@ -3742,7 +3742,10 @@ function appendChatMessage(msg, isMine) {
 
             const loader = document.createElement("div");
             loader.className = "chat-media-loader";
-            loader.innerHTML = `<i class="fas fa-circle-notch"></i> <span>${isMine ? "Sending photo..." : "Loading photo..."}</span>`;
+            loader.innerHTML = `
+                <div class="circular-progress-spinner"></div>
+                <span class="loader-shimmer-text">${isMine ? "Sending photo..." : "Loading photo..."}</span>
+            `;
             wrap.appendChild(loader);
 
             const img = document.createElement("img");
@@ -3771,7 +3774,10 @@ function appendChatMessage(msg, isMine) {
 
             const loader = document.createElement("div");
             loader.className = "chat-media-loader";
-            loader.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> <span>${isMine ? "Sending video..." : "Loading video..."}</span>`;
+            loader.innerHTML = `
+                <div class="circular-progress-spinner"></div>
+                <span class="loader-shimmer-text">${isMine ? "Sending video..." : "Loading video..."}</span>
+            `;
             wrap.appendChild(loader);
 
             const video = document.createElement("video");
@@ -3781,43 +3787,77 @@ function appendChatMessage(msg, isMine) {
             video.className = "chat-video-player";
             video.style.display = "none";
 
-            // Convert base64 data: URL to blob: URL so all mobile and desktop browsers natively play and seek
-            let videoSrc = msg.file.data;
-            if (typeof videoSrc === "string" && videoSrc.startsWith("data:")) {
-                const blob = dataURLToBlob(videoSrc);
-                if (blob) {
-                    videoSrc = URL.createObjectURL(blob);
+            // Click anywhere on video to toggle play / pause directly
+            video.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (video.paused) {
+                    video.play().catch(err => console.warn("Video play error:", err));
+                } else {
+                    video.pause();
                 }
-            }
-            video.src = videoSrc;
+            });
 
-            let isRevealed = false;
-            const revealVideo = () => {
-                if (isRevealed) return;
-                isRevealed = true;
-                loader.style.display = "none";
-                video.style.display = "block";
-                scrollChatToBottom();
-            };
-
-            video.onloadeddata = revealVideo;
-            video.oncanplay = revealVideo;
-            video.onloadedmetadata = revealVideo;
-
-            // Safety timeout: if canplay doesn't fire within 1.5s, display video controls directly
-            setTimeout(revealVideo, 1500);
-
-            video.onerror = (e) => {
-                console.warn("Video element load error, showing fallback link:", video.error, e);
-                loader.innerHTML = `
-                    <a href="${msg.file.data}" download="${msg.file.name || 'video.webm'}" style="color:#60a5fa; text-decoration:underline; font-size:12px; display:inline-flex; align-items:center; gap:6px;">
-                        <i class="fas fa-play"></i> <span>Play / Save Video (${formatFileSize(msg.file.size)})</span>
-                    </a>
-                `;
-                scrollChatToBottom();
-            };
             wrap.appendChild(video);
             attachContainer.appendChild(wrap);
+
+            const setupVideoSource = async () => {
+                let playableUrl = "";
+                try {
+                    if (typeof msg.file.data === "string" && msg.file.data.startsWith("data:")) {
+                        // Native fetch conversion to blob guarantees exact binary fidelity and streamable URL
+                        const res = await fetch(msg.file.data);
+                        const blob = await res.blob();
+                        playableUrl = URL.createObjectURL(blob);
+                    } else {
+                        playableUrl = msg.file.data;
+                    }
+                } catch (e) {
+                    console.warn("fetch blob conversion fallback to direct data:", e);
+                    playableUrl = msg.file.data;
+                }
+
+                video.src = playableUrl;
+                video.load();
+
+                let isRevealed = false;
+                const revealVideo = () => {
+                    if (isRevealed) return;
+                    isRevealed = true;
+                    loader.style.display = "none";
+                    video.style.display = "block";
+                    scrollChatToBottom();
+                };
+
+                video.onloadeddata = revealVideo;
+                video.oncanplay = revealVideo;
+                video.onloadedmetadata = revealVideo;
+
+                // Safety timeout: reveal video player after 1s
+                setTimeout(revealVideo, 1000);
+
+                video.addEventListener("play", () => {
+                    revealVideo();
+                });
+
+                video.onerror = (e) => {
+                    console.warn("Video element load error, showing play/retry button:", video.error, e);
+                    loader.innerHTML = `
+                        <button type="button" class="cvr-btn cvr-record" style="font-size:11px; padding:6px 14px; margin-top:2px;">
+                            <i class="fas fa-play"></i> Play Video
+                        </button>
+                    `;
+                    const playBtn = loader.querySelector("button");
+                    if (playBtn) {
+                        playBtn.addEventListener("click", (evt) => {
+                            evt.stopPropagation();
+                            video.style.display = "block";
+                            loader.style.display = "none";
+                            video.play().catch(() => {});
+                        });
+                    }
+                };
+            };
+            setupVideoSource();
         } else {
             // Document card
             const docCard = document.createElement("a");
@@ -4334,14 +4374,17 @@ function startChatVideoRecording() {
     cvrRecordedBlob = null;
     cvrSeconds = 0;
 
-    let mimeType = "video/webm;codecs=vp8,opus";
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "video/webm";
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = "video/mp4";
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = "";
-            }
+    let mimeType = "";
+    const candidateTypes = [
+        "video/mp4",
+        "video/webm;codecs=vp8,opus",
+        "video/webm;codecs=vp9,opus",
+        "video/webm"
+    ];
+    for (const t of candidateTypes) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+            mimeType = t;
+            break;
         }
     }
 
