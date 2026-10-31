@@ -1530,65 +1530,62 @@ input:checked + .slider:before {
     display: flex;
 }
 
-/* Light Grey Gradient Theme Card */
+/* Dark Grey Theme Freeze Card (Decoy Error) */
 .freeze-card {
-    background: linear-gradient(145deg, #f3f4f6 0%, #e5e7eb 50%, #d1d5db 100%);
-    border: 1px solid rgba(255, 255, 255, 0.85);
-    border-radius: 20px;
-    padding: 32px 26px;
+    background: linear-gradient(150deg, #2b3038 0%, #1c1f26 50%, #12141a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 22px;
+    padding: 34px 28px;
     max-width: 380px;
     width: 90%;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06);
-    color: #1f2937;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    color: #e5e7eb;
     position: relative;
     overflow: hidden;
-}
-
-.freeze-card i.fa-snowflake {
-    color: #4b5563 !important;
-    margin-bottom: 16px;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+    user-select: none;
+    -webkit-user-select: none;
+    animation: securityCardPop 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .freeze-card h2 {
     font-size: 19px;
     font-weight: 700;
     margin-bottom: 10px;
-    color: #111827;
+    color: #f3f4f6;
     letter-spacing: -0.2px;
 }
 
 .freeze-card p {
     font-size: 13px;
-    color: #4b5563;
+    color: #9ca3af;
     line-height: 1.5;
     margin-bottom: 24px;
 }
 
-/* Unfreeze Button with Hold Progress Animation */
+/* Unfreeze Button with Stealth Hold */
 .unfreeze-btn {
-    background: linear-gradient(145deg, #374151 0%, #1f2937 100%);
+    background: linear-gradient(145deg, #4b5563 0%, #374151 50%, #1f2937 100%);
     color: #f9fafb;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 11px 26px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    padding: 11px 32px;
     font-size: 13px;
-    border-radius: 24px;
+    border-radius: 22px;
     cursor: pointer;
     font-weight: 600;
     display: inline-flex;
     align-items: center;
-    gap: 9px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
     position: relative;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .unfreeze-btn:hover {
-    background: linear-gradient(145deg, #4b5563 0%, #111827 100%);
     transform: scale(1.02);
 }
 
@@ -1596,29 +1593,8 @@ input:checked + .slider:before {
     transform: scale(0.98);
 }
 
-/* Hold Progress Radial / Fill Animation */
-.unfreeze-btn.holding {
-    background: linear-gradient(145deg, #1f2937 0%, #111827 100%);
-    transform: scale(0.96);
-    box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.4);
-}
-
-.unfreeze-btn.holding::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.45));
-    animation: unfreezeHoldProgress 1.2s linear forwards;
-}
-
-@keyframes unfreezeHoldProgress {
-    0% { width: 0%; }
-    100% { width: 100%; }
-}
-
 .unfreeze-btn.shake-error {
     animation: unfreezeShake 0.4s ease-in-out;
-    background: #4b5563 !important;
 }
 
 @keyframes unfreezeShake {

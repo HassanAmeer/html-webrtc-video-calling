@@ -1516,7 +1516,7 @@ async function freezeApp() {
 
     // Reset unfreeze button state
     if (unfreezeBtn) {
-        unfreezeBtn.classList.remove("holding", "shake-error");
+        unfreezeBtn.classList.remove("shake-error");
     }
 
     // Show freeze overlay
@@ -1524,7 +1524,6 @@ async function freezeApp() {
         freezeOverlay.classList.add("active");
         freezeOverlay.style.display = "flex";
     }
-    showToast("App Frozen: Sleep mode activated");
     console.log("App frozen: camera, mic and connection stopped.");
 }
 
@@ -1542,7 +1541,6 @@ async function unfreezeApp() {
     if (hasJoined && myUsername) {
         socket.emit("join-user", myUsername);
     }
-    showToast("App Resumed: Active");
     console.log("App unfrozen: camera, mic and connection restored.");
 }
 
@@ -1562,17 +1560,11 @@ function setupUnfreezeHoldHandler() {
         if (isUnfreezeHolding || !isFrozen) return;
         isUnfreezeHolding = true;
         unfreezeHoldStartTime = Date.now();
-        unfreezeBtn.classList.add("holding");
         unfreezeBtn.classList.remove("shake-error");
-
-        if (navigator.vibrate) {
-            navigator.vibrate(30);
-        }
 
         unfreezeHoldTimer = setTimeout(() => {
             isUnfreezeHolding = false;
             unfreezeHoldStartTime = 0;
-            unfreezeBtn.classList.remove("holding");
             if (navigator.vibrate) {
                 navigator.vibrate([40, 60, 40]);
             }
@@ -1585,7 +1577,6 @@ function setupUnfreezeHoldHandler() {
         isUnfreezeHolding = false;
         const duration = Date.now() - unfreezeHoldStartTime;
         unfreezeHoldStartTime = 0;
-        unfreezeBtn.classList.remove("holding");
 
         if (unfreezeHoldTimer) {
             clearTimeout(unfreezeHoldTimer);
