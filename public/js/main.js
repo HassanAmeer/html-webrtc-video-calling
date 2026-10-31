@@ -299,23 +299,14 @@ function toggleSpeakerMute() {
     }
 }
 
-// Initialize Preferences in UI
-function applyMirrorState(notify = false) {
+// WhatsApp-style Permanent Camera Mirroring:
+// Front camera: scaleX(-1) (natural mirror so moving left reflects left)
+// Back camera: scaleX(1) (natural unmirrored view)
+function applyMirrorState() {
     if (localVideo) {
-        // WhatsApp style: Front camera is mirrored by default; Rear/Back camera is never mirrored
-        const shouldMirror = (currentFacingMode === "user") ? isMirrorCamera : false;
-        localVideo.style.transform = shouldMirror ? "scaleX(-1)" : "scaleX(1)";
-        localVideo.style.webkitTransform = shouldMirror ? "scaleX(-1)" : "scaleX(1)";
-    }
-    if (settingMirrorCamera) {
-        settingMirrorCamera.checked = isMirrorCamera;
-    }
-    const iconLocalFlip = document.getElementById("icon-local-flip");
-    if (iconLocalFlip) {
-        iconLocalFlip.style.color = isMirrorCamera ? "#8ab4f8" : "#ffffff";
-    }
-    if (notify) {
-        showToast(isMirrorCamera ? "Camera: Mirrored (WhatsApp Direction)" : "Camera: Standard (Normal)");
+        const isRear = (currentFacingMode === "environment");
+        localVideo.style.transform = isRear ? "scaleX(1)" : "scaleX(-1)";
+        localVideo.style.webkitTransform = isRear ? "scaleX(1)" : "scaleX(-1)";
     }
 }
 
@@ -594,23 +585,7 @@ if (settingFitSelect) {
     });
 }
 
-if (settingMirrorCamera) {
-    settingMirrorCamera.addEventListener("change", (e) => {
-        isMirrorCamera = e.target.checked;
-        localStorage.setItem("webrtc_mirror_camera", isMirrorCamera);
-        applyMirrorState(true);
-    });
-}
 
-const btnLocalFlip = document.getElementById("btn-local-flip");
-if (btnLocalFlip) {
-    btnLocalFlip.addEventListener("click", (e) => {
-        e.stopPropagation();
-        isMirrorCamera = !isMirrorCamera;
-        localStorage.setItem("webrtc_mirror_camera", isMirrorCamera);
-        applyMirrorState(true);
-    });
-}
 
 // Switch Camera (Front / Back Lens)
 let isSwitchingCamera = false;
@@ -909,6 +884,27 @@ socket.on("joined", (allusers) => {
         setTimeout(() => {
             startCall(autoCallTarget).catch((err) => console.log("Auto-call error:", err));
         }, 900);
+    } else if (!activePeer && !hasAutoCalled && myUsername) {
+        // Smart Auto-Connect for matching Deal/Room UID:
+        // If both users opened the exact same link (e.g. https://v.tokendeal.cloud/?uid=786)
+        // User 1 becomes '786', User 2 becomes '786_1'
+        const baseUid = myUsername.split("_")[0];
+        if (baseUid) {
+            const peerWithSameDeal = Object.keys(allusers).find(u => {
+                return u !== myUsername && u.split("_")[0] === baseUid;
+            });
+            if (peerWithSameDeal) {
+                hasAutoCalled = true;
+                // Second user who joined initiates call to the waiting user
+                if (myUsername.includes("_")) {
+                    console.log(`Auto-connecting to deal partner ${peerWithSameDeal} with matching UID ${baseUid}`);
+                    showToast(`Connecting with ${peerWithSameDeal}...`);
+                    setTimeout(() => {
+                        startCall(peerWithSameDeal).catch((err) => console.log("Auto-call error:", err));
+                    }, 1000);
+                }
+            }
+        }
     }
 
     const userKeys = Object.keys(allusers);
