@@ -2060,8 +2060,98 @@ function initPeerConnection(targetUser) {
         }
     };
 
+    // Setup WebRTC DataChannel for Remote Control
+    setupRemoteControlChannel(pc);
+
     peerConnection = pc;
     return pc;
+}
+
+// ==============================================================
+// VREMOTE COMPANION MODAL & DESKTOP REMOTE CONTROL
+// ==============================================================
+const vremoteModal = document.getElementById("vremote-companion-modal");
+const btnCloseVremoteModal = document.getElementById("close-vremote-modal");
+const btnOpenVremoteApp = document.getElementById("btn-open-vremote-app");
+
+function openVRemoteModal() {
+    if (!vremoteModal) return;
+    const targetRoom = activePeer || myUsername || "room";
+    if (btnOpenVremoteApp) {
+        btnOpenVremoteApp.href = `vremote://connect?room=${encodeURIComponent(targetRoom)}&server=${encodeURIComponent(window.location.origin)}`;
+    }
+    vremoteModal.style.display = "flex";
+    vremoteModal.classList.add("active");
+}
+
+function closeVRemoteModal() {
+    if (!vremoteModal) return;
+    vremoteModal.classList.remove("active");
+    vremoteModal.style.display = "none";
+}
+
+if (btnCloseVremoteModal) {
+    btnCloseVremoteModal.addEventListener("click", closeVRemoteModal);
+}
+if (vremoteModal) {
+    vremoteModal.addEventListener("click", (e) => {
+        if (e.target === vremoteModal) closeVRemoteModal();
+    });
+}
+
+// Remote Control DataChannel Setup
+let remoteControlChannel = null;
+
+function setupRemoteControlChannel(pc) {
+    if (!pc) return;
+    try {
+        remoteControlChannel = pc.createDataChannel("remote-control", { ordered: true });
+        remoteControlChannel.onopen = () => console.log("Remote control DataChannel open");
+        remoteControlChannel.onclose = () => console.log("Remote control DataChannel closed");
+    } catch (e) {
+        console.warn("Could not create remote-control data channel:", e);
+    }
+
+    pc.addEventListener("datachannel", (event) => {
+        if (event.channel && event.channel.label === "remote-control") {
+            remoteControlChannel = event.channel;
+            console.log("Remote control DataChannel received from peer");
+        }
+    });
+}
+
+// Desktop: Mouse Click Injection on Remote Video
+if (remoteVideo) {
+    remoteVideo.addEventListener("click", (e) => {
+        if (!remoteControlChannel || remoteControlChannel.readyState !== "open") return;
+        const rect = remoteVideo.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const normX = (e.clientX - rect.left) / rect.width;
+        const normY = (e.clientY - rect.top) / rect.height;
+        if (normX >= 0 && normX <= 1 && normY >= 0 && normY <= 1) {
+            try {
+                remoteControlChannel.send(JSON.stringify({
+                    type: "tap",
+                    x: normX,
+                    y: normY
+                }));
+                showClickRipple(e.clientX, e.clientY);
+            } catch (err) {
+                console.warn("Failed to dispatch remote click:", err);
+            }
+        }
+    });
+}
+
+function showClickRipple(clientX, clientY) {
+    const ripple = document.createElement("div");
+    ripple.className = "remote-click-ripple";
+    ripple.style.left = `${clientX}px`;
+    ripple.style.top = `${clientY}px`;
+    document.body.appendChild(ripple);
+    setTimeout(() => {
+        if (ripple.parentNode) ripple.parentNode.removeChild(ripple);
+    }, 600);
 }
 
 // Flush queued ICE Candidates
@@ -2955,7 +3045,7 @@ if (toggleScreen) {
         if (!isScreenSharing) {
             const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
             if (isMobile) {
-                showToast("From mobile cannot share screen without AnyDesk / Meet app");
+                openVRemoteModal();
                 return;
             }
 
@@ -3046,7 +3136,7 @@ if (toggleScreen) {
                 console.error("Screen share error:", err);
                 const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
                 if (isMobile) {
-                    showToast("From mobile cannot share screen without AnyDesk / Meet app");
+                    openVRemoteModal();
                     return;
                 }
                 if (err.name === "NotAllowedError" || err.name === "AbortError" || err.name === "PermissionDeniedError") {

@@ -1280,6 +1280,114 @@ html, body {
     transform: translate(-50%, 0);
 }
 
+/* VRemote Companion Modal */
+.vremote-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100050;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.vremote-modal.active {
+    display: flex;
+}
+
+.vremote-dialog {
+    background: #1e2229;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+    animation: modalPop 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vremote-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.vremote-body {
+    padding: 18px;
+}
+
+.vremote-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.vremote-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 13px 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.vremote-btn-primary {
+    background: #3b82f6;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+.vremote-btn-primary:active {
+    background: #2563eb;
+    transform: scale(0.98);
+}
+
+.vremote-btn-secondary {
+    background: #2b303a;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.vremote-btn-secondary:active {
+    background: #374151;
+    transform: scale(0.98);
+}
+
+/* Remote Control Desktop Click Feedback Ripple */
+.remote-click-ripple {
+    position: fixed;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(59, 130, 246, 0.4);
+    border: 2px solid #3b82f6;
+    transform: translate(-50%, -50%) scale(0.2);
+    pointer-events: none;
+    z-index: 100060;
+    animation: remoteRippleAnim 0.6s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes remoteRippleAnim {
+    0% {
+        transform: translate(-50%, -50%) scale(0.2);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(2);
+        opacity: 0;
+    }
+}
+
 /* Settings Modal */
 .settings-modal {
     position: fixed;
