@@ -485,11 +485,50 @@ html, body {
 .toggle-bar-btn {
     background: rgba(255, 255, 255, 0.08);
     color: #c4c7c5;
+    opacity: 0.68;
 }
 
 .toggle-bar-btn:hover {
     background: rgba(255, 255, 255, 0.2);
     color: #ffffff;
+    opacity: 1;
+}
+
+/* Floating Stealth Outline End-Call Button (Visible only when in call & dock is collapsed) */
+.floating-end-call-btn {
+    position: absolute;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: transparent !important;
+    border: 1.5px solid rgba(239, 68, 68, 0.5) !important;
+    color: rgba(248, 113, 113, 0.85) !important;
+    opacity: 0.5 !important; /* 50% opacity subtle outline */
+    font-size: 13px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 50;
+    transition: all 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.floating-end-call-btn:hover {
+    opacity: 0.85 !important;
+    border-color: rgba(239, 68, 68, 0.85) !important;
+    color: #ffffff !important;
+    transform: translateX(-50%) scale(1.08);
+}
+
+.floating-end-call-btn:active {
+    transform: translateX(-50%) scale(0.94);
 }
 
 /* Minimalist Stealth Arrow-Up Launcher at Screen Bottom */
@@ -518,18 +557,18 @@ html, body {
 
 .expand-bar-btn.visible {
     transform: translateX(-50%) translateY(0);
-    opacity: 0.1 !important; /* 10% opacity as requested */
+    opacity: 0.05 !important; /* 50% opacity reduction as requested (now 5% opacity) */
     pointer-events: auto;
 }
 
 .expand-bar-btn.visible.holding {
-    opacity: 0.35 !important;
+    opacity: 0.25 !important;
     transform: translateX(-50%) scale(1.15);
 }
 
 .expand-bar-btn:hover {
     color: #ffffff;
-    opacity: 0.18 !important;
+    opacity: 0.1 !important;
 }
 
 .control-btn {
@@ -540,6 +579,7 @@ html, body {
     border: none;
     background: rgba(255, 255, 255, 0.08);
     color: #e8eaed;
+    opacity: 0.68; /* 32% opacity reduction as requested (not full white, softly transparent) */
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -553,6 +593,7 @@ html, body {
 .control-btn:hover {
     background: rgba(255, 255, 255, 0.2);
     color: #ffffff;
+    opacity: 1;
     transform: scale(1.05);
 }
 

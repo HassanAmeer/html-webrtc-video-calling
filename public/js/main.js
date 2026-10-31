@@ -1768,12 +1768,14 @@ function showActiveCallBar(peerName) {
         activeCallBar.style.display = "flex";
         updateQualityUI();
     }
+    updateFloatingEndCallBtn();
 }
 
 function hideActiveCallBar() {
     if (activeCallBar) {
         activeCallBar.style.display = "none";
     }
+    updateFloatingEndCallBtn();
 }
 
 // Start Call
@@ -1915,6 +1917,7 @@ function endCall(notifyServer = true) {
     }
 
     renderParticipantsList();
+    updateFloatingEndCallBtn();
 }
 
 if (endCallBtn) {
@@ -2998,6 +3001,26 @@ if (localVideoBox) {
 const callControlsDock = document.getElementById("call-controls");
 const btnCollapseBar = document.getElementById("btn-collapse-bar");
 const btnExpandBar = document.getElementById("btn-expand-bar");
+const floatingEndCallBtn = document.getElementById("floating-end-call-btn");
+
+function updateFloatingEndCallBtn() {
+    if (!floatingEndCallBtn) return;
+    const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
+    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+
+    if (isCallActive && isDockCollapsed) {
+        floatingEndCallBtn.style.display = "inline-flex";
+    } else {
+        floatingEndCallBtn.style.display = "none";
+    }
+}
+
+if (floatingEndCallBtn) {
+    floatingEndCallBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        endCall(true);
+    });
+}
 
 function hideControlsBar() {
     if (callControlsDock) {
@@ -3006,6 +3029,7 @@ function hideControlsBar() {
     if (btnExpandBar) {
         btnExpandBar.classList.add("visible");
     }
+    updateFloatingEndCallBtn();
 }
 
 function showControlsBar() {
@@ -3015,6 +3039,7 @@ function showControlsBar() {
     if (btnExpandBar) {
         btnExpandBar.classList.remove("visible");
     }
+    updateFloatingEndCallBtn();
 }
 
 if (btnCollapseBar) {
