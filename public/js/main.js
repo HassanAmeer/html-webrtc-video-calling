@@ -84,6 +84,8 @@ let holdAcceptTimer = null;
 let holdStartTime = 0;
 let ringAudioCtx = null;
 let ringInterval = null;
+let outgoingAudioCtx = null;
+let outgoingWaveInterval = null;
 
 const rtcConfig = {
     iceServers: [
@@ -1595,9 +1597,10 @@ async function startCall(targetUser) {
     console.log(`Calling ${targetUser}...`);
     callingPeer = targetUser;
     renderParticipantsList();
+    startOutgoingWaveTone();
 
     try {
-        await ensureLocalStream();
+        await ensureLocalStream(true);
         const pc = initPeerConnection(targetUser);
 
         const offer = await pc.createOffer({
@@ -1618,6 +1621,7 @@ async function startCall(targetUser) {
         showToast(`Calling ${targetUser}...`);
     } catch (err) {
         callingPeer = null;
+        stopOutgoingWaveTone();
         renderParticipantsList();
         console.error("Failed to start call:", err);
         alert("Failed to start call: " + err.message);
@@ -1636,6 +1640,7 @@ socket.on("offer", async ({ from, to, offer }) => {
 socket.on("answer", async ({ from, to, answer }) => {
     console.log(`Received answer from ${from}`);
     callingPeer = null;
+    stopOutgoingWaveTone();
     renderParticipantsList();
 
     if (peerConnection) {
@@ -1670,6 +1675,9 @@ socket.on("icecandidate", async ({ from, candidate }) => {
 
 // End Call
 function endCall(notifyServer = true) {
+    stopOutgoingWaveTone();
+    stopIncomingCallAlert();
+
     if (notifyServer && activePeer) {
         socket.emit("end-call", { from: myUsername, to: activePeer });
     }
@@ -1769,7 +1777,70 @@ function showDecoyToast() {
     }, 2800);
 }
 
-// Synthesized Dual-Tone Telephone Ring Cadence
+// ==============================================================
+// CALL AUDIO SIGNALS: OUTGOING WAVES & INCOMING 2-SECOND BEEP
+// ==============================================================
+
+// 1. Caller Side: Undulating Wave Sound (Gentle pitch/volume rising & falling waves)
+function startOutgoingWaveTone() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!outgoingAudioCtx) {
+            outgoingAudioCtx = new AudioCtx();
+        }
+        if (outgoingAudioCtx.state === 'suspended') {
+            outgoingAudioCtx.resume().catch(() => {});
+        }
+
+        const playWaveCycle = () => {
+            if (!callingPeer || !outgoingAudioCtx) return;
+            const now = outgoingAudioCtx.currentTime;
+
+            const osc = outgoingAudioCtx.createOscillator();
+            const gain = outgoingAudioCtx.createGain();
+
+            osc.type = "sine";
+
+            // Undulating frequency wave: 330 Hz -> swells to 440 Hz -> subsides to 330 Hz
+            osc.frequency.setValueAtTime(330, now);
+            osc.frequency.exponentialRampToValueAtTime(440, now + 0.65);
+            osc.frequency.exponentialRampToValueAtTime(330, now + 1.35);
+
+            // Volume swells up and down smoothly like waves: 0.001 -> 0.045 -> 0.001
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.linearRampToValueAtTime(0.045, now + 0.65);
+            gain.gain.linearRampToValueAtTime(0.001, now + 1.35);
+
+            osc.connect(gain);
+            gain.connect(outgoingAudioCtx.destination);
+
+            osc.start(now);
+            osc.stop(now + 1.4);
+        };
+
+        playWaveCycle();
+        if (outgoingWaveInterval) clearInterval(outgoingWaveInterval);
+        outgoingWaveInterval = setInterval(() => {
+            if (!callingPeer) {
+                stopOutgoingWaveTone();
+                return;
+            }
+            playWaveCycle();
+        }, 2200);
+    } catch (e) {
+        console.warn("Outgoing wave audio init error:", e);
+    }
+}
+
+function stopOutgoingWaveTone() {
+    if (outgoingWaveInterval) {
+        clearInterval(outgoingWaveInterval);
+        outgoingWaveInterval = null;
+    }
+}
+
+// 2. Callee Side: Clean Electronic Beep repeating every 2 seconds
 function startSynthesizedRingtone() {
     try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1781,42 +1852,40 @@ function startSynthesizedRingtone() {
             ringAudioCtx.resume().catch(() => {});
         }
 
-        const playRingPulse = () => {
+        const playIncomingBeep = () => {
             if (!incomingCallData || !ringAudioCtx) return;
             const now = ringAudioCtx.currentTime;
-            const osc1 = ringAudioCtx.createOscillator();
-            const osc2 = ringAudioCtx.createOscillator();
+
+            const osc = ringAudioCtx.createOscillator();
             const gain = ringAudioCtx.createGain();
 
-            osc1.type = "sine";
-            osc1.frequency.setValueAtTime(440, now);
-            osc2.type = "sine";
-            osc2.frequency.setValueAtTime(480, now);
+            osc.type = "sine";
+            // Clean, pleasant two-tone pip: 780 Hz -> 880 Hz
+            osc.frequency.setValueAtTime(780, now);
+            osc.frequency.setValueAtTime(880, now + 0.07);
 
+            // Crisp soft envelope without popping
             gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.04, now + 0.05);
-            gain.gain.setValueAtTime(0.04, now + 0.85);
-            gain.gain.linearRampToValueAtTime(0, now + 0.95);
+            gain.gain.linearRampToValueAtTime(0.06, now + 0.02);
+            gain.gain.linearRampToValueAtTime(0.06, now + 0.14);
+            gain.gain.linearRampToValueAtTime(0, now + 0.20);
 
-            osc1.connect(gain);
-            osc2.connect(gain);
+            osc.connect(gain);
             gain.connect(ringAudioCtx.destination);
 
-            osc1.start(now);
-            osc2.start(now);
-            osc1.stop(now + 0.95);
-            osc2.stop(now + 0.95);
+            osc.start(now);
+            osc.stop(now + 0.22);
         };
 
-        playRingPulse();
+        playIncomingBeep();
         if (ringInterval) clearInterval(ringInterval);
         ringInterval = setInterval(() => {
             if (!incomingCallData) {
                 stopSynthesizedRingtone();
                 return;
             }
-            playRingPulse();
-        }, 2500);
+            playIncomingBeep();
+        }, 2000); // Har 2 second baad beep
     } catch (e) {
         console.warn("Ringtone audio init error:", e);
     }
