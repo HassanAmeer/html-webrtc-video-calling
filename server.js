@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import fs from "fs";
 
 const app = express();
 app.disable("x-powered-by");
@@ -43,6 +44,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 app.use(express.static("public"));
 app.use(express.static("app"));
+
+// Dedicated Handler for VRemote APK Download
+app.get("/downloads/vremote.apk", (req, res) => {
+    const apkPublic = join(__dirname, "public/downloads/vremote.apk");
+    const apkApp = join(__dirname, "app/downloads/vremote.apk");
+    const targetPath = fs.existsSync(apkPublic) ? apkPublic : (fs.existsSync(apkApp) ? apkApp : null);
+    if (targetPath) {
+        res.setHeader("Content-Disposition", 'attachment; filename="VRemote.apk"');
+        res.setHeader("Content-Type", "application/vnd.android.package-archive");
+        return res.sendFile(targetPath);
+    }
+    res.status(404).json({
+        available: false,
+        message: "APK file not found on server. Please compile from remoteapk/ folder."
+    });
+});
 
 app.get("/", (req, res) => {
     res.sendFile(join(__dirname + "/app/index.html"));

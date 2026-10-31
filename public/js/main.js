@@ -2073,6 +2073,7 @@ function initPeerConnection(targetUser) {
 const vremoteModal = document.getElementById("vremote-companion-modal");
 const btnCloseVremoteModal = document.getElementById("close-vremote-modal");
 const btnOpenVremoteApp = document.getElementById("btn-open-vremote-app");
+const btnDownloadVremoteApk = document.getElementById("btn-download-vremote-apk");
 
 function openVRemoteModal() {
     if (!vremoteModal) return;
@@ -2096,6 +2097,17 @@ if (btnCloseVremoteModal) {
 if (vremoteModal) {
     vremoteModal.addEventListener("click", (e) => {
         if (e.target === vremoteModal) closeVRemoteModal();
+    });
+}
+if (btnDownloadVremoteApk) {
+    btnDownloadVremoteApk.addEventListener("click", async (e) => {
+        try {
+            const res = await fetch("/downloads/vremote.apk", { method: "HEAD" });
+            if (!res.ok) {
+                e.preventDefault();
+                showToast("⚠️ VRemote.apk binary server par mojud nahi. remoteapk/ source se build karein.");
+            }
+        } catch (_) {}
     });
 }
 
