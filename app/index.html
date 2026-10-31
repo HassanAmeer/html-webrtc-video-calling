@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> Meeting App</title>
+    <title>Meeting App</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="js/socket.io.js" defer></script>
     <script src="js/main.js" defer></script>
-    <!-- <link rel="shortcut icon" href="../public/images/fav.png" type="image/x-icon"> -->
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -38,40 +37,39 @@
                 <button class="control-btn" id="toggle-screen" title="Share Screen">
                     <i class="fas fa-desktop"></i>
                 </button>
-                <button id="end-call-btn" class="control-btn" title="End Call">
+                <button id="end-call-btn" class="control-btn" title="End Call" style="display: none; background-color: #ea4335;">
                     <i class="fas fa-phone-slash"></i>
                 </button>
                 <button id="local-video-toggle-icon" class="control-btn" title="Toggle Local Video">
-                    <i class="fas fa-eye-slash"></i>
+                    <i class="fas fa-eye"></i>
                 </button>
             </div>
 
-            <div class="bottom-sheet-toggle">
-                <i class="fas fa-plus"></i>
+            <div class="bottom-sheet-toggle" title="Toggle Participants">
+                <i class="fas fa-users"></i>
             </div>
 
             <div class="call-controls-toggle">
                 <i class="fas fa-chevron-right"></i>
             </div>
 
-            <aside class="caller-list-wrapper">
+            <aside class="caller-list-wrapper expanded">
                 <div class="username-input">
-                    <input id="username" type="text" placeholder="Enter Username">
-                    <button id="create-user">Create</button>
+                    <input id="username" type="text" placeholder="Your Name" autocomplete="off">
+                    <button id="create-user">Set Name</button>
                 </div>
-                <h1 class="caller-list-heading">Participants</h1>
+                <h1 class="caller-list-heading">
+                    <span>Participants</span>
+                    <span id="participant-count" style="font-size: 12px; opacity: 0.8; font-weight: normal;">(0)</span>
+                </h1>
                 <ul id="allusers" class="caller-list">
                     <!-- Users will be added here dynamically -->
                 </ul>
             </aside>
             <div class="side-panel">
                 <div class="panel-content">
-                    <!-- Additional controls and info can go here -->
                 </div>
             </div>
-            <!-- <div class="toggle-panel">
-                <i class="fas fa-chevron-left"></i>
-            </div> -->
         </section>
     </main>
 </body>

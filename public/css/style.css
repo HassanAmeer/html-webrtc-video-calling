@@ -1,6 +1,6 @@
 
 
-/* from public fodler */
+/* from app fodler */
 
 @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap');
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
@@ -494,9 +494,9 @@ video {
 @media screen and (max-width: 480px) {
 	
     .call-controls {
-        bottom: 60px;
+        bottom: 80px;
         padding: 4px 8px;
-        gap: 5px;
+        gap: 6px;
     }
 
     .control-btn {
