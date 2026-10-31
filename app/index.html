@@ -326,6 +326,27 @@
                     </label>
                 </div>
 
+                <!-- In-Chat Camera Photo Viewfinder & Capture Modal -->
+                <div id="chat-photo-capture" class="chat-photo-capture" style="display: none;">
+                    <div class="cpc-header">
+                        <span><i class="fas fa-camera"></i> Camera Viewfinder</span>
+                        <div class="cpc-header-actions">
+                            <button type="button" id="cpc-btn-flip" class="chat-icon-btn" title="Flip Camera"><i class="fas fa-sync-alt"></i></button>
+                            <button type="button" id="cpc-btn-close" class="chat-icon-btn" title="Close"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div class="cpc-preview-wrap">
+                        <video id="cpc-preview" class="cpc-preview" autoplay muted playsinline></video>
+                        <img id="cpc-captured-img" class="cpc-captured-img" style="display: none;" alt="Captured Photo" />
+                    </div>
+                    <div class="cpc-controls">
+                        <button type="button" id="cpc-btn-cancel" class="cvr-btn cvr-cancel"><i class="fas fa-times"></i> Cancel</button>
+                        <button type="button" id="cpc-btn-shutter" class="cvr-btn cpc-shutter-btn"><i class="fas fa-camera"></i> Capture</button>
+                        <button type="button" id="cpc-btn-send" class="cvr-btn cvr-send" style="display:none;"><i class="fas fa-paper-plane"></i> Send Photo</button>
+                        <button type="button" id="cpc-btn-retake" class="cvr-btn cvr-retake" style="display:none;"><i class="fas fa-redo"></i> Retake</button>
+                    </div>
+                </div>
+
                 <!-- In-Chat Video Recorder Modal -->
                 <div id="chat-video-recorder" class="chat-video-recorder" style="display: none;">
                     <div class="cvr-header">

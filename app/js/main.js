@@ -3453,6 +3453,20 @@ const btnRecordVideoChat = document.getElementById("btn-record-video-chat");
 const attachMediaInput = document.getElementById("attach-media-input");
 const attachDocInput = document.getElementById("attach-doc-input");
 
+const chatPhotoCapture = document.getElementById("chat-photo-capture");
+const cpcPreview = document.getElementById("cpc-preview");
+const cpcCapturedImg = document.getElementById("cpc-captured-img");
+const cpcBtnShutter = document.getElementById("cpc-btn-shutter");
+const cpcBtnSend = document.getElementById("cpc-btn-send");
+const cpcBtnRetake = document.getElementById("cpc-btn-retake");
+const cpcBtnCancel = document.getElementById("cpc-btn-cancel");
+const cpcBtnClose = document.getElementById("cpc-btn-close");
+const cpcBtnFlip = document.getElementById("cpc-btn-flip");
+
+let cpcStream = null;
+let cpcFacingMode = "user";
+let cpcCapturedDataUrl = null;
+
 const chatVideoRecorder = document.getElementById("chat-video-recorder");
 const cvrPreview = document.getElementById("cvr-preview");
 const cvrTimer = document.getElementById("cvr-timer");
@@ -3583,6 +3597,9 @@ function hideChatPopovers() {
     if (chatReactionBar) chatReactionBar.style.display = "none";
     if (chatAttachmentPopover) chatAttachmentPopover.style.display = "none";
     if (chatEmojiDrawer) chatEmojiDrawer.style.display = "none";
+    if (typeof closeChatPhotoCapture === "function" && chatPhotoCapture && chatPhotoCapture.style.display !== "none") {
+        closeChatPhotoCapture();
+    }
 }
 
 function scrollChatToBottom() {
@@ -3658,6 +3675,29 @@ function clearPendingAttachment() {
     if (attachDocInput) attachDocInput.value = "";
 }
 
+function dataURLToBlob(dataurl) {
+    if (!dataurl || typeof dataurl !== "string") return null;
+    try {
+        const parts = dataurl.split(',');
+        if (parts.length < 2) return null;
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        let mime = mimeMatch ? mimeMatch[1] : 'video/webm';
+        if (mime.includes('codecs=')) {
+            mime = mime.split(';')[0];
+        }
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+            u8arr[i] = bstr.charCodeAt(i);
+        }
+        return new Blob([u8arr], { type: mime });
+    } catch (err) {
+        console.warn("dataURLToBlob error:", err);
+        return null;
+    }
+}
+
 // Render Chat Message Bubble
 function appendChatMessage(msg, isMine) {
     if (!chatMessagesScroll) return;
@@ -3714,22 +3754,49 @@ function appendChatMessage(msg, isMine) {
 
             const loader = document.createElement("div");
             loader.className = "chat-media-loader";
-            loader.innerHTML = `<i class="fas fa-circle-notch"></i> <span>${isMine ? "Sending video..." : "Loading video..."}</span>`;
+            loader.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> <span>${isMine ? "Sending video..." : "Loading video..."}</span>`;
             wrap.appendChild(loader);
 
             const video = document.createElement("video");
-            video.src = msg.file.data;
             video.controls = true;
             video.playsInline = true;
+            video.preload = "auto";
             video.className = "chat-video-player";
             video.style.display = "none";
-            video.onloadeddata = () => {
+
+            // Convert base64 data: URL to blob: URL so all mobile and desktop browsers natively play and seek
+            let videoSrc = msg.file.data;
+            if (typeof videoSrc === "string" && videoSrc.startsWith("data:")) {
+                const blob = dataURLToBlob(videoSrc);
+                if (blob) {
+                    videoSrc = URL.createObjectURL(blob);
+                }
+            }
+            video.src = videoSrc;
+
+            let isRevealed = false;
+            const revealVideo = () => {
+                if (isRevealed) return;
+                isRevealed = true;
                 loader.style.display = "none";
                 video.style.display = "block";
                 scrollChatToBottom();
             };
-            video.onerror = () => {
-                loader.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ef4444;"></i> <span>Failed to load video</span>`;
+
+            video.onloadeddata = revealVideo;
+            video.oncanplay = revealVideo;
+            video.onloadedmetadata = revealVideo;
+
+            // Safety timeout: if canplay doesn't fire within 1.5s, display video controls directly
+            setTimeout(revealVideo, 1500);
+
+            video.onerror = (e) => {
+                console.warn("Video element load error, showing fallback link:", video.error, e);
+                loader.innerHTML = `
+                    <a href="${msg.file.data}" download="${msg.file.name || 'video.webm'}" style="color:#60a5fa; text-decoration:underline; font-size:12px; display:inline-flex; align-items:center; gap:6px;">
+                        <i class="fas fa-play"></i> <span>Play / Save Video (${formatFileSize(msg.file.size)})</span>
+                    </a>
+                `;
                 scrollChatToBottom();
             };
             wrap.appendChild(video);
@@ -3978,52 +4045,141 @@ if (btnCloseEmoji) {
     });
 }
 
-// Instant Snapshot from active call camera (Zero interruption to video call)
-function captureCallSnapshot() {
+// In-Chat Camera Viewfinder & Photo Capture (Shows live camera preview first before capturing)
+async function openChatPhotoCapture() {
+    hideChatPopovers();
+    if (!chatPhotoCapture) return;
+
+    cpcCapturedDataUrl = null;
+    if (cpcCapturedImg) {
+        cpcCapturedImg.style.display = "none";
+        cpcCapturedImg.src = "";
+    }
+    if (cpcPreview) {
+        cpcPreview.style.display = "block";
+    }
+    if (cpcBtnShutter) cpcBtnShutter.style.display = "inline-flex";
+    if (cpcBtnSend) cpcBtnSend.style.display = "none";
+    if (cpcBtnRetake) cpcBtnRetake.style.display = "none";
+
+    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    const hasLiveCam = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+
     try {
-        if (!localVideo || !localVideo.videoWidth) {
-            if (attachCameraInput) attachCameraInput.click();
-            return;
+        if (isCallActive && hasLiveCam) {
+            cpcStream = localStream;
+        } else {
+            cpcStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: cpcFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            });
         }
+        if (cpcPreview) {
+            cpcPreview.srcObject = cpcStream;
+            cpcPreview.play().catch(() => {});
+        }
+        chatPhotoCapture.style.display = "flex";
+    } catch (err) {
+        console.error("Failed to open camera viewfinder:", err);
+        showToast("Camera access needed for viewfinder");
+    }
+}
+
+function captureChatPhotoFrame() {
+    if (!cpcPreview) return;
+    try {
+        const videoW = cpcPreview.videoWidth || 1280;
+        const videoH = cpcPreview.videoHeight || 720;
         const canvas = document.createElement("canvas");
-        canvas.width = localVideo.videoWidth || 1280;
-        canvas.height = localVideo.videoHeight || 720;
+        canvas.width = videoW;
+        canvas.height = videoH;
         const ctx = canvas.getContext("2d");
 
-        // Front camera mirror correction if needed
-        if (currentFacingMode === "user") {
+        if (cpcFacingMode === "user") {
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
         }
-        ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(cpcPreview, 0, 0, canvas.width, canvas.height);
 
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-        const fileName = `snapshot_${Date.now()}.jpg`;
-        const approxSize = Math.round(dataUrl.length * 0.75);
+        cpcCapturedDataUrl = canvas.toDataURL("image/jpeg", 0.92);
 
-        pendingFileObj = {
-            name: fileName,
-            type: "image/jpeg",
-            size: approxSize,
-            data: dataUrl
-        };
-
-        if (chatPendingAttachment) {
-            chatPendingAttachment.style.display = "flex";
-            if (pendingFileName) pendingFileName.textContent = fileName;
-            if (pendingFileSize) pendingFileSize.textContent = formatFileSize(approxSize);
-            if (pendingImgPreview) {
-                pendingImgPreview.src = dataUrl;
-                pendingImgPreview.style.display = "block";
-            }
-            if (pendingDocIcon) pendingDocIcon.style.display = "none";
+        if (cpcCapturedImg) {
+            cpcCapturedImg.src = cpcCapturedDataUrl;
+            cpcCapturedImg.style.display = "block";
         }
-        hideChatPopovers();
-        showToast("📸 Photo captured from call camera");
-        if (chatTextInput) chatTextInput.focus();
+        if (cpcPreview) {
+            cpcPreview.style.display = "none";
+        }
+        if (cpcBtnShutter) cpcBtnShutter.style.display = "none";
+        if (cpcBtnSend) cpcBtnSend.style.display = "inline-flex";
+        if (cpcBtnRetake) cpcBtnRetake.style.display = "inline-flex";
     } catch (err) {
-        console.error("captureCallSnapshot error:", err);
-        if (attachCameraInput) attachCameraInput.click();
+        console.error("captureChatPhotoFrame error:", err);
+    }
+}
+
+function retakeChatPhoto() {
+    cpcCapturedDataUrl = null;
+    if (cpcCapturedImg) {
+        cpcCapturedImg.style.display = "none";
+        cpcCapturedImg.src = "";
+    }
+    if (cpcPreview) {
+        cpcPreview.style.display = "block";
+        cpcPreview.play().catch(() => {});
+    }
+    if (cpcBtnShutter) cpcBtnShutter.style.display = "inline-flex";
+    if (cpcBtnSend) cpcBtnSend.style.display = "none";
+    if (cpcBtnRetake) cpcBtnRetake.style.display = "none";
+}
+
+function sendChatCapturedPhoto() {
+    if (!cpcCapturedDataUrl) return;
+    const fileName = `photo_${Date.now()}.jpg`;
+    pendingFileObj = {
+        name: fileName,
+        type: "image/jpeg",
+        size: Math.round(cpcCapturedDataUrl.length * 0.75),
+        data: cpcCapturedDataUrl
+    };
+    closeChatPhotoCapture();
+    sendChatMessage();
+}
+
+async function flipChatPhotoCamera() {
+    cpcFacingMode = (cpcFacingMode === "user") ? "environment" : "user";
+    if (cpcStream && cpcStream !== localStream) {
+        cpcStream.getTracks().forEach(t => {
+            try { t.stop(); } catch(_) {}
+        });
+    }
+    try {
+        cpcStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: cpcFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+        });
+        if (cpcPreview) {
+            cpcPreview.srcObject = cpcStream;
+            cpcPreview.play().catch(() => {});
+        }
+    } catch (err) {
+        console.warn("Flip camera failed:", err);
+    }
+}
+
+function closeChatPhotoCapture() {
+    if (cpcStream && cpcStream !== localStream) {
+        cpcStream.getTracks().forEach(t => {
+            try { t.stop(); } catch(_) {}
+        });
+    }
+    cpcStream = null;
+    cpcCapturedDataUrl = null;
+    if (cpcPreview) {
+        cpcPreview.srcObject = null;
+    }
+    if (chatPhotoCapture) {
+        chatPhotoCapture.style.display = "none";
     }
 }
 
@@ -4249,10 +4405,14 @@ function sendChatRecordedVideo() {
     if (!cvrRecordedBlob) return;
     const reader = new FileReader();
     reader.onload = (e) => {
-        const ext = cvrRecordedBlob.type.includes("mp4") ? "mp4" : "webm";
+        let cleanType = cvrRecordedBlob.type || "video/webm";
+        if (cleanType.includes(";")) {
+            cleanType = cleanType.split(";")[0];
+        }
+        const ext = cleanType.includes("mp4") ? "mp4" : "webm";
         pendingFileObj = {
             name: `video_msg_${Date.now()}.${ext}`,
-            type: cvrRecordedBlob.type || "video/webm",
+            type: cleanType,
             size: cvrRecordedBlob.size,
             data: e.target.result
         };
@@ -4262,19 +4422,20 @@ function sendChatRecordedVideo() {
     reader.readAsDataURL(cvrRecordedBlob);
 }
 
-// File Inputs
+// In-Chat Photo Capture Viewfinder Buttons
 if (btnCameraPhotoChat) {
     btnCameraPhotoChat.addEventListener("click", (e) => {
         e.stopPropagation();
-        const isCallActive = !!(activePeer || callingPeer || peerConnection);
-        const hasLiveCam = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
-        if (isCallActive && hasLiveCam && localVideo && localVideo.videoWidth > 0) {
-            captureCallSnapshot();
-        } else {
-            if (attachCameraInput) attachCameraInput.click();
-        }
+        openChatPhotoCapture();
     });
 }
+
+if (cpcBtnShutter) cpcBtnShutter.addEventListener("click", (e) => { e.stopPropagation(); captureChatPhotoFrame(); });
+if (cpcBtnSend) cpcBtnSend.addEventListener("click", (e) => { e.stopPropagation(); sendChatCapturedPhoto(); });
+if (cpcBtnRetake) cpcBtnRetake.addEventListener("click", (e) => { e.stopPropagation(); retakeChatPhoto(); });
+if (cpcBtnCancel) cpcBtnCancel.addEventListener("click", (e) => { e.stopPropagation(); closeChatPhotoCapture(); });
+if (cpcBtnClose) cpcBtnClose.addEventListener("click", (e) => { e.stopPropagation(); closeChatPhotoCapture(); });
+if (cpcBtnFlip) cpcBtnFlip.addEventListener("click", (e) => { e.stopPropagation(); flipChatPhotoCamera(); });
 
 if (btnRecordVideoChat) {
     btnRecordVideoChat.addEventListener("click", (e) => {

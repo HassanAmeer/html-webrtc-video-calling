@@ -2521,6 +2521,82 @@ html.bypass-lock .security-lock-overlay {
     font-weight: 600;
 }
 
+/* In-Chat Photo Capture Viewfinder Modal */
+.chat-photo-capture {
+    pointer-events: auto;
+    position: absolute;
+    bottom: 52px;
+    left: 0;
+    width: 290px;
+    background: rgba(18, 22, 29, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7);
+    z-index: 1045;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: popReactionBar 0.2s ease-out;
+}
+
+.cpc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+    color: #e5e7eb;
+}
+
+.cpc-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cpc-preview-wrap {
+    position: relative;
+    width: 100%;
+    height: 190px;
+    background: #000000;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.cpc-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cpc-captured-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cpc-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cpc-shutter-btn {
+    background: #3b82f6;
+    color: #ffffff;
+    font-weight: 700;
+}
+.cpc-shutter-btn:hover {
+    background: #2563eb;
+}
+
 /* In-Chat Video Recorder Modal */
 .chat-video-recorder {
     pointer-events: auto;
