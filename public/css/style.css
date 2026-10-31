@@ -370,7 +370,7 @@ html, body {
     color: #ffffff;
 }
 
-/* Minimalist Transparent Arrow-Up Launcher at Screen Bottom */
+/* Minimalist Stealth Arrow-Up Launcher at Screen Bottom */
 .expand-bar-btn {
     position: absolute;
     bottom: 8px;
@@ -385,21 +385,29 @@ html, body {
     font-size: 20px;
     cursor: pointer;
     z-index: 49;
-    padding: 8px 16px;
+    padding: 10px 24px;
     opacity: 0;
     pointer-events: none;
-    transition: transform 0.3s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.25s ease, color 0.2s ease;
+    transition: transform 0.3s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.3s ease, color 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .expand-bar-btn.visible {
     transform: translateX(-50%) translateY(0);
-    opacity: 1;
+    opacity: 0.1 !important; /* 10% opacity as requested */
     pointer-events: auto;
+}
+
+.expand-bar-btn.visible.holding {
+    opacity: 0.35 !important;
+    transform: translateX(-50%) scale(1.15);
 }
 
 .expand-bar-btn:hover {
     color: #ffffff;
-    transform: translateX(-50%) translateY(-2px);
+    opacity: 0.18 !important;
 }
 
 .control-btn {

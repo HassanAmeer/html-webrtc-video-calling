@@ -359,8 +359,8 @@
                 <a id="lightbox-download" class="lightbox-download-btn" href="" download="image.jpg"><i class="fas fa-download"></i> Download</a>
             </div>
 
-            <!-- iOS-style Floating Call Controls Dock (Main Action Buttons First) -->
-            <div class="call-controls" id="call-controls">
+            <!-- iOS-style Floating Call Controls Dock (Main Action Buttons First - Default Hidden) -->
+            <div class="call-controls collapsed" id="call-controls">
                 <div class="controls-scroll-wrapper" id="controls-scroll-wrapper">
                     <!-- 1. End Call Button (Primary action during active call) -->
                     <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
@@ -447,8 +447,8 @@
                 </div>
             </div>
 
-            <!-- Transparent Minimalist Arrow-Up to restore controls (No bg, no border, pure icon) -->
-            <button id="btn-expand-bar" class="expand-bar-btn" title="Show Controls" aria-label="Show Controls">
+            <!-- Stealth Arrow-Up Button (10% Opacity, Hold to expand controls) -->
+            <button id="btn-expand-bar" class="expand-bar-btn visible" title="" aria-label="Controls">
                 <i class="fas fa-chevron-up"></i>
             </button>
         </section>

@@ -2023,12 +2023,55 @@ if (btnCollapseBar) {
     });
 }
 
-if (btnExpandBar) {
-    btnExpandBar.addEventListener("click", (e) => {
-        e.stopPropagation();
+let expandHoldTimer = null;
+const HOLD_EXPAND_DURATION_MS = 450;
+
+function startExpandHold(e) {
+    if (expandHoldTimer) clearTimeout(expandHoldTimer);
+    if (btnExpandBar) btnExpandBar.classList.add("holding");
+    expandHoldTimer = setTimeout(() => {
+        if (navigator.vibrate) navigator.vibrate(40);
         showControlsBar();
+        if (btnExpandBar) btnExpandBar.classList.remove("holding");
+        expandHoldTimer = null;
+    }, HOLD_EXPAND_DURATION_MS);
+}
+
+function cancelExpandHold() {
+    if (expandHoldTimer) {
+        clearTimeout(expandHoldTimer);
+        expandHoldTimer = null;
+    }
+    if (btnExpandBar) {
+        btnExpandBar.classList.remove("holding");
+    }
+}
+
+if (btnExpandBar) {
+    // Touch hold for mobile
+    btnExpandBar.addEventListener("touchstart", (e) => {
+        startExpandHold(e);
+    }, { passive: true });
+    btnExpandBar.addEventListener("touchend", cancelExpandHold);
+    btnExpandBar.addEventListener("touchcancel", cancelExpandHold);
+    btnExpandBar.addEventListener("touchmove", cancelExpandHold);
+
+    // Mouse hold for desktop
+    btnExpandBar.addEventListener("mousedown", (e) => {
+        if (e.button === 0) startExpandHold(e);
+    });
+    btnExpandBar.addEventListener("mouseup", cancelExpandHold);
+    btnExpandBar.addEventListener("mouseleave", cancelExpandHold);
+
+    // Block accidental quick clicks/taps so casual visitors cannot discover it!
+    btnExpandBar.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
     });
 }
+
+// Default state: Hide controls bar on page start
+hideControlsBar();
 
 // ==============================================================
 // TRANSPARENT CHAT OVERLAY SYSTEM
