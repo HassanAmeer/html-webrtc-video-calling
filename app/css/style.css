@@ -1912,6 +1912,30 @@ html.bypass-lock .security-lock-overlay {
     justify-content: flex-end;
 }
 
+/* Volume row with Title & Description on Top, and Progress bar & Mute below */
+.setting-item.setting-volume-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+}
+
+.setting-item.setting-volume-row .setting-info {
+    width: 100%;
+}
+
+.setting-item.setting-volume-row .setting-volume-controls {
+    width: 100%;
+    max-width: 100%;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.setting-item.setting-volume-row .volume-range-input {
+    flex: 1;
+    min-width: 0;
+}
+
 .setting-vol-btn {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -2072,10 +2096,10 @@ html.bypass-lock .security-lock-overlay {
 
 @media (max-width: 600px) {
     .chat-overlay-container {
-        top: env(safe-area-inset-top, 8px);
-        bottom: 80px;
-        left: 4px;
-        width: calc(100% - 8px);
+        top: max(env(safe-area-inset-top, 8px), 8px);
+        bottom: 90px;
+        left: 6px;
+        width: calc(100% - 12px);
     }
 }
 
