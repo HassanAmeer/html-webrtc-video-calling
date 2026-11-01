@@ -3593,6 +3593,8 @@ function openParticipants() {
     if (window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp()) {
         const b = document.getElementById("btn-device-registry");
         if (b) b.style.setProperty("display", "none", "important");
+        const d = document.getElementById("drawer-devices-view");
+        if (d) d.style.setProperty("display", "none", "important");
     }
 
     if (participantsDrawer) {
@@ -3604,9 +3606,10 @@ function openParticipants() {
         participantsBackdrop.style.opacity = "1";
         participantsBackdrop.style.pointerEvents = "auto";
     }
-    // Automatically ask server for the freshest participant list
+    // Automatically ask server for the freshest participant list and devices
     if (socket && socket.connected) {
         socket.emit("get-users");
+        socket.emit("get-devices");
     }
 }
 
@@ -5398,22 +5401,22 @@ setupRemoteCameraPip();
     setTimeout(syncNativeAppUi, 500);
     setTimeout(syncNativeAppUi, 1500);
 
-    function toggleDevicesView() {
+    let isDevicesViewOpen = (localStorage.getItem("webrtc_devices_drawer_open") === "true");
+
+    function applyDevicesViewVisibility() {
         if (!drawerDevicesView) return;
-        const isHidden = (drawerDevicesView.style.display === "none" || !drawerDevicesView.style.display);
-        if (isHidden) {
-            // Show Registered Devices inline inside the same sheet
-            drawerDevicesView.style.display = "block";
+        if (isDevicesViewOpen) {
+            // Strictly show inline inside sheet without hiding active participants
+            drawerDevicesView.style.display = "flex";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.add("active");
-                btnDeviceRegistry.style.background = "rgba(0, 122, 255, 0.28)";
+                btnDeviceRegistry.style.background = "rgba(10, 132, 255, 0.28)";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#0a84ff";
             if (socket && socket.connected) {
                 socket.emit("get-devices");
             }
         } else {
-            // Hide Registered Devices
             drawerDevicesView.style.display = "none";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.remove("active");
@@ -5422,6 +5425,15 @@ setupRemoteCameraPip();
             if (infoIconBadge) infoIconBadge.style.color = "#8ab4f8";
         }
     }
+
+    function toggleDevicesView() {
+        isDevicesViewOpen = !isDevicesViewOpen;
+        localStorage.setItem("webrtc_devices_drawer_open", isDevicesViewOpen ? "true" : "false");
+        applyDevicesViewVisibility();
+    }
+
+    applyDevicesViewVisibility();
+    window.addEventListener("DOMContentLoaded", applyDevicesViewVisibility);
 
     if (btnDeviceRegistry) {
         btnDeviceRegistry.addEventListener("click", (e) => {
