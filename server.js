@@ -173,8 +173,18 @@ function getAllUsersPayload() {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-app.use(express.static("public"));
-app.use(express.static("app"));
+const staticOptions = {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html") || filePath.endsWith(".js") || filePath.endsWith(".css")) {
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            res.setHeader("Pragma", "no-cache");
+            res.setHeader("Expires", "0");
+        }
+    }
+};
+
+app.use(express.static("public", staticOptions));
+app.use(express.static("app", staticOptions));
 
 // Dedicated Handler for VRemote APK Download
 app.get("/downloads/vremote.apk", (req, res) => {
@@ -199,8 +209,9 @@ app.get("/", (req, res) => {
 io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);
 
-    // Send currently joined users (empty until someone sets a name)
+    // Send currently joined users and registered devices
     socket.emit("joined", getAllUsersPayload());
+    socket.emit("device-list-update", getDeviceListPayload());
 
     // Allow clients to explicitly refresh or check participants on demand
     socket.on("get-users", () => {

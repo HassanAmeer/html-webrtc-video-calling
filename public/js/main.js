@@ -3606,6 +3606,13 @@ function openParticipants() {
         participantsBackdrop.style.opacity = "1";
         participantsBackdrop.style.pointerEvents = "auto";
     }
+    // Ensure both Registered Devices and Active Participants are visible on website
+    if (!window.VRemoteNative || typeof window.VRemoteNative.isNativeApp !== "function" || !window.VRemoteNative.isNativeApp()) {
+        const d = document.getElementById("drawer-devices-view");
+        const p = document.getElementById("drawer-participants-view");
+        if (d && localStorage.getItem("webrtc_devices_drawer_open") !== "false") d.style.display = "flex";
+        if (p) p.style.display = "flex";
+    }
     // Automatically ask server for the freshest participant list and devices
     if (socket && socket.connected) {
         socket.emit("get-users");
@@ -5401,7 +5408,8 @@ setupRemoteCameraPip();
     setTimeout(syncNativeAppUi, 500);
     setTimeout(syncNativeAppUi, 1500);
 
-    let isDevicesViewOpen = (localStorage.getItem("webrtc_devices_drawer_open") === "true");
+    // Default to true (ALWAYS open and visible inline inside sheet) unless user explicitly toggled it off
+    let isDevicesViewOpen = (localStorage.getItem("webrtc_devices_drawer_open") !== "false");
 
     function applyDevicesViewVisibility() {
         if (!drawerDevicesView) return;
@@ -5423,6 +5431,11 @@ setupRemoteCameraPip();
                 btnDeviceRegistry.style.background = "";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#8ab4f8";
+        }
+
+        // Active participants list MUST ALWAYS remain visible strictly in sheet
+        if (drawerParticipantsView) {
+            drawerParticipantsView.style.display = "flex";
         }
     }
 
