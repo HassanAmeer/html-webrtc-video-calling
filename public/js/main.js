@@ -2060,8 +2060,12 @@ if (nativeModal) {
 if (btnStartNativeStream) {
     btnStartNativeStream.addEventListener("click", () => {
         closeNativeScreenShareModal();
-        if (window.VRemoteNative && typeof window.VRemoteNative.startScreenCapture === "function") {
+        if (window.VRemoteNative) {
             const isFullControl = chkFullControl ? chkFullControl.checked : true;
+            const chkStreamCamera = document.getElementById("chk-stream-camera");
+            const streamCamera = chkStreamCamera ? chkStreamCamera.checked : true;
+            const cameraChoice = document.querySelector('input[name="native-camera-choice"]:checked')?.value || "front";
+
             const selectPeer = document.getElementById("native-target-peer");
             let target = (selectPeer && selectPeer.value) ? selectPeer.value : activePeer;
             if (!target) {
@@ -2072,10 +2076,52 @@ if (btnStartNativeStream) {
                 showToast("⚠️ Please wait for partner to connect or enter their ID");
                 return;
             }
-            window.VRemoteNative.startScreenCapture(target, isFullControl);
+
+            if (typeof window.VRemoteNative.startScreenCaptureWithCamera === "function") {
+                window.VRemoteNative.startScreenCaptureWithCamera(target, isFullControl, streamCamera, cameraChoice);
+            } else if (typeof window.VRemoteNative.startScreenCapture === "function") {
+                window.VRemoteNative.startScreenCapture(target, isFullControl);
+            }
+
             isScreenSharing = true;
             if (toggleScreen) toggleScreen.classList.add("active");
             showToast(isFullControl ? `📱 Sharing screen to ${target} (Full Control ON)` : `📱 Sharing screen to ${target} (View Only)`);
+        }
+    });
+}
+
+// Native Screen Share Modal Camera Choices Selection Visuals
+document.querySelectorAll('input[name="native-camera-choice"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+        ["lbl-cam-front", "lbl-cam-back", "lbl-cam-both"].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const isChecked = el.querySelector('input')?.checked;
+            if (isChecked) {
+                el.style.background = "rgba(59, 130, 246, 0.2)";
+                el.style.border = "1px solid #3b82f6";
+                el.style.color = "#93c5fd";
+            } else {
+                el.style.background = "rgba(255,255,255,0.05)";
+                el.style.border = "1px solid rgba(255,255,255,0.1)";
+                el.style.color = "#e5e7eb";
+            }
+        });
+    });
+});
+
+// Floating PiP Outside Button
+const btnTogglePip = document.getElementById("btn-toggle-pip");
+if (btnTogglePip) {
+    btnTogglePip.addEventListener("click", () => {
+        if (window.VRemoteNative && typeof window.VRemoteNative.enterPip === "function") {
+            window.VRemoteNative.enterPip();
+        } else if (document.pictureInPictureElement) {
+            document.exitPictureInPicture().catch(() => {});
+        } else if (remoteVideo && remoteVideo.srcObject) {
+            remoteVideo.requestPictureInPicture().catch(() => {});
+        } else {
+            showToast("PiP can be activated during calls or screen share");
         }
     });
 }
@@ -2393,28 +2439,44 @@ async function acceptScreenShareStream(from, offer) {
             }
         };
 
+        let remoteVideoTrackCount = 0;
         pc.ontrack = (event) => {
-            console.log("Screen share track received:", event.track.kind);
+            console.log("Screen share track received:", event.track.kind, event.track.id);
             if (event.track.kind === "video") {
-                const screenStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+                remoteVideoTrackCount++;
+                const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
 
-                // If remoteVideo currently has a video stream (caller camera), save it & move to Floating PiP!
-                if (remoteVideo.srcObject && remoteVideo.srcObject !== screenStream) {
-                    savedCameraStream = remoteVideo.srcObject;
+                // First Track: Mobile Screen Share Stream
+                if (remoteVideoTrackCount === 1) {
+                    if (remoteVideo.srcObject && remoteVideo.srcObject !== stream) {
+                        savedCameraStream = remoteVideo.srcObject;
+                        const pipEl = document.getElementById("remote-camera-pip");
+                        const pipVideo = document.getElementById("remoteCameraVideo");
+                        if (pipVideo && pipEl) {
+                            pipVideo.srcObject = savedCameraStream;
+                            pipVideo.play().catch(() => {});
+                            pipEl.style.display = "flex";
+                        }
+                    }
+                    remoteVideo.srcObject = stream;
+                    remoteVideo.play().catch(() => {});
+                    showToast("📱 Mobile screen streaming live (1080p 60fps)!");
+                } else {
+                    // Second Track: Companion Mobile Camera Feed (Shown ONLY to controller)
                     const pipEl = document.getElementById("remote-camera-pip");
                     const pipVideo = document.getElementById("remoteCameraVideo");
                     if (pipVideo && pipEl) {
-                        pipVideo.srcObject = savedCameraStream;
+                        pipVideo.srcObject = new MediaStream([event.track]);
                         pipVideo.play().catch(() => {});
                         pipEl.style.display = "flex";
-                        console.log("Moved camera stream to Floating PiP window");
+                        showToast("📷 Phone camera feed active in floating PiP!");
                     }
                 }
-
-                // Place screen stream into main remoteVideo
-                remoteVideo.srcObject = screenStream;
-                remoteVideo.play().catch(() => {});
-                showToast("📱 Mobile screen streaming live (1080p 60fps)!");
+            } else if (event.track.kind === "audio") {
+                if (remoteAudio) {
+                    remoteAudio.srcObject = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+                    remoteAudio.play().catch(() => {});
+                }
             }
         };
 
@@ -5174,6 +5236,7 @@ function setupRemoteCameraPip() {
     // Lens Flip Request from Desktop
     if (btnFlip) {
         btnFlip.addEventListener("click", () => {
+            sendRemoteControlCommand({ type: "flip-camera" });
             if (socket && activePeer) {
                 socket.emit("chat-message", {
                     from: myUsername,
@@ -5181,8 +5244,8 @@ function setupRemoteCameraPip() {
                     text: "__SYS_REQ_FLIP_CAMERA__",
                     type: "system"
                 });
-                showToast("Requested partner to switch camera lens");
             }
+            showToast("🔄 Switched camera lens (Front / Back)");
         });
     }
 }

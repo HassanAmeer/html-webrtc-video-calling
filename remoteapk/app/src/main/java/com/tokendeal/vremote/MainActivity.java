@@ -46,6 +46,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
     private String pendingTargetPeer = "";
     private boolean isFullControlEnabled = true;
+    private boolean streamCompanionCamera = true;
+    private String companionCameraChoice = "front";
+    private boolean isCallActive = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,9 +166,21 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
 
         @JavascriptInterface
+        public void setCallActive(boolean active) {
+            MainActivity.this.isCallActive = active;
+        }
+
+        @JavascriptInterface
         public void startScreenCapture(String targetPeer, boolean fullControl) {
+            startScreenCaptureWithCamera(targetPeer, fullControl, true, "front");
+        }
+
+        @JavascriptInterface
+        public void startScreenCaptureWithCamera(String targetPeer, boolean fullControl, boolean streamCamera, String cameraChoice) {
             pendingTargetPeer = (targetPeer != null && !targetPeer.isEmpty()) ? targetPeer : "";
             isFullControlEnabled = fullControl;
+            streamCompanionCamera = streamCamera;
+            companionCameraChoice = (cameraChoice != null) ? cameraChoice : "front";
 
             if (webRTCCompanion != null) {
                 webRTCCompanion.setFullControlEnabled(fullControl);
@@ -255,7 +270,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
 
             if (webRTCCompanion != null) {
-                webRTCCompanion.startScreenShare(pendingTargetPeer, captureIntentData, displayMetrics.widthPixels, displayMetrics.heightPixels);
+                webRTCCompanion.startScreenShare(
+                        pendingTargetPeer,
+                        captureIntentData,
+                        displayMetrics.widthPixels,
+                        displayMetrics.heightPixels,
+                        streamCompanionCamera,
+                        companionCameraChoice
+                );
             }
 
             Toast.makeText(MainActivity.this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
@@ -307,8 +329,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     public void onUserLeaveHint() {
         super.onUserLeaveHint();
-        // Float like WhatsApp when home button is pressed during active share
-        if (ScreenCaptureService.isRunning() || (webRTCCompanion != null && webRTCCompanion.isSharing())) {
+        // Float like WhatsApp when home button is pressed during active share OR active video/audio call
+        if (isCallActive || ScreenCaptureService.isRunning() || (webRTCCompanion != null && webRTCCompanion.isSharing()) || (webRTCCompanion != null && webRTCCompanion.getActivePeer() != null)) {
             enterWhatsAppStylePipOrBack();
         }
     }

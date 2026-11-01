@@ -47,6 +47,14 @@ public class WebRTCCompanion {
     private SurfaceTextureHelper surfaceTextureHelper;
     private VideoSource videoSource;
     private VideoTrack localVideoTrack;
+
+    // Optional Companion Camera (Streamed ONLY to Controller Desktop during Screen Share)
+    private CameraVideoCapturer companionCameraCapturer;
+    private SurfaceTextureHelper companionTextureHelper;
+    private VideoSource companionVideoSource;
+    private VideoTrack companionCameraTrack;
+    private boolean isCompanionCamFront = true;
+
     private AudioSource audioSource;
     private AudioTrack localAudioTrack;
     private DataChannel remoteControlChannel;
@@ -328,6 +336,10 @@ public class WebRTCCompanion {
     }
 
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height) {
+        startScreenShare(targetUser, captureIntentData, width, height, false, "front");
+    }
+
+    public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
         this.activePeer = targetUser;
         setupPeerConnection();
 
@@ -358,11 +370,68 @@ public class WebRTCCompanion {
             peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
             peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
 
+            // Companion Camera Feed (Visible ONLY to controller desktop, invisible on phone screen)
+            if (streamCamera) {
+                try {
+                    Camera2Enumerator enumerator = new Camera2Enumerator(context);
+                    String[] deviceNames = enumerator.getDeviceNames();
+                    String chosenCam = null;
+                    boolean preferFront = !"back".equalsIgnoreCase(cameraChoice);
+
+                    for (String name : deviceNames) {
+                        if (preferFront && enumerator.isFrontFacing(name)) {
+                            chosenCam = name;
+                            isCompanionCamFront = true;
+                            break;
+                        } else if (!preferFront && enumerator.isBackFacing(name)) {
+                            chosenCam = name;
+                            isCompanionCamFront = false;
+                            break;
+                        }
+                    }
+                    if (chosenCam == null && deviceNames.length > 0) {
+                        chosenCam = deviceNames[0];
+                    }
+
+                    if (chosenCam != null) {
+                        companionCameraCapturer = enumerator.createCapturer(chosenCam, null);
+                        companionTextureHelper = SurfaceTextureHelper.create("CompanionCamThread", rootEglBase.getEglBaseContext());
+                        companionVideoSource = peerConnectionFactory.createVideoSource(companionCameraCapturer.isScreencast());
+                        companionCameraCapturer.initialize(companionTextureHelper, context, companionVideoSource.getCapturerObserver());
+                        companionCameraCapturer.startCapture(640, 480, 24);
+
+                        companionCameraTrack = peerConnectionFactory.createVideoTrack("ARDAMSv1_CAM", companionVideoSource);
+                        companionCameraTrack.setEnabled(true);
+                        peerConnection.addTrack(companionCameraTrack, Collections.singletonList("ARDAMS"));
+                        Log.i(TAG, "Companion camera stream active: " + chosenCam + " (choice=" + cameraChoice + ")");
+                    }
+                } catch (Exception camErr) {
+                    Log.w(TAG, "Failed to start companion camera: " + camErr.getMessage());
+                }
+            }
+
             createAndSendOffer(targetUser);
 
         } catch (Exception e) {
             Log.e(TAG, "Screen share init error", e);
             if (callback != null) callback.onError("Screen capture failed: " + e.getMessage());
+        }
+    }
+
+    public void switchCompanionCamera() {
+        if (companionCameraCapturer != null) {
+            companionCameraCapturer.switchCamera(new CameraVideoCapturer.CameraSwitchHandler() {
+                @Override
+                public void onCameraSwitchDone(boolean isFront) {
+                    isCompanionCamFront = isFront;
+                    Log.i(TAG, "Companion camera switched! Front=" + isFront);
+                }
+
+                @Override
+                public void onCameraSwitchError(String errorDescription) {
+                    Log.w(TAG, "Camera switch error: " + errorDescription);
+                }
+            });
         }
     }
 
@@ -581,6 +650,10 @@ public class WebRTCCompanion {
                     accessibility.performRecentApps();
                     break;
                 }
+                case "flip-camera": {
+                    switchCompanionCamera();
+                    break;
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error handling gesture:", e);
@@ -619,6 +692,14 @@ public class WebRTCCompanion {
             cameraCapturer = null;
         }
 
+        if (companionCameraCapturer != null) {
+            try {
+                companionCameraCapturer.stopCapture();
+                companionCameraCapturer.dispose();
+            } catch (Exception ignored) {}
+            companionCameraCapturer = null;
+        }
+
         if (surfaceTextureHelper != null) {
             try {
                 surfaceTextureHelper.dispose();
@@ -626,9 +707,21 @@ public class WebRTCCompanion {
             surfaceTextureHelper = null;
         }
 
+        if (companionTextureHelper != null) {
+            try {
+                companionTextureHelper.dispose();
+            } catch (Exception ignored) {}
+            companionTextureHelper = null;
+        }
+
         if (localVideoTrack != null) {
             localVideoTrack.dispose();
             localVideoTrack = null;
+        }
+
+        if (companionCameraTrack != null) {
+            companionCameraTrack.dispose();
+            companionCameraTrack = null;
         }
 
         if (videoSource != null) {
@@ -636,6 +729,13 @@ public class WebRTCCompanion {
                 videoSource.dispose();
             } catch (Exception ignored) {}
             videoSource = null;
+        }
+
+        if (companionVideoSource != null) {
+            try {
+                companionVideoSource.dispose();
+            } catch (Exception ignored) {}
+            companionVideoSource = null;
         }
 
         if (remoteControlChannel != null) {
