@@ -150,6 +150,42 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         webRTCCompanion = new WebRTCCompanion(this, APP_URL, "", this);
     }
 
+    public void startScreenCaptureWithCamera(String targetPeer, boolean fullControl, boolean streamCamera, String cameraChoice) {
+        pendingTargetPeer = (targetPeer != null && !targetPeer.isEmpty()) ? targetPeer : "";
+        isFullControlEnabled = fullControl;
+        streamCompanionCamera = streamCamera;
+        companionCameraChoice = (cameraChoice != null) ? cameraChoice : "front";
+
+        if (webRTCCompanion != null) {
+            webRTCCompanion.setFullControlEnabled(fullControl);
+        }
+
+        runOnUiThread(() -> {
+            if (fullControl && !RemoteAccessibilityService.isServiceRunning()) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Remote Touch Control Permission")
+                        .setMessage("Desktop caller se screen par touch/click allow karne ke liye Accessibility permission zaroori hai.\n\n1. 'Open Settings' dabayein aur 'VRemote Screen Share' ko ON karein.\n\n(Android 13/14 Note: Agar setting grayed out ho, to Phone Settings > Apps > VRemote > Top right 3-dots > 'Allow restricted settings' karein)")
+                        .setPositiveButton("Open Settings", (d, w) -> {
+                            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                            startActivity(intent);
+                        })
+                        .setNegativeButton("View Only (No Touch)", (d, w) -> {
+                            isFullControlEnabled = false;
+                            if (webRTCCompanion != null) webRTCCompanion.setFullControlEnabled(false);
+                            if (projectionManager != null) {
+                                startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+                            }
+                        })
+                        .show();
+                return;
+            }
+
+            if (projectionManager != null) {
+                startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+            }
+        });
+    }
+
     public class NativeAppBridge {
         @JavascriptInterface
         public boolean isNativeApp() {
@@ -177,44 +213,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         @JavascriptInterface
         public void startScreenCapture(String targetPeer, boolean fullControl) {
-            startScreenCaptureWithCamera(targetPeer, fullControl, true, "front");
+            MainActivity.this.startScreenCaptureWithCamera(targetPeer, fullControl, true, "front");
         }
 
         @JavascriptInterface
         public void startScreenCaptureWithCamera(String targetPeer, boolean fullControl, boolean streamCamera, String cameraChoice) {
-            pendingTargetPeer = (targetPeer != null && !targetPeer.isEmpty()) ? targetPeer : "";
-            isFullControlEnabled = fullControl;
-            streamCompanionCamera = streamCamera;
-            companionCameraChoice = (cameraChoice != null) ? cameraChoice : "front";
-
-            if (webRTCCompanion != null) {
-                webRTCCompanion.setFullControlEnabled(fullControl);
-            }
-
-            runOnUiThread(() -> {
-                if (fullControl && !RemoteAccessibilityService.isServiceRunning()) {
-                    new AlertDialog.Builder(MainActivity.this)
-                            .setTitle("Remote Touch Control Permission")
-                            .setMessage("Desktop caller se screen par touch/click allow karne ke liye Accessibility permission zaroori hai.\n\n1. 'Open Settings' dabayein aur 'VRemote Screen Share' ko ON karein.\n\n(Android 13/14 Note: Agar setting grayed out ho, to Phone Settings > Apps > VRemote > Top right 3-dots > 'Allow restricted settings' karein)")
-                            .setPositiveButton("Open Settings", (d, w) -> {
-                                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                                startActivity(intent);
-                            })
-                            .setNegativeButton("View Only (No Touch)", (d, w) -> {
-                                isFullControlEnabled = false;
-                                if (webRTCCompanion != null) webRTCCompanion.setFullControlEnabled(false);
-                                if (projectionManager != null) {
-                                    startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
-                                }
-                            })
-                            .show();
-                    return;
-                }
-
-                if (projectionManager != null) {
-                    startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
-                }
-            });
+            MainActivity.this.startScreenCaptureWithCamera(targetPeer, fullControl, streamCamera, cameraChoice);
         }
 
         @JavascriptInterface
