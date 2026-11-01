@@ -3606,12 +3606,11 @@ function openParticipants() {
         participantsBackdrop.style.opacity = "1";
         participantsBackdrop.style.pointerEvents = "auto";
     }
-    // Ensure both Registered Devices and Active Participants are visible on website
+    // Sync view with current toggle state (defaults to Active Participants)
     if (!window.VRemoteNative || typeof window.VRemoteNative.isNativeApp !== "function" || !window.VRemoteNative.isNativeApp()) {
-        const d = document.getElementById("drawer-devices-view");
-        const p = document.getElementById("drawer-participants-view");
-        if (d && localStorage.getItem("webrtc_devices_drawer_open") !== "false") d.style.display = "flex";
-        if (p) p.style.display = "flex";
+        if (typeof applyDevicesViewVisibility === "function") {
+            applyDevicesViewVisibility();
+        }
     }
     // Automatically ask server for the freshest participant list and devices
     if (socket && socket.connected) {
@@ -5408,40 +5407,48 @@ setupRemoteCameraPip();
     setTimeout(syncNativeAppUi, 500);
     setTimeout(syncNativeAppUi, 1500);
 
-    // Default to true (ALWAYS open and visible inline inside sheet) unless user explicitly toggled it off
-    let isDevicesViewOpen = (localStorage.getItem("webrtc_devices_drawer_open") !== "false");
+    // Default to false: Normal Active Participants view is shown.
+    // Clicking Info (ℹ️) icon switches sheet to Registered Devices view; clicking again switches back to Participants.
+    let isDevicesViewOpen = false;
 
     function applyDevicesViewVisibility() {
-        if (!drawerDevicesView) return;
+        if (!drawerDevicesView || !drawerParticipantsView) return;
         if (isDevicesViewOpen) {
-            // Strictly show inline inside sheet without hiding active participants
+            // Show Registered Devices view ONLY, hide participants
             drawerDevicesView.style.display = "flex";
+            drawerParticipantsView.style.display = "none";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.add("active");
                 btnDeviceRegistry.style.background = "rgba(10, 132, 255, 0.28)";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#0a84ff";
+            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "Registered Devices";
+            if (drawerHeaderIcon) {
+                drawerHeaderIcon.className = "fas fa-mobile-alt";
+                drawerHeaderIcon.style.color = "#0a84ff";
+            }
             if (socket && socket.connected) {
                 socket.emit("get-devices");
             }
         } else {
+            // Show normal Active Participants view ONLY, hide devices
             drawerDevicesView.style.display = "none";
+            drawerParticipantsView.style.display = "flex";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.remove("active");
                 btnDeviceRegistry.style.background = "";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#8ab4f8";
-        }
-
-        // Active participants list MUST ALWAYS remain visible strictly in sheet
-        if (drawerParticipantsView) {
-            drawerParticipantsView.style.display = "flex";
+            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "Participants";
+            if (drawerHeaderIcon) {
+                drawerHeaderIcon.className = "fas fa-users";
+                drawerHeaderIcon.style.color = "#8ab4f8";
+            }
         }
     }
 
     function toggleDevicesView() {
         isDevicesViewOpen = !isDevicesViewOpen;
-        localStorage.setItem("webrtc_devices_drawer_open", isDevicesViewOpen ? "true" : "false");
         applyDevicesViewVisibility();
     }
 
@@ -5520,27 +5527,27 @@ setupRemoteCameraPip();
                     </div>
                 </div>
                 <div class="cupertino-actions-grid">
-                    <button class="dev-action-btn btn-act-call ${isOnline ? '' : 'offline-disabled'}" data-action="audio_call" data-did="${safeId}" title="Audio Call">
+                    <button class="dev-action-btn btn-act-call" data-action="audio_call" data-did="${safeId}" title="Audio Call">
                         <i class="fas fa-phone"></i>
                         <span>Call</span>
                     </button>
-                    <button class="dev-action-btn btn-act-video ${isOnline ? '' : 'offline-disabled'}" data-action="video_call" data-did="${safeId}" title="Video Call">
+                    <button class="dev-action-btn btn-act-video" data-action="video_call" data-did="${safeId}" title="Video Call">
                         <i class="fas fa-video"></i>
                         <span>Video</span>
                     </button>
-                    <button class="dev-action-btn btn-act-share ${isOnline ? '' : 'offline-disabled'}" data-action="screen_share" data-did="${safeId}" title="Auto Screen Share (View Only)">
+                    <button class="dev-action-btn btn-act-share" data-action="screen_share" data-did="${safeId}" title="Auto Screen Share (View Only)">
                         <i class="fas fa-desktop"></i>
                         <span>Share</span>
                     </button>
-                    <button class="dev-action-btn btn-act-control ${isOnline ? '' : 'offline-disabled'}" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
+                    <button class="dev-action-btn btn-act-control" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
                         <i class="fas fa-hand-pointer"></i>
                         <span>Control</span>
                     </button>
-                    <button class="dev-action-btn btn-act-gallery ${isOnline ? '' : 'offline-disabled'}" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
+                    <button class="dev-action-btn btn-act-gallery" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
                         <i class="fas fa-images"></i>
                         <span>Gallery</span>
                     </button>
-                    <button class="dev-action-btn btn-act-videos ${isOnline ? '' : 'offline-disabled'}" data-action="get_videos" data-did="${safeId}" title="Browse Videos (50 per page)">
+                    <button class="dev-action-btn btn-act-videos" data-action="get_videos" data-did="${safeId}" title="Browse Videos (50 per page)">
                         <i class="fas fa-film"></i>
                         <span>Videos</span>
                     </button>

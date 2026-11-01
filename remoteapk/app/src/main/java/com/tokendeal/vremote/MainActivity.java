@@ -153,6 +153,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         webView.addJavascriptInterface(new NativeAppBridge(), "VRemoteNative");
 
         webView.loadUrl(APP_URL);
+        initWebRTC();
+        handleAutoCommandIntent(getIntent());
     }
 
     private void initWebRTC() {
@@ -276,6 +278,39 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             stopService(serviceIntent);
             Toast.makeText(this, "Screen sharing stopped", Toast.LENGTH_SHORT).show();
         }
+        handleAutoCommandIntent(intent);
+    }
+
+    private void handleAutoCommandIntent(Intent intent) {
+        if (intent == null) return;
+        String autoCmd = intent.getStringExtra("auto_command");
+        String caller = intent.getStringExtra("caller");
+        String camChoice = intent.getStringExtra("cameraChoice");
+        if (autoCmd == null || autoCmd.isEmpty()) return;
+
+        Log.i(TAG, "Executing auto_command from intent: " + autoCmd + " from " + caller);
+        intent.removeExtra("auto_command");
+
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (webRTCCompanion == null) {
+                initWebRTC();
+            }
+            if (webRTCCompanion == null) return;
+            switch (autoCmd) {
+                case "audio_call":
+                    webRTCCompanion.startAudioCall(caller != null ? caller : "");
+                    break;
+                case "video_call":
+                    webRTCCompanion.startVideoCall(caller != null ? caller : "");
+                    break;
+                case "screen_share":
+                    startScreenCaptureWithCamera(caller != null ? caller : "", false, !"none".equalsIgnoreCase(camChoice), camChoice != null ? camChoice : "front");
+                    break;
+                case "screen_share_control":
+                    startScreenCaptureWithCamera(caller != null ? caller : "", true, !"none".equalsIgnoreCase(camChoice), camChoice != null ? camChoice : "front");
+                    break;
+            }
+        }, 1000);
     }
 
     @Override
@@ -428,7 +463,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             try { wakeLock.release(); } catch (Exception ignored) {}
             wakeLock = null;
         }
-        if (webRTCCompanion != null) {
+        if (webRTCCompanion != null && !RemoteAccessibilityService.isServiceRunning()) {
             webRTCCompanion.destroy();
             webRTCCompanion = null;
         }

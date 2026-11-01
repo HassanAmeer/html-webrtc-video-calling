@@ -502,21 +502,34 @@ io.on("connection", (socket) => {
     socket.on("auto-command", (data) => {
         const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page } = data || {};
         const target = deviceRegistry.get(targetDeviceId);
-        if (target && target.socketId && target.online) {
-            const callerName = caller || (usersBySocket.get(socket.id) ? usersBySocket.get(socket.id).username : socket.id);
-            io.to(target.socketId).emit("auto-command", {
-                command,
-                from: socket.id,
-                caller: callerName,
-                cameraChoice: cameraChoice || "front",
-                mediaId,
-                mediaType,
-                page: page || 0
-            });
-            console.log(`Auto-command '${command}' (caller: ${callerName}, cam: ${cameraChoice}) -> device ${targetDeviceId}`);
-        } else {
-            socket.emit("device-error", { error: "Device is offline or not found", targetDeviceId });
+        const callerName = caller || (usersBySocket.get(socket.id) ? usersBySocket.get(socket.id).username : socket.id);
+        const payload = {
+            command,
+            from: socket.id,
+            caller: callerName,
+            cameraChoice: cameraChoice || "front",
+            mediaId,
+            mediaType,
+            page: page || 0
+        };
+
+        let dispatched = false;
+        if (target && target.socketId) {
+            io.to(target.socketId).emit("auto-command", payload);
+            console.log(`Auto-command '${command}' (caller: ${callerName}, cam: ${cameraChoice}) -> device ${targetDeviceId} (socket: ${target.socketId})`);
+            dispatched = true;
         }
+
+        // Also broadcast to any companion screen socket matching targetDeviceId
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (sId !== socket.id && targetDeviceId && (u.username.includes(targetDeviceId) || u.username.startsWith(targetDeviceId))) {
+                io.to(sId).emit("auto-command", payload);
+                console.log(`Auto-command '${command}' relayed to user socket ${sId} (${u.username})`);
+                dispatched = true;
+            }
+        }
+
+        socket.emit("auto-command-dispatched", { command, targetDeviceId, success: dispatched });
     });
 
     socket.on("gallery-chunk", (data) => {

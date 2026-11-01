@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=3.5">
+    <link rel="stylesheet" href="css/style.css?v=4.0">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=3.5" defer></script>
+    <script src="js/main.js?v=4.0" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -363,7 +363,7 @@
             </div>
 
             <!-- Inline Device Registry View (Strictly inside sheet, toggled by Info Icon) -->
-            <div id="drawer-devices-view" class="drawer-devices-container">
+            <div id="drawer-devices-view" class="drawer-devices-container" style="display: none;">
                 <div class="drawer-list-header">
                     <div style="display:flex; align-items:center; gap:6px;">
                         <i class="fas fa-mobile-alt" style="color:#0a84ff;"></i>
