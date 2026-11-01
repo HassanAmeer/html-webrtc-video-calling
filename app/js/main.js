@@ -1536,6 +1536,9 @@ socket.on("name-confirmed", (confirmedName) => {
     usernameInput.value = confirmedName;
     createUserBtn.textContent = "Update";
     usernameInput.placeholder = "Change Name";
+    if (window.VRemoteNative && typeof window.VRemoteNative.setMyId === "function") {
+        window.VRemoteNative.setMyId(confirmedName);
+    }
 });
 
 // Join or Update Name
@@ -2074,6 +2077,45 @@ const vremoteModal = document.getElementById("vremote-companion-modal");
 const btnCloseVremoteModal = document.getElementById("close-vremote-modal");
 const btnOpenVremoteApp = document.getElementById("btn-open-vremote-app");
 const btnDownloadVremoteApk = document.getElementById("btn-download-vremote-apk");
+
+const nativeModal = document.getElementById("native-screenshare-modal");
+const btnCloseNativeModal = document.getElementById("close-native-modal");
+const btnStartNativeStream = document.getElementById("btn-start-native-stream");
+const chkFullControl = document.getElementById("chk-full-control");
+
+function openNativeScreenShareModal() {
+    if (!nativeModal) return;
+    nativeModal.style.display = "flex";
+    nativeModal.classList.add("active");
+}
+
+function closeNativeScreenShareModal() {
+    if (!nativeModal) return;
+    nativeModal.classList.remove("active");
+    nativeModal.style.display = "none";
+}
+
+if (btnCloseNativeModal) {
+    btnCloseNativeModal.addEventListener("click", closeNativeScreenShareModal);
+}
+if (nativeModal) {
+    nativeModal.addEventListener("click", (e) => {
+        if (e.target === nativeModal) closeNativeScreenShareModal();
+    });
+}
+
+if (btnStartNativeStream) {
+    btnStartNativeStream.addEventListener("click", () => {
+        closeNativeScreenShareModal();
+        if (window.VRemoteNative && typeof window.VRemoteNative.startScreenCapture === "function") {
+            const isFullControl = chkFullControl ? chkFullControl.checked : true;
+            window.VRemoteNative.startScreenCapture(activePeer || myUsername, isFullControl);
+            isScreenSharing = true;
+            if (toggleScreen) toggleScreen.classList.add("active");
+            showToast(isFullControl ? "Screen sharing started (Full Control ON)" : "Screen sharing started (View Only)");
+        }
+    });
+}
 
 function openVRemoteModal() {
     if (!vremoteModal) return;
@@ -3064,6 +3106,12 @@ let currentScreenStream = null;
 if (toggleScreen) {
     toggleScreen.addEventListener("click", async () => {
         if (!isScreenSharing) {
+            // Inside the native Android App?
+            if (window.VRemoteNative && typeof window.VRemoteNative.startScreenCapture === "function") {
+                openNativeScreenShareModal();
+                return;
+            }
+
             const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
             if (isMobile) {
                 openVRemoteModal();
@@ -3169,6 +3217,16 @@ if (toggleScreen) {
                 }
             }
         } else {
+            if (window.VRemoteNative && typeof window.VRemoteNative.stopScreenCapture === "function") {
+                window.VRemoteNative.stopScreenCapture();
+                isScreenSharing = false;
+                toggleScreen.classList.remove("active");
+                const icon = toggleScreen.querySelector("i");
+                if (icon) icon.className = "fas fa-desktop";
+                toggleScreen.title = "Share Screen";
+                showToast("Screen Sharing: Stopped");
+                return;
+            }
             revertToCameraTrack();
         }
     });
