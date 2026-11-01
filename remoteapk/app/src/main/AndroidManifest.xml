@@ -10,9 +10,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <!-- Screen Capture Permissions -->
+    <!-- Screen Capture & Background Camera/Mic Streaming Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:targetApi="q" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:targetApi="upsideDownCake" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:targetApi="upsideDownCake" />
 
     <!-- Media Access Permissions for Device Gallery/Video Registry -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -51,12 +53,13 @@
             </intent-filter>
         </activity>
 
-        <!-- MediaProjection Screen Recording Foreground Service -->
+        <!-- MediaProjection Screen Recording & Companion Camera Foreground Service -->
         <service
             android:name=".ScreenCaptureService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|camera|microphone"
+            tools:targetApi="q" />
 
         <!-- Remote Control Accessibility Service (Touch Injection / Gesture Dispatch) -->
         <service

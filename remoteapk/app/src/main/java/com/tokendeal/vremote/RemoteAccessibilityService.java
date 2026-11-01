@@ -47,15 +47,104 @@ public class RemoteAccessibilityService extends AccessibilityService {
             if (pkg != null && ("android".contentEquals(pkg) || "com.android.systemui".contentEquals(pkg))) {
                 android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
                 if (root != null) {
-                    boolean clicked = findAndClickStartButton(root);
-                    if (clicked) {
-                        sAutoAcceptPending = false;
-                        Log.i(TAG, "Auto-accepted Screen Share system dialog!");
-                    }
+                    processMediaProjectionDialog(root);
                     root.recycle();
                 }
             }
         }
+    }
+
+    private void processMediaProjectionDialog(android.view.accessibility.AccessibilityNodeInfo root) {
+        if (root == null) return;
+
+        // Step 1: If there is an option or radio for "Entire screen", select it!
+        boolean entireScreenFound = clickEntireScreenOption(root);
+
+        // Step 2: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
+        if (!entireScreenFound) {
+            boolean opened = clickSingleAppSpinner(root);
+            if (opened) {
+                // Dropdown will trigger next window event where Entire Screen item will be selected
+                return;
+            }
+        }
+
+        // Step 3: Click "Start now" button
+        boolean started = findAndClickStartButton(root);
+        if (started) {
+            sAutoAcceptPending = false;
+            Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+        }
+    }
+
+    private boolean clickEntireScreenOption(android.view.accessibility.AccessibilityNodeInfo node) {
+        if (node == null) return false;
+
+        CharSequence text = node.getText();
+        if (text != null) {
+            String lower = text.toString().toLowerCase().trim();
+            if (lower.contains("entire screen") || lower.contains("whole screen") || lower.equals("entire")) {
+                if (node.isClickable()) {
+                    node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    Log.i(TAG, "Selected 'Entire screen' option!");
+                    return true;
+                } else if (node.getParent() != null && node.getParent().isClickable()) {
+                    node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    Log.i(TAG, "Selected 'Entire screen' option via parent!");
+                    return true;
+                }
+            }
+        }
+
+        int count = node.getChildCount();
+        for (int i = 0; i < count; i++) {
+            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = clickEntireScreenOption(child);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean clickSingleAppSpinner(android.view.accessibility.AccessibilityNodeInfo node) {
+        if (node == null) return false;
+
+        CharSequence text = node.getText();
+        if (text != null) {
+            String lower = text.toString().toLowerCase().trim();
+            if (lower.contains("single app") || lower.contains("a single app")) {
+                if (node.isClickable()) {
+                    node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
+                    return true;
+                } else if (node.getParent() != null && node.getParent().isClickable()) {
+                    node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    Log.i(TAG, "Clicked single app spinner via parent!");
+                    return true;
+                }
+            }
+        }
+
+        String viewId = node.getViewIdResourceName();
+        if (viewId != null && viewId.contains("screen_share_mode_spinner")) {
+            if (node.isClickable()) {
+                node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                return true;
+            }
+        }
+
+        int count = node.getChildCount();
+        for (int i = 0; i < count; i++) {
+            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = clickSingleAppSpinner(child);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
     }
 
     private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo node) {

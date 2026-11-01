@@ -43,6 +43,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private MediaProjectionManager projectionManager;
     private Intent captureIntentData = null;
     private WebRTCCompanion webRTCCompanion = null;
+    private android.os.PowerManager.WakeLock wakeLock = null;
 
     private String pendingTargetPeer = "";
     private boolean isFullControlEnabled = true;
@@ -54,6 +55,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VRemote::WakeLock");
+                wakeLock.acquire(12 * 60 * 60 * 1000L /* 12 hours */);
+            }
+        } catch (Exception ignored) {}
 
         projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -415,6 +424,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try { wakeLock.release(); } catch (Exception ignored) {}
+            wakeLock = null;
+        }
         if (webRTCCompanion != null) {
             webRTCCompanion.destroy();
             webRTCCompanion = null;
