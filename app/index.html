@@ -341,6 +341,9 @@
                     <span id="participant-count" class="participant-count-badge">0</span>
                 </div>
                 <div class="drawer-header-actions">
+                    <button id="btn-device-registry" class="drawer-header-btn" title="My Devices / Device Registry">
+                        <i class="fas fa-info-circle" style="color: #8ab4f8;"></i>
+                    </button>
                     <button id="refresh-participants-btn" class="drawer-header-btn" title="Refresh Participants / Check Another Participant">
                         <i class="fas fa-sync-alt" id="refresh-icon"></i>
                     </button>
@@ -382,6 +385,72 @@
                 </button>
             </div>
         </aside>
+
+        <!-- Device Registry Modal (Cupertino iOS Style) -->
+        <div id="device-registry-modal" class="cupertino-modal-backdrop" style="display:none;">
+            <div class="cupertino-modal-card">
+                <!-- Modal Navigation Bar -->
+                <div class="cupertino-modal-header">
+                    <div class="cupertino-title-wrap">
+                        <i class="fas fa-mobile-alt" style="color:#007aff; font-size:1.15rem;"></i>
+                        <span class="cupertino-title">My Registered Devices</span>
+                    </div>
+                    <div class="cupertino-header-actions">
+                        <button id="btn-refresh-devices" class="cupertino-icon-btn" title="Refresh Device List">
+                            <i class="fas fa-sync-alt" id="refresh-devices-icon"></i>
+                        </button>
+                        <button id="btn-close-device-registry" class="cupertino-icon-btn" title="Close">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Self Device Banner (Cupertino Style) -->
+                <div id="device-registry-self-info" class="cupertino-self-banner">
+                    <div class="cupertino-self-tag">THIS DEVICE</div>
+                    <div id="device-self-id" class="cupertino-self-id">Detecting...</div>
+                    <div id="device-self-meta" class="cupertino-self-sub"></div>
+                </div>
+
+                <!-- Devices List (Ultra-compact, minimal gaps) -->
+                <div class="cupertino-list-scroll">
+                    <div id="device-registry-list" class="cupertino-device-list">
+                        <div class="cupertino-empty-state">
+                            <i class="fas fa-circle-notch fa-spin"></i>
+                            <span>Loading registered devices...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer note -->
+                <div class="cupertino-modal-footer">
+                    <span>Devices auto-register permanently when VRemote is launched</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gallery / Video Browser Modal -->
+        <div id="gallery-modal" class="cupertino-modal-backdrop" style="display:none; z-index:9960;">
+            <div class="cupertino-modal-card gallery-card-size">
+                <div class="cupertino-modal-header">
+                    <div class="cupertino-title-wrap">
+                        <i id="gallery-header-icon" class="fas fa-images" style="color:#007aff;"></i>
+                        <span id="gallery-modal-title" class="cupertino-title">Device Gallery</span>
+                    </div>
+                    <div class="cupertino-header-actions">
+                        <button id="btn-gallery-prev" class="cupertino-nav-btn">&#8592; Prev</button>
+                        <span id="gallery-page-label" class="cupertino-page-badge">Page 1</span>
+                        <button id="btn-gallery-next" class="cupertino-nav-btn">Next &#8594;</button>
+                        <button id="btn-close-gallery" class="cupertino-icon-btn" title="Close">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="gallery-grid" class="cupertino-gallery-grid">
+                    <!-- Dynamic 50 thumbnails -->
+                </div>
+            </div>
+        </div>
 
         <!-- Video Streams Area -->
         <section class="video-call-container">

