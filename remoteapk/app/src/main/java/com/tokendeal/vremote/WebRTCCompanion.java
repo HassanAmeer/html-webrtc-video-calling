@@ -61,6 +61,7 @@ public class WebRTCCompanion {
     private DataChannel remoteControlChannel;
     private final List<IceCandidate> queuedCandidates = new ArrayList<>();
     private JSONObject incomingOfferObj = null;
+    private JSONObject pendingOfferPayload = null;
 
     public WebRTCCompanion(Context context, String serverUrl, String initialId, Callback callback) {
         this.context = context.getApplicationContext();
@@ -152,6 +153,19 @@ public class WebRTCCompanion {
                 }
                 registerDevice();
                 if (callback != null && myId != null && !myId.isEmpty()) callback.onConnected(myId);
+
+                if (pendingOfferPayload != null) {
+                    try {
+                        if (myId != null && !myId.isEmpty()) {
+                            pendingOfferPayload.put("from", myId);
+                        }
+                        Log.i(TAG, "Socket connected! Emitting queued offer to: " + pendingOfferPayload.optString("to"));
+                        socket.emit("offer", pendingOfferPayload);
+                        pendingOfferPayload = null;
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error emitting queued offer", e);
+                    }
+                }
             });
 
             socket.on("name-confirmed", args -> {
@@ -661,6 +675,9 @@ public class WebRTCCompanion {
                     if (socket != null && socket.connected()) {
                         Log.i(TAG, "Sending call offer: " + myId + " -> " + targetUser);
                         socket.emit("offer", offerPayload);
+                    } else {
+                        Log.i(TAG, "Socket not connected yet, queuing offer payload for " + targetUser);
+                        pendingOfferPayload = offerPayload;
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error sending offer", e);
@@ -857,6 +874,7 @@ public class WebRTCCompanion {
 
         activePeer = null;
         incomingOfferObj = null;
+        pendingOfferPayload = null;
 
         if (callback != null) callback.onCallEnded();
     }

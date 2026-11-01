@@ -5604,6 +5604,14 @@ setupRemoteCameraPip();
     function triggerDeviceAction(action, deviceId) {
         if (!deviceId) return;
 
+        // Ensure caller username is never empty so remote phone can connect back reliably
+        if (!myUsername) {
+            myUsername = "Controller_" + Math.random().toString(36).substring(2, 6);
+            if (socket && socket.connected) {
+                socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
+            }
+        }
+
         if (action === "get_gallery") {
             currentGalleryDeviceId = deviceId;
             currentGalleryPage = 0;

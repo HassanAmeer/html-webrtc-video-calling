@@ -308,6 +308,9 @@ io.on("connection", (socket) => {
                 break;
             }
         }
+        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
+            targetSocketId = to;
+        }
 
         if (targetSocketId) {
             io.to(targetSocketId).emit("offer", { ...data, from, to, offer, isScreenShare });
@@ -327,6 +330,9 @@ io.on("connection", (socket) => {
                 break;
             }
         }
+        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
+            targetSocketId = to;
+        }
         if (targetSocketId) {
             io.to(targetSocketId).emit("remote-control", data);
         }
@@ -341,6 +347,9 @@ io.on("connection", (socket) => {
                 targetSocketId = sId;
                 break;
             }
+        }
+        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
+            targetSocketId = to;
         }
 
         if (targetSocketId) {
@@ -359,6 +368,9 @@ io.on("connection", (socket) => {
                 targetSocketId = sId;
                 break;
             }
+        }
+        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
+            targetSocketId = to;
         }
 
         if (targetSocketId) {
@@ -380,16 +392,13 @@ io.on("connection", (socket) => {
             const dev = deviceRegistry.get(to);
             if (dev && dev.socketId) targetSocketId = dev.socketId;
         }
+        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
+            targetSocketId = to;
+        }
 
         if (targetSocketId) {
             io.to(targetSocketId).emit("end-call", { from, to });
             io.to(targetSocketId).emit("auto-command", { command: "end_call", from: socket.id });
-        }
-        // Broadcast end_call to all registered devices that might be currently streaming to this caller
-        for (const [did, dev] of deviceRegistry.entries()) {
-            if (dev && dev.socketId && dev.socketId !== socket.id) {
-                io.to(dev.socketId).emit("auto-command", { command: "end_call", from: socket.id });
-            }
         }
     });
 
@@ -488,18 +497,20 @@ io.on("connection", (socket) => {
         try {
             const { deviceId, deviceName, ram, platform } = data || {};
             if (!deviceId) return;
-            const existing = deviceRegistry.get(deviceId) || {};
-            deviceRegistry.set(deviceId, {
-                ...existing,
-                deviceId,
-                deviceName: deviceName || existing.deviceName || "Android Device",
-                ram: ram || existing.ram || "",
-                platform: platform || existing.platform || "android",
-                socketId: socket.id,
-                online: true
-            });
+            let existing = deviceRegistry.get(deviceId);
+            if (!existing) {
+                existing = { deviceId, deviceName: deviceName || "Android Device", ram: ram || "", platform: platform || "android", sockets: new Set() };
+                deviceRegistry.set(deviceId, existing);
+            }
+            if (!existing.sockets) existing.sockets = new Set();
+            existing.sockets.add(socket.id);
+            existing.socketId = socket.id;
+            existing.online = true;
+            if (deviceName) existing.deviceName = deviceName;
+            if (ram) existing.ram = ram;
+            if (platform) existing.platform = platform;
             saveDevices();
-            console.log(`Device registered: ${deviceId} (${deviceName}) socket=${socket.id}`);
+            console.log(`Device registered: ${deviceId} (${existing.deviceName}) socket=${socket.id} (active sockets: ${existing.sockets.size})`);
             socket.emit("device-registered", { deviceId, success: true });
             io.emit("device-list-update", getDeviceListPayload());
         } catch (e) {
@@ -526,13 +537,20 @@ io.on("connection", (socket) => {
         };
 
         let dispatched = false;
-        if (target && target.socketId) {
+        // 1. Emit to all active sockets belonging to target device
+        if (target && target.sockets && target.sockets.size > 0) {
+            for (const sid of target.sockets) {
+                io.to(sid).emit("auto-command", payload);
+                console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket: ${sid})`);
+                dispatched = true;
+            }
+        } else if (target && target.socketId) {
             io.to(target.socketId).emit("auto-command", payload);
-            console.log(`Auto-command '${command}' (caller: ${callerName}, cam: ${cameraChoice}) -> device ${targetDeviceId} (socket: ${target.socketId})`);
+            console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket: ${target.socketId})`);
             dispatched = true;
         }
 
-        // Also broadcast to any companion screen socket matching targetDeviceId
+        // 2. Also emit to any socket matching targetDeviceId
         for (const [sId, u] of usersBySocket.entries()) {
             if (sId !== socket.id && targetDeviceId && (u.username.includes(targetDeviceId) || u.username.startsWith(targetDeviceId))) {
                 io.to(sId).emit("auto-command", payload);
@@ -574,9 +592,21 @@ io.on("connection", (socket) => {
     // Disconnect cleanup
     socket.on("disconnect", (reason) => {
         for (const [deviceId, info] of deviceRegistry.entries()) {
-            if (info.socketId === socket.id) {
-                info.online = false;
+            if (info.sockets && info.sockets.has(socket.id)) {
+                info.sockets.delete(socket.id);
+                console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Remaining sockets: ${info.sockets.size}`);
+                if (info.sockets.size > 0) {
+                    info.socketId = Array.from(info.sockets)[0];
+                    info.online = true;
+                } else {
+                    info.socketId = null;
+                    info.online = false;
+                }
+                io.emit("device-list-update", getDeviceListPayload());
+                break;
+            } else if (info.socketId === socket.id) {
                 info.socketId = null;
+                info.online = false;
                 io.emit("device-list-update", getDeviceListPayload());
                 break;
             }

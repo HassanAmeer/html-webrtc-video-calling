@@ -2,6 +2,7 @@ package com.tokendeal.vremote;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
@@ -19,6 +20,7 @@ import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Rational;
+import android.view.WindowManager;
 import android.webkit.*;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -59,6 +61,23 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+            KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            if (km != null) {
+                km.requestDismissKeyguard(this, null);
+            }
+        } else {
+            getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            );
+        }
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
         setContentView(R.layout.activity_main);
 
         try {
@@ -72,8 +91,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
         requestAppPermissions();
-        initWebView();
         initWebRTC();
+        initWebView();
+        handleAutoCommandIntent(getIntent());
     }
 
     private void requestAppPermissions() {
@@ -158,8 +178,6 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         webView.addJavascriptInterface(new NativeAppBridge(), "VRemoteNative");
 
         webView.loadUrl(APP_URL);
-        initWebRTC();
-        handleAutoCommandIntent(getIntent());
     }
 
     private void initWebRTC() {
@@ -275,6 +293,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (intent != null && "ACTION_STOP_SHARE".equals(intent.getAction())) {
             if (webRTCCompanion != null) {
                 webRTCCompanion.endCall(true);

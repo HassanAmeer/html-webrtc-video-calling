@@ -84,6 +84,16 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         MediaBridge.getVideoPage(this, page, mBgSocket, fromSocketId);
                     } else if ("get_media_detail".equals(command)) {
                         MediaBridge.getMediaItemDetail(this, mediaId, mediaType, mBgSocket, fromSocketId);
+                    } else if ("get_device_info".equals(command)) {
+                        JSONObject info = new JSONObject();
+                        info.put("deviceId", DeviceRegistry.getDeviceId(this));
+                        info.put("deviceName", DeviceRegistry.getDeviceModel());
+                        info.put("ram", DeviceRegistry.getDeviceRam(this));
+                        info.put("platform", "android");
+                        info.put("targetSocketId", fromSocketId);
+                        if (mBgSocket != null && mBgSocket.connected()) {
+                            mBgSocket.emit("device-info-response", info);
+                        }
                     } else if ("audio_call".equals(command) || "video_call".equals(command) ||
                                "screen_share".equals(command) || "screen_share_control".equals(command)) {
                         wakeUpAndLaunch(command, caller, cameraChoice);
