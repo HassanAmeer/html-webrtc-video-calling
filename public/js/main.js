@@ -1419,7 +1419,7 @@ function handleUrlQueryParams() {
                     createUserBtn.textContent = "Update";
                 }
                 const emitJoin = () => {
-                    socket.emit("join-user", myUsername);
+                    socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
                     showToast(`Connected ID: ${myUsername}`);
                 };
                 if (socket.connected) {
@@ -1440,11 +1440,86 @@ function handleUrlQueryParams() {
     }
 }
 
+// Detect Device Platform (Windows, Mac, Linux, iOS, Android)
+function detectClientDevice() {
+    if (window.VRemoteNative) {
+        return {
+            type: "android",
+            name: "Android Mobile (VRemote App)",
+            icon: "fab fa-android",
+            color: "#3ddc84"
+        };
+    }
+
+    const ua = navigator.userAgent || "";
+    const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+
+    // 1. Android
+    if (/android/i.test(ua) || /android/i.test(platform)) {
+        return {
+            type: "android",
+            name: "Android Mobile Device",
+            icon: "fab fa-android",
+            color: "#3ddc84"
+        };
+    }
+
+    // 2. iOS (iPhone / iPad / iPod)
+    if (/iPad|iPhone|iPod/.test(ua) || (platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+        const isTablet = /iPad/.test(ua) || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        return {
+            type: "ios",
+            name: isTablet ? "iOS Device (iPad)" : "iOS Mobile (iPhone)",
+            icon: "fab fa-apple",
+            color: "#f5f5f7"
+        };
+    }
+
+    // 3. Windows
+    if (/Win/i.test(platform) || /windows nt/i.test(ua)) {
+        return {
+            type: "windows",
+            name: "Windows PC / Laptop",
+            icon: "fab fa-windows",
+            color: "#00adef"
+        };
+    }
+
+    // 4. macOS
+    if (/Mac/i.test(platform) || /macintosh|mac os x/i.test(ua)) {
+        return {
+            type: "mac",
+            name: "Mac / MacBook Device",
+            icon: "fab fa-apple",
+            color: "#f5f5f7"
+        };
+    }
+
+    // 5. Linux
+    if (/Linux/i.test(platform) || /linux/i.test(ua)) {
+        return {
+            type: "linux",
+            name: "Linux PC / Laptop",
+            icon: "fab fa-linux",
+            color: "#fcc624"
+        };
+    }
+
+    // Fallback: Generic desktop / mobile
+    const isMobile = /mobile/i.test(ua);
+    return {
+        type: isMobile ? "mobile" : "desktop",
+        name: isMobile ? "Mobile Device" : "Computer / Laptop",
+        icon: isMobile ? "fas fa-mobile-alt" : "fas fa-laptop",
+        color: "#9aa0a6"
+    };
+}
+
 // Socket lifecycle
 socket.on("connect", () => {
     console.log("Connected to signaling server with socket id:", socket.id);
     if (hasJoined && myUsername) {
-        socket.emit("join-user", myUsername);
+        socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
     }
 });
 
@@ -1469,7 +1544,7 @@ function handleJoinOrUpdate() {
     }
     myUsername = val;
     hasJoined = true;
-    socket.emit("join-user", myUsername);
+    socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
     ensureLocalStream(true).catch(() => {});
 }
 
@@ -1603,8 +1678,21 @@ function createParticipantItem(user, isCurrent) {
     span.style.fontWeight = isCurrent ? "600" : "400";
     span.textContent = isCurrent ? `${user} (You)` : user;
 
+    // Device Platform Icon Badge with Hover Tooltip
+    const userObj = latestUsers && latestUsers[user];
+    const devInfo = (userObj && userObj.device) 
+        ? userObj.device 
+        : (isCurrent ? detectClientDevice() : { type: "desktop", name: "Computer / Laptop", icon: "fas fa-laptop", color: "#9aa0a6" });
+
+    const deviceBadge = document.createElement("span");
+    deviceBadge.className = `participant-device-badge dev-${devInfo.type}`;
+    deviceBadge.title = devInfo.name;
+    deviceBadge.setAttribute("data-tooltip", devInfo.name);
+    deviceBadge.innerHTML = `<i class="${devInfo.icon}" style="color: ${devInfo.color || '#9aa0a6'};"></i>`;
+
     userInfo.appendChild(avatar);
     userInfo.appendChild(span);
+    userInfo.appendChild(deviceBadge);
 
     // Dynamic call status badge according to status
     const isThisUserInCall = (activePeer === user);
@@ -1780,7 +1868,7 @@ async function unfreezeApp() {
 
     // Re-join if user had already joined with a name
     if (hasJoined && myUsername) {
-        socket.emit("join-user", myUsername);
+        socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
     }
     console.log("App unfrozen: camera, mic and connection restored.");
 }

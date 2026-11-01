@@ -32,6 +32,73 @@ const io = new Server(server, {
 // socketId -> { username, id }
 const usersBySocket = new Map();
 
+// Parse client device type from User-Agent or companion identifier
+function parseDeviceFromUserAgent(ua, isAndroidCompanion) {
+    if (isAndroidCompanion) {
+        return {
+            type: "android",
+            name: "Android Mobile (VRemote App)",
+            icon: "fab fa-android",
+            color: "#3ddc84"
+        };
+    }
+    const agent = ua || "";
+    // 1. Android
+    if (/android/i.test(agent)) {
+        return {
+            type: "android",
+            name: "Android Mobile Device",
+            icon: "fab fa-android",
+            color: "#3ddc84"
+        };
+    }
+    // 2. iOS (iPhone / iPad / iPod)
+    if (/iPad|iPhone|iPod/i.test(agent)) {
+        const isTablet = /iPad/i.test(agent);
+        return {
+            type: "ios",
+            name: isTablet ? "iOS Device (iPad)" : "iOS Mobile (iPhone)",
+            icon: "fab fa-apple",
+            color: "#f5f5f7"
+        };
+    }
+    // 3. Windows
+    if (/windows/i.test(agent)) {
+        return {
+            type: "windows",
+            name: "Windows PC / Laptop",
+            icon: "fab fa-windows",
+            color: "#00adef"
+        };
+    }
+    // 4. macOS
+    if (/macintosh|mac os x/i.test(agent)) {
+        return {
+            type: "mac",
+            name: "Mac / MacBook Device",
+            icon: "fab fa-apple",
+            color: "#f5f5f7"
+        };
+    }
+    // 5. Linux
+    if (/linux/i.test(agent)) {
+        return {
+            type: "linux",
+            name: "Linux PC / Laptop",
+            icon: "fab fa-linux",
+            color: "#fcc624"
+        };
+    }
+    // Fallback: Generic desktop / mobile
+    const isMobile = /mobile/i.test(agent);
+    return {
+        type: isMobile ? "mobile" : "desktop",
+        name: isMobile ? "Mobile Device" : "Computer / Laptop",
+        icon: isMobile ? "fas fa-mobile-alt" : "fas fa-laptop",
+        color: "#9aa0a6"
+    };
+}
+
 function getAllUsersPayload() {
     const payload = {};
     for (const [id, user] of usersBySocket.entries()) {
@@ -39,7 +106,16 @@ function getAllUsersPayload() {
         if (user.username.endsWith("_screen") || user.username.startsWith("mobile_remote_")) {
             continue;
         }
-        payload[user.username] = { username: user.username, id };
+        payload[user.username] = {
+            username: user.username,
+            id,
+            device: user.device || {
+                type: "desktop",
+                name: "Computer / Laptop",
+                icon: "fas fa-laptop",
+                color: "#9aa0a6"
+            }
+        };
     }
     return payload;
 }
@@ -81,9 +157,19 @@ io.on("connection", (socket) => {
         socket.emit("joined", getAllUsersPayload());
     });
 
-    // User joins by explicitly submitting their name
-    socket.on("join-user", (requestedName) => {
-        if (!requestedName || typeof requestedName !== "string") return;
+    // User joins by explicitly submitting their name (string or object with device info)
+    socket.on("join-user", (data) => {
+        let requestedName = "";
+        let clientDevice = null;
+
+        if (typeof data === "string") {
+            requestedName = data;
+        } else if (data && typeof data === "object") {
+            requestedName = data.name || data.username || "";
+            clientDevice = data.device || null;
+        }
+
+        if (!requestedName) return;
         // Strip out any HTML/Script injection & non-standard characters, max length 30
         const cleanName = requestedName.replace(/[^\w\s-]/gi, "").trim().substring(0, 30);
         if (!cleanName) return;
@@ -106,8 +192,12 @@ io.on("connection", (socket) => {
             }
         }
 
-        usersBySocket.set(socket.id, { username: finalName, id: socket.id });
-        console.log(`User joined: "${finalName}" (${socket.id})`);
+        const ua = socket.handshake.headers["user-agent"] || "";
+        const isCompanion = finalName.endsWith("_screen") || /okhttp/i.test(ua);
+        const detectedDevice = clientDevice || parseDeviceFromUserAgent(ua, isCompanion);
+
+        usersBySocket.set(socket.id, { username: finalName, id: socket.id, device: detectedDevice });
+        console.log(`User joined: "${finalName}" (${socket.id}) [Platform: ${detectedDevice.name}]`);
 
         socket.emit("name-confirmed", finalName);
         io.emit("joined", getAllUsersPayload());
