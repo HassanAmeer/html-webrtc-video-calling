@@ -2,9 +2,11 @@ package com.tokendeal.vremote;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
@@ -13,6 +15,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.Rational;
 import android.webkit.*;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -204,27 +207,68 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void startScreenStreaming() {
+        ScreenCaptureService.setOnForegroundStartedListener(() -> {
+            DisplayMetrics displayMetrics = new DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+
+            if (webRTCCompanion != null) {
+                webRTCCompanion.startScreenShare(pendingTargetPeer, captureIntentData, displayMetrics.widthPixels, displayMetrics.heightPixels);
+            }
+
+            Toast.makeText(MainActivity.this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
+
+            // Give WebRTC negotiation a moment to establish, then switch to floating WhatsApp-style PiP window
+            if (webView != null) {
+                webView.postDelayed(MainActivity.this::enterWhatsAppStylePipOrBack, 1000);
+            } else {
+                enterWhatsAppStylePipOrBack();
+            }
+        });
+
         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
         } else {
             startService(serviceIntent);
         }
+    }
 
-        DisplayMetrics displayMetrics = new DisplayMetrics();
-        getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
-
-        if (webRTCCompanion != null) {
-            webRTCCompanion.startScreenShare(pendingTargetPeer, captureIntentData, displayMetrics.widthPixels, displayMetrics.heightPixels);
+    public void enterWhatsAppStylePipOrBack() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
+                pipBuilder.setAspectRatio(new Rational(9, 16));
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    pipBuilder.setAutoEnterEnabled(true);
+                    pipBuilder.setSeamlessResizeEnabled(true);
+                }
+                boolean entered = enterPictureInPictureMode(pipBuilder.build());
+                if (entered) {
+                    return;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "PictureInPicture not supported or failed: " + e.getMessage());
+            }
         }
+        moveTaskToBack(true);
+    }
 
-        Toast.makeText(this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
+    @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // Float like WhatsApp when home button is pressed during active share
+        if (ScreenCaptureService.isRunning() || (webRTCCompanion != null && webRTCCompanion.isSharing())) {
+            enterWhatsAppStylePipOrBack();
+        }
+    }
 
-        // Delay moving to back by 1200ms so WebRTC negotiation can finish cleanly
-        if (webView != null) {
-            webView.postDelayed(() -> moveTaskToBack(true), 1200);
-        } else {
-            moveTaskToBack(true);
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        if (isInPictureInPictureMode) {
+            if (webView != null) {
+                webView.resumeTimers();
+            }
         }
     }
 

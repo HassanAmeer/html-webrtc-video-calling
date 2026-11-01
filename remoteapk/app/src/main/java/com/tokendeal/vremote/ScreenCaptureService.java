@@ -16,6 +16,20 @@ public class ScreenCaptureService extends Service {
     private static final int NOTIFICATION_ID = 8801;
     private static boolean sIsRunning = false;
 
+    public interface OnForegroundStartedListener {
+        void onForegroundStarted();
+    }
+
+    private static OnForegroundStartedListener sForegroundListener = null;
+
+    public static void setOnForegroundStartedListener(OnForegroundStartedListener listener) {
+        sForegroundListener = listener;
+        if (sIsRunning && listener != null) {
+            listener.onForegroundStarted();
+            sForegroundListener = null;
+        }
+    }
+
     public static boolean isRunning() {
         return sIsRunning;
     }
@@ -50,6 +64,13 @@ public class ScreenCaptureService extends Service {
             startForeground(NOTIFICATION_ID, notification);
         }
 
+        sIsRunning = true;
+        if (sForegroundListener != null) {
+            OnForegroundStartedListener listener = sForegroundListener;
+            sForegroundListener = null;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(listener::onForegroundStarted);
+        }
+
         return START_STICKY;
     }
 
@@ -71,6 +92,7 @@ public class ScreenCaptureService extends Service {
     public void onDestroy() {
         super.onDestroy();
         sIsRunning = false;
+        sForegroundListener = null;
         stopForeground(true);
     }
 
