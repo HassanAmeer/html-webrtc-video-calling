@@ -217,6 +217,15 @@ public class WebRTCCompanion {
                 endCall(false);
             });
 
+            socket.on("remote-control", args -> {
+                try {
+                    JSONObject data = (JSONObject) args[0];
+                    handleRemoteControlMessage(data.toString());
+                } catch (Exception e) {
+                    Log.e(TAG, "Error handling socket remote-control:", e);
+                }
+            });
+
             socket.connect();
         } catch (Exception e) {
             Log.e(TAG, "Socket connect error", e);
@@ -467,6 +476,7 @@ public class WebRTCCompanion {
                     JSONObject sdpJson = new JSONObject();
                     sdpJson.put("type", "offer");
                     sdpJson.put("sdp", sessionDescription.description);
+                    sdpJson.put("isScreenShare", true);
                     offerPayload.put("to", targetUser);
                     offerPayload.put("from", myId);
                     offerPayload.put("offer", sdpJson);
@@ -537,7 +547,11 @@ public class WebRTCCompanion {
             String type = obj.optString("type", "");
 
             RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
-            if (accessibility == null) return;
+            if (accessibility == null) {
+                Log.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
+                return;
+            }
+            Log.d(TAG, "Executing remote control gesture: " + type);
 
             switch (type) {
                 case "tap": {

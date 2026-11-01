@@ -2023,6 +2023,21 @@ function openNativeScreenShareModal() {
             });
         }
     }
+
+    const accBox = document.getElementById("native-accessibility-status");
+    const btnEnableAcc = document.getElementById("btn-enable-accessibility");
+    if (accBox && window.VRemoteNative && typeof window.VRemoteNative.isAccessibilityRunning === "function") {
+        const isAccOn = window.VRemoteNative.isAccessibilityRunning();
+        accBox.style.display = isAccOn ? "none" : "flex";
+        if (btnEnableAcc) {
+            btnEnableAcc.onclick = () => {
+                if (window.VRemoteNative && typeof window.VRemoteNative.openAccessibilitySettings === "function") {
+                    window.VRemoteNative.openAccessibilitySettings();
+                }
+            };
+        }
+    }
+
     nativeModal.style.display = "flex";
     nativeModal.classList.add("active");
 }
@@ -2101,7 +2116,7 @@ if (btnDownloadVremoteApk) {
     });
 }
 
-// Remote Control DataChannel Setup
+// Remote Control DataChannel & Fallback Setup
 let remoteControlChannel = null;
 
 function setupRemoteControlChannel(pc) {
@@ -2122,25 +2137,134 @@ function setupRemoteControlChannel(pc) {
     });
 }
 
-// Desktop: Mouse Click Injection on Remote Video
+// Reliable Remote Control Dispatcher (WebRTC DataChannel + Socket Fallback)
+function sendRemoteControlCommand(cmd) {
+    let sent = false;
+    if (remoteControlChannel && remoteControlChannel.readyState === "open") {
+        try {
+            remoteControlChannel.send(JSON.stringify(cmd));
+            sent = true;
+        } catch (e) {
+            console.warn("DataChannel send failed, using socket fallback:", e);
+        }
+    }
+    const target = activePeer || callingPeer || (incomingCallData && incomingCallData.from);
+    if (!sent && socket && socket.connected && target) {
+        socket.emit("remote-control", { ...cmd, to: target });
+        sent = true;
+    }
+    return sent;
+}
+
+// Accurate Coordinate Mapping for letterboxed/contain Video
+function getNormalizedVideoCoords(e, videoEl) {
+    if (!videoEl) return null;
+    const rect = videoEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const videoWidth = videoEl.videoWidth || 1080;
+    const videoHeight = videoEl.videoHeight || 1920;
+
+    const elemRatio = rect.width / rect.height;
+    const videoRatio = videoWidth / videoHeight;
+    let renderWidth, renderHeight, renderLeft, renderTop;
+
+    const isCover = videoEl.classList.contains("fit-cover");
+
+    if (isCover) {
+        if (elemRatio > videoRatio) {
+            renderWidth = rect.width;
+            renderHeight = rect.width / videoRatio;
+            renderLeft = rect.left;
+            renderTop = rect.top + (rect.height - renderHeight) / 2;
+        } else {
+            renderHeight = rect.height;
+            renderWidth = rect.height * videoRatio;
+            renderTop = rect.top;
+            renderLeft = rect.left + (rect.width - renderWidth) / 2;
+        }
+    } else {
+        // 'contain' (default aspect-preserving mode)
+        if (elemRatio > videoRatio) {
+            renderHeight = rect.height;
+            renderWidth = rect.height * videoRatio;
+            renderTop = rect.top;
+            renderLeft = rect.left + (rect.width - renderWidth) / 2;
+        } else {
+            renderWidth = rect.width;
+            renderHeight = rect.width / videoRatio;
+            renderLeft = rect.left;
+            renderTop = rect.top + (rect.height - renderHeight) / 2;
+        }
+    }
+
+    const normX = (e.clientX - renderLeft) / renderWidth;
+    const normY = (e.clientY - renderTop) / renderHeight;
+
+    if (normX >= 0 && normX <= 1 && normY >= 0 && normY <= 1) {
+        return { x: normX, y: normY };
+    }
+    return null;
+}
+
+// Desktop: Mouse Tap & Drag/Swipe Remote Touch Control
+let isMouseDownOnRemote = false;
+let mouseDownStart = { x: 0, y: 0, clientX: 0, clientY: 0, time: 0 };
+
 if (remoteVideo) {
-    remoteVideo.addEventListener("click", (e) => {
-        if (!remoteControlChannel || remoteControlChannel.readyState !== "open") return;
-        const rect = remoteVideo.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
-        const normX = (e.clientX - rect.left) / rect.width;
-        const normY = (e.clientY - rect.top) / rect.height;
-        if (normX >= 0 && normX <= 1 && normY >= 0 && normY <= 1) {
-            try {
-                remoteControlChannel.send(JSON.stringify({
-                    type: "tap",
-                    x: normX,
-                    y: normY
-                }));
-                showClickRipple(e.clientX, e.clientY);
-            } catch (err) {
-                console.warn("Failed to dispatch remote click:", err);
-            }
+    remoteVideo.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return; // Left click only
+        const coords = getNormalizedVideoCoords(e, remoteVideo);
+        if (!coords) return;
+        isMouseDownOnRemote = true;
+        mouseDownStart = {
+            x: coords.x,
+            y: coords.y,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            time: Date.now()
+        };
+    });
+
+    window.addEventListener("mouseup", (e) => {
+        if (!isMouseDownOnRemote) return;
+        isMouseDownOnRemote = false;
+
+        const duration = Date.now() - mouseDownStart.time;
+        const deltaX = Math.abs(e.clientX - mouseDownStart.clientX);
+        const deltaY = Math.abs(e.clientY - mouseDownStart.clientY);
+
+        const endCoords = getNormalizedVideoCoords(e, remoteVideo) || {
+            x: Math.max(0, Math.min(1, mouseDownStart.x + (e.clientX - mouseDownStart.clientX) / Math.max(1, remoteVideo.clientWidth))),
+            y: Math.max(0, Math.min(1, mouseDownStart.y + (e.clientY - mouseDownStart.clientY) / Math.max(1, remoteVideo.clientHeight)))
+        };
+
+        if (deltaX < 10 && deltaY < 10 && duration < 400) {
+            // Tap / Click
+            sendRemoteControlCommand({
+                type: "tap",
+                x: mouseDownStart.x,
+                y: mouseDownStart.y
+            });
+            showClickRipple(mouseDownStart.clientX, mouseDownStart.clientY);
+        } else {
+            // Drag / Swipe / Scroll
+            sendRemoteControlCommand({
+                type: "swipe",
+                startX: mouseDownStart.x,
+                startY: mouseDownStart.y,
+                endX: endCoords.x,
+                endY: endCoords.y,
+                duration: Math.max(120, Math.min(duration, 700))
+            });
+            showClickRipple(e.clientX, e.clientY);
+        }
+    });
+
+    // Keyboard navigation: Escape key = Back button on remote phone
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && (activePeer || screenPeerConnection)) {
+            sendRemoteControlCommand({ type: "back" });
         }
     });
 }
@@ -2329,11 +2453,12 @@ function closeScreenShareStream() {
 }
 
 // Handle Incoming Offer
-socket.on("offer", async ({ from, to, offer }) => {
-    console.log(`Received call offer from ${from}`);
+socket.on("offer", async (data) => {
+    const { from, to, offer } = data || {};
+    console.log(`Received call offer from ${from}`, data);
 
     // Auto-accept screen share from companion app
-    const isScreenOffer = from.endsWith("_screen") || from.startsWith("mobile_remote_") || (offer && offer.isScreenShare);
+    const isScreenOffer = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare) || from.endsWith("_screen") || from.startsWith("mobile_remote_"));
     if (isScreenOffer) {
         console.log("Auto-accepting VRemote companion screen stream from", from);
         await acceptScreenShareStream(from, offer);

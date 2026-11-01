@@ -145,8 +145,10 @@ io.on("connection", (socket) => {
     });
 
     // WebRTC Offer
-    socket.on("offer", ({ from, to, offer }) => {
-        console.log(`Call offer: ${from} -> ${to}`);
+    socket.on("offer", (data) => {
+        const { from, to, offer } = data || {};
+        const isScreenShare = Boolean(data.isScreenShare || (offer && offer.isScreenShare));
+        console.log(`Call offer: ${from} -> ${to} (isScreenShare=${isScreenShare})`);
         let targetSocketId = null;
         for (const [sId, u] of usersBySocket.entries()) {
             if (u.username === to || sId === to) {
@@ -156,9 +158,25 @@ io.on("connection", (socket) => {
         }
 
         if (targetSocketId) {
-            io.to(targetSocketId).emit("offer", { from, to, offer });
+            io.to(targetSocketId).emit("offer", { ...data, from, to, offer, isScreenShare });
         } else {
             console.warn(`Target user "${to}" not found for offer`);
+        }
+    });
+
+    // Remote Control Gesture Relay (DataChannel Fallback)
+    socket.on("remote-control", (data) => {
+        const { to } = data || {};
+        if (!to) return;
+        let targetSocketId = null;
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username === to || sId === to) {
+                targetSocketId = sId;
+                break;
+            }
+        }
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("remote-control", data);
         }
     });
 

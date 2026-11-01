@@ -2,12 +2,15 @@ package com.tokendeal.vremote;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.drawable.Icon;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
@@ -19,12 +22,14 @@ import android.util.Rational;
 import android.webkit.*;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import org.webrtc.VideoTrack;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements WebRTCCompanion.Callback {
@@ -167,10 +172,34 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             }
 
             runOnUiThread(() -> {
+                if (fullControl && !RemoteAccessibilityService.isServiceRunning()) {
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("Remote Touch Control Permission")
+                            .setMessage("Desktop caller se screen par touch/click allow karne ke liye Accessibility permission zaroori hai.\n\n1. 'Open Settings' dabayein aur 'VRemote Screen Share' ko ON karein.\n\n(Android 13/14 Note: Agar setting grayed out ho, to Phone Settings > Apps > VRemote > Top right 3-dots > 'Allow restricted settings' karein)")
+                            .setPositiveButton("Open Settings", (d, w) -> {
+                                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                                startActivity(intent);
+                            })
+                            .setNegativeButton("View Only (No Touch)", (d, w) -> {
+                                isFullControlEnabled = false;
+                                if (webRTCCompanion != null) webRTCCompanion.setFullControlEnabled(false);
+                                if (projectionManager != null) {
+                                    startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+                                }
+                            })
+                            .show();
+                    return;
+                }
+
                 if (projectionManager != null) {
                     startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void enterPip() {
+            runOnUiThread(MainActivity.this::enterWhatsAppStylePipOrBack);
         }
 
         @JavascriptInterface
@@ -190,6 +219,20 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             if (webRTCCompanion != null && newId != null) {
                 webRTCCompanion.setMyId(newId);
             }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && "ACTION_STOP_SHARE".equals(intent.getAction())) {
+            if (webRTCCompanion != null) {
+                webRTCCompanion.endCall(true);
+            }
+            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+            stopService(serviceIntent);
+            Toast.makeText(this, "Screen sharing stopped", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -216,13 +259,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             }
 
             Toast.makeText(MainActivity.this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
-
-            // Give WebRTC negotiation a moment to establish, then switch to floating WhatsApp-style PiP window
-            if (webView != null) {
-                webView.postDelayed(MainActivity.this::enterWhatsAppStylePipOrBack, 1000);
-            } else {
-                enterWhatsAppStylePipOrBack();
-            }
+            // User remains in the full application with all bottom bar controls (camera, mic, hide/eye, end call cross) interactive.
+            // WhatsApp-style floating PiP will trigger automatically when the user presses Home or switches apps (onUserLeaveHint).
         });
 
         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
@@ -238,6 +276,19 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             try {
                 PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
                 pipBuilder.setAspectRatio(new Rational(9, 16));
+
+                ArrayList<RemoteAction> actions = new ArrayList<>();
+                Intent endIntent = new Intent(this, MainActivity.class);
+                endIntent.setAction("ACTION_STOP_SHARE");
+                PendingIntent endPi = PendingIntent.getActivity(
+                        this, 101, endIntent,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+                );
+                Icon endIcon = Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel);
+                RemoteAction endAction = new RemoteAction(endIcon, "Stop Share", "End Screen Sharing", endPi);
+                actions.add(endAction);
+                pipBuilder.setActions(actions);
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     pipBuilder.setAutoEnterEnabled(true);
                     pipBuilder.setSeamlessResizeEnabled(true);
