@@ -3589,6 +3589,12 @@ function triggerParticipantsRefresh() {
 }
 
 function openParticipants() {
+    // If inside native Android app, ensure Info button is completely hidden (shown only on website)
+    if (window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp()) {
+        const b = document.getElementById("btn-device-registry");
+        if (b) b.style.setProperty("display", "none", "important");
+    }
+
     if (participantsDrawer) {
         participantsDrawer.classList.add("open");
         participantsDrawer.style.transform = "translateX(0)";
@@ -5371,6 +5377,21 @@ setupRemoteCameraPip();
     function isNativeAndroidApp() {
         return !!(window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp());
     }
+
+    function syncNativeAppUi() {
+        if (isNativeAndroidApp()) {
+            if (btnDeviceRegistry) {
+                btnDeviceRegistry.style.setProperty("display", "none", "important");
+            }
+        }
+    }
+
+    // Hide info button on native Android app (show only on website)
+    syncNativeAppUi();
+    window.addEventListener("DOMContentLoaded", syncNativeAppUi);
+    setTimeout(syncNativeAppUi, 100);
+    setTimeout(syncNativeAppUi, 500);
+    setTimeout(syncNativeAppUi, 1500);
 
     function openDeviceRegistry() {
         if (!deviceRegistryModal) return;
