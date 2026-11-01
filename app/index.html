@@ -431,6 +431,35 @@
             </div>
         </div>
 
+        <!-- Live HD Media Preview Modal (Crisp HD Full View / Video Player) -->
+        <div id="media-preview-modal" class="cupertino-modal-backdrop" style="display:none; z-index:9970;">
+            <div class="cupertino-modal-card hd-preview-card">
+                <div class="cupertino-modal-header">
+                    <div class="cupertino-title-wrap">
+                        <i id="preview-header-icon" class="fas fa-image" style="color:#0a84ff;"></i>
+                        <span id="preview-modal-title" class="cupertino-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;">Original Media</span>
+                    </div>
+                    <div class="cupertino-header-actions">
+                        <a id="btn-download-hd" class="cupertino-nav-btn" download style="text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+                            <i class="fas fa-download"></i> Download HD
+                        </a>
+                        <button id="btn-close-preview" class="cupertino-icon-btn" title="Close Preview">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="preview-content-area" class="preview-content-area">
+                    <div id="preview-loader" class="cupertino-empty-state" style="padding: 60px 16px;">
+                        <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#0a84ff; margin-bottom:10px;"></i>
+                        <span style="font-weight:600; color:#f2f2f7;">Loading Original HD Media...</span>
+                        <span style="font-size:11px; color:#8e8e93;">Transferring high-definition stream directly from phone storage</span>
+                    </div>
+                    <img id="preview-hd-img" style="display:none; max-width:100%; max-height:100%; object-fit:contain; border-radius:8px;">
+                    <video id="preview-hd-video" controls autoplay playsinline style="display:none; max-width:100%; max-height:100%; border-radius:8px;"></video>
+                </div>
+            </div>
+        </div>
+
         <!-- Video Streams Area -->
         <section class="video-call-container">
             <div class="video-streams">

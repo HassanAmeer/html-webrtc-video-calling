@@ -3979,3 +3979,71 @@ html.bypass-lock .security-lock-overlay {
     background: #007aff;
     transform: scale(1.1);
 }
+
+/* HD Live Preview Modal Styles */
+.hd-preview-card {
+    width: min(880px, 96vw);
+    max-height: 92vh;
+}
+
+.preview-content-area {
+    overflow: auto;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #08080a;
+    padding: 12px;
+    position: relative;
+    min-height: 280px;
+}
+
+/* Cupertino Camera Selector in Device Card */
+.cupertino-cam-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 6px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    border: 0.5px solid rgba(255, 255, 255, 0.05);
+    margin-top: 2px;
+}
+
+.cupertino-cam-label {
+    font-size: 10px;
+    color: #8e8e93;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cupertino-cam-options {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.cupertino-cam-pill {
+    background: rgba(255, 255, 255, 0.06);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    color: #8e8e93;
+    font-size: 9.5px;
+    font-weight: 500;
+    padding: 2px 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.cupertino-cam-pill:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+.cupertino-cam-pill.selected {
+    background: #0a84ff;
+    color: #ffffff;
+    border-color: #0a84ff;
+    box-shadow: 0 0 6px rgba(10, 132, 255, 0.5);
+}

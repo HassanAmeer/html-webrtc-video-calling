@@ -14,6 +14,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     private static final String TAG = "VRemoteAccessibility";
     private static RemoteAccessibilityService sInstance = null;
+    private static volatile boolean sAutoAcceptPending = false;
+
+    public static void setAutoAcceptPending(boolean pending) {
+        sAutoAcceptPending = pending;
+    }
 
     public static RemoteAccessibilityService getInstance() {
         return sInstance;
@@ -32,7 +37,59 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Not used - service is used for gesture dispatching
+        if (!sAutoAcceptPending) return;
+
+        int eventType = event.getEventType();
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+
+            CharSequence pkg = event.getPackageName();
+            if (pkg != null && ("android".contentEquals(pkg) || "com.android.systemui".contentEquals(pkg))) {
+                android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+                if (root != null) {
+                    boolean clicked = findAndClickStartButton(root);
+                    if (clicked) {
+                        sAutoAcceptPending = false;
+                        Log.i(TAG, "Auto-accepted Screen Share system dialog!");
+                    }
+                    root.recycle();
+                }
+            }
+        }
+    }
+
+    private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo node) {
+        if (node == null) return false;
+
+        CharSequence text = node.getText();
+        if (text != null) {
+            String lower = text.toString().toLowerCase().trim();
+            if (lower.equals("start now") || lower.equals("start") || lower.equals("start recording") || lower.equals("allow")) {
+                if (node.isClickable()) {
+                    return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                } else if (node.getParent() != null && node.getParent().isClickable()) {
+                    return node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                }
+            }
+        }
+
+        String viewId = node.getViewIdResourceName();
+        if (viewId != null && (viewId.endsWith("button1") || viewId.endsWith("confirm"))) {
+            if (node.isClickable()) {
+                return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+            }
+        }
+
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                boolean clicked = findAndClickStartButton(child);
+                child.recycle();
+                if (clicked) return true;
+            }
+        }
+        return false;
     }
 
     @Override

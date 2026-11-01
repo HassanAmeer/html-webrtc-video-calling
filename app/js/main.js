@@ -5496,6 +5496,15 @@ setupRemoteCameraPip();
                     </div>
                     <i class="fab fa-android" style="color:#3ddc84; font-size:1.3rem; opacity:0.85; margin-left:4px;"></i>
                 </div>
+                <div class="cupertino-cam-row">
+                    <span class="cupertino-cam-label"><i class="fas fa-camera"></i> Screen Share Cam:</span>
+                    <div class="cupertino-cam-options" data-did="${safeId}">
+                        <button class="cupertino-cam-pill" data-cam="none" title="Screen Only (Camera Off)">Off</button>
+                        <button class="cupertino-cam-pill selected" data-cam="front" title="Front Selfie Camera">Front</button>
+                        <button class="cupertino-cam-pill" data-cam="back" title="Back Main Camera">Back</button>
+                        <button class="cupertino-cam-pill" data-cam="both" title="Switchable Dual Cam">Both</button>
+                    </div>
+                </div>
                 <div class="cupertino-actions-grid">
                     <button class="dev-action-btn btn-act-call ${isOnline ? '' : 'offline-disabled'}" data-action="audio_call" data-did="${safeId}" title="Audio Call">
                         <i class="fas fa-phone"></i>
@@ -5526,6 +5535,18 @@ setupRemoteCameraPip();
             drawerDevicesList.appendChild(row);
         });
 
+        // Camera pill selection
+        drawerDevicesList.querySelectorAll(".cupertino-cam-pill").forEach(pill => {
+            pill.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const parent = pill.closest(".cupertino-cam-options");
+                if (parent) {
+                    parent.querySelectorAll(".cupertino-cam-pill").forEach(p => p.classList.remove("selected"));
+                }
+                pill.classList.add("selected");
+            });
+        });
+
         // Event delegation on action buttons
         drawerDevicesList.querySelectorAll(".dev-action-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -5552,18 +5573,23 @@ setupRemoteCameraPip();
             currentGalleryType = "videos";
             openGallery("Device Videos (50 Videos)", "fa-film");
             fetchMediaPage(deviceId, 0, "get_videos");
-        } else if (action === "audio_call") {
-            socket.emit("auto-command", { targetDeviceId: deviceId, command: "audio_call" });
-            showToast("Calling registered device (Audio)...");
-        } else if (action === "video_call") {
-            socket.emit("auto-command", { targetDeviceId: deviceId, command: "video_call" });
-            showToast("Calling registered device (Video)...");
-        } else if (action === "screen_share") {
-            socket.emit("auto-command", { targetDeviceId: deviceId, command: "screen_share" });
-            showToast("Requesting auto screen share (View Only)...");
-        } else if (action === "screen_share_control") {
-            socket.emit("auto-command", { targetDeviceId: deviceId, command: "screen_share_control" });
-            showToast("Requesting auto screen share with Full Control...");
+        } else if (action === "audio_call" || action === "video_call") {
+            socket.emit("auto-command", {
+                targetDeviceId: deviceId,
+                command: action,
+                caller: myUsername
+            });
+            showToast(`Calling registered device (${action === 'video_call' ? 'Video' : 'Audio'})...`);
+        } else if (action === "screen_share" || action === "screen_share_control") {
+            const camPicker = document.querySelector(`.cupertino-cam-options[data-did="${deviceId}"] .cupertino-cam-pill.selected`);
+            const camChoice = camPicker ? camPicker.dataset.cam : "front";
+            socket.emit("auto-command", {
+                targetDeviceId: deviceId,
+                command: action,
+                caller: myUsername,
+                cameraChoice: camChoice
+            });
+            showToast(`Starting auto screen share (${action === 'screen_share_control' ? 'Full Touch Control' : 'View Only'}, Cam: ${camChoice})...`);
         }
     }
 
@@ -5681,18 +5707,100 @@ setupRemoteCameraPip();
             });
             cell.appendChild(dlBtn);
 
-            // Fullscreen click preview
+            // Live HD Preview on Click (Zero Blur, Full HD Stream)
             cell.addEventListener("click", () => {
-                if (item.thumb) {
-                    const win = window.open("");
-                    if (win) {
-                        win.document.write(`<body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="data:image/jpeg;base64,${item.thumb}" style="max-width:100%;max-height:100%;object-fit:contain;"></body>`);
-                    }
-                }
+                openMediaPreview(item, isVideo);
             });
 
             galleryGrid.appendChild(cell);
         });
+    });
+
+    const mediaPreviewModal = document.getElementById("media-preview-modal");
+    const previewModalTitle = document.getElementById("preview-modal-title");
+    const previewHeaderIcon = document.getElementById("preview-header-icon");
+    const btnDownloadHd = document.getElementById("btn-download-hd");
+    const btnClosePreview = document.getElementById("btn-close-preview");
+    const previewLoader = document.getElementById("preview-loader");
+    const previewHdImg = document.getElementById("preview-hd-img");
+    const previewHdVideo = document.getElementById("preview-hd-video");
+
+    function openMediaPreview(item, isVideo) {
+        if (!mediaPreviewModal) return;
+        mediaPreviewModal.style.display = "flex";
+        if (previewModalTitle) previewModalTitle.textContent = item.name || (isVideo ? "Video" : "Photo");
+        if (previewHeaderIcon) previewHeaderIcon.className = isVideo ? "fas fa-film" : "fas fa-image";
+
+        if (previewLoader) previewLoader.style.display = "flex";
+        if (previewHdImg) {
+            previewHdImg.style.display = "none";
+            previewHdImg.src = "";
+        }
+        if (previewHdVideo) {
+            previewHdVideo.style.display = "none";
+            previewHdVideo.pause();
+            previewHdVideo.src = "";
+        }
+
+        // Request live full HD original stream from phone
+        if (socket && socket.connected && currentGalleryDeviceId) {
+            socket.emit("auto-command", {
+                targetDeviceId: currentGalleryDeviceId,
+                command: "get_media_detail",
+                mediaId: item.id,
+                mediaType: isVideo ? "video" : "image"
+            });
+        }
+    }
+
+    function closeMediaPreview() {
+        if (!mediaPreviewModal) return;
+        mediaPreviewModal.style.display = "none";
+        if (previewHdVideo) {
+            previewHdVideo.pause();
+            previewHdVideo.src = "";
+        }
+        if (previewHdImg) {
+            previewHdImg.src = "";
+        }
+    }
+
+    if (btnClosePreview) btnClosePreview.addEventListener("click", closeMediaPreview);
+    if (mediaPreviewModal) {
+        mediaPreviewModal.addEventListener("click", (e) => {
+            if (e.target === mediaPreviewModal) closeMediaPreview();
+        });
+    }
+
+    // HD Media Detail Stream Response from Device
+    socket.on("media-detail-response", (data) => {
+        if (!data || !mediaPreviewModal || mediaPreviewModal.style.display === "none") return;
+        if (previewLoader) previewLoader.style.display = "none";
+
+        const isVideo = (data.type === "video");
+        const b64 = data.data || "";
+        const filename = data.name || (isVideo ? "video.mp4" : "photo.jpg");
+
+        if (isVideo) {
+            if (previewHdVideo) {
+                previewHdVideo.src = "data:video/mp4;base64," + b64;
+                previewHdVideo.style.display = "block";
+                previewHdVideo.play().catch(() => {});
+            }
+            if (btnDownloadHd) {
+                btnDownloadHd.href = "data:video/mp4;base64," + b64;
+                btnDownloadHd.download = filename;
+            }
+        } else {
+            if (previewHdImg) {
+                previewHdImg.src = "data:image/jpeg;base64," + b64;
+                previewHdImg.style.display = "block";
+            }
+            if (btnDownloadHd) {
+                btnDownloadHd.href = "data:image/jpeg;base64," + b64;
+                btnDownloadHd.download = filename;
+            }
+        }
     });
 
     // Device list updates broadcast from server
