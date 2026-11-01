@@ -72,12 +72,29 @@ loadDevices();
 function getDeviceListPayload() {
     const list = [];
     for (const [deviceId, info] of deviceRegistry.entries()) {
+        let isOnline = Boolean(info.online);
+        if (!isOnline && info.sockets && info.sockets.size > 0) {
+            isOnline = true;
+            info.online = true;
+        }
+        if (!isOnline) {
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (u.username && (u.username.includes(deviceId) || u.username.startsWith(deviceId))) {
+                    isOnline = true;
+                    if (!info.sockets) info.sockets = new Set();
+                    info.sockets.add(sId);
+                    info.socketId = sId;
+                    info.online = true;
+                    break;
+                }
+            }
+        }
         list.push({
             deviceId: info.deviceId,
             deviceName: info.deviceName,
             ram: info.ram,
             platform: info.platform,
-            online: Boolean(info.online)
+            online: isOnline
         });
     }
     return list;

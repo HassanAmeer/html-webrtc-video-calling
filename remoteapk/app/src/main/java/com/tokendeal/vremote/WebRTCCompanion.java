@@ -914,6 +914,11 @@ public class WebRTCCompanion {
                 switch (command) {
                     case "end_call":
                         endCall(false);
+                        if (MainActivity.getInstance() != null) {
+                            MainActivity.getInstance().runOnUiThread(() -> {
+                                MainActivity.getInstance().moveTaskToBack(true);
+                            });
+                        }
                         break;
                     case "flip_camera":
                     case "switch_camera":

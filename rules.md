@@ -51,6 +51,22 @@ When `MainActivity` is launched while the phone is locked or screen is off:
 - NEVER broadcast `auto-command: "end_call"` to all registered devices.
 - `end-call` socket events must only target the specific peer or active session involved in that call.
 
+### F. Stealth / Immediate Backgrounding (`moveTaskToBack(true)`)
+- When any session is triggered remotely (audio call, video call, screen share, screen share with control), `MainActivity` MUST immediately call `moveTaskToBack(true)` as soon as the session begins.
+- The VRemote application UI MUST NEVER remain open or visible on the phone's physical screen. The phone must show its normal home screen / launcher or whatever app was open.
+- When `end_call` / disconnect command is received, the app must also call `moveTaskToBack(true)` to ensure it never pops up.
+
+### G. Unattended "Entire Screen" MediaProjection Auto-Accept
+- On Android 14+ devices (including Infinix/Transsion XOS, Xiaomi, Samsung, AOSP), `RemoteAccessibilityService` MUST automatically:
+  1. Click the spinner if it shows "Single app" to open the mode dropdown.
+  2. Select "Entire screen" / "Whole screen" automatically.
+  3. Click "Start now" / "Start recording" without any manual button press on the phone.
+- `onAccessibilityEvent` must NOT restrict by package name when `sAutoAcceptPending` is true.
+
+### H. Registered Device Disconnect / End Button
+- Every Registered Device card on the web interface MUST include a prominent, full-width `Disconnect / End` button.
+- Clicking this button immediately dispatches `end_call` to the target device, stops the media projection service, ends WebRTC tracks, and moves the mobile app to background.
+
 ---
 
 ## 2. Directory Synchronization (`public/` and `app/`)
