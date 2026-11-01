@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=2.2">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js" defer></script>
+    <script src="js/main.js?v=2.2" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -362,24 +362,8 @@
                 </div>
             </div>
 
-            <!-- Online Participants List View -->
-            <div id="drawer-participants-view" class="drawer-list-container">
-                <div class="drawer-list-header">
-                    <span>Active Users</span>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span id="badge-participant-count-inner" style="font-size: 11px; opacity: 0.7;">(0 online)</span>
-                        <button id="btn-refresh-list-inline" class="refresh-list-btn" title="Check Another Participant / Refresh">
-                            <i class="fas fa-sync-alt" id="refresh-icon-inline"></i> Refresh
-                        </button>
-                    </div>
-                </div>
-                <ul id="allusers" class="caller-list">
-                    <!-- Dynamic users list -->
-                </ul>
-            </div>
-
             <!-- Inline Device Registry View (Toggled inside same sheet by Info Icon) -->
-            <div id="drawer-devices-view" class="drawer-list-container" style="display: none;">
+            <div id="drawer-devices-view" class="drawer-list-container" style="display: none; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(0, 0, 0, 0.22); margin-bottom: 8px;">
                 <div class="drawer-list-header">
                     <div style="display:flex; align-items:center; gap:6px;">
                         <i class="fas fa-mobile-alt" style="color:#0a84ff;"></i>
@@ -398,6 +382,22 @@
                         <span>Loading registered devices...</span>
                     </div>
                 </div>
+            </div>
+
+            <!-- Online Participants List View -->
+            <div id="drawer-participants-view" class="drawer-list-container">
+                <div class="drawer-list-header">
+                    <span>Active Users</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="badge-participant-count-inner" style="font-size: 11px; opacity: 0.7;">(0 online)</span>
+                        <button id="btn-refresh-list-inline" class="refresh-list-btn" title="Check Another Participant / Refresh">
+                            <i class="fas fa-sync-alt" id="refresh-icon-inline"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <ul id="allusers" class="caller-list">
+                    <!-- Dynamic users list -->
+                </ul>
             </div>
 
             <!-- Drawer Bottom Close Footer -->

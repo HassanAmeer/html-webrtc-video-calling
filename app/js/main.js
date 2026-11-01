@@ -5399,38 +5399,27 @@ setupRemoteCameraPip();
     setTimeout(syncNativeAppUi, 1500);
 
     function toggleDevicesView() {
-        isDevicesViewActive = !isDevicesViewActive;
-        if (isDevicesViewActive) {
-            // Switch to Devices view inside the same sheet
-            if (drawerParticipantsView) drawerParticipantsView.style.display = "none";
-            if (drawerDevicesView) drawerDevicesView.style.display = "block";
+        if (!drawerDevicesView) return;
+        const isHidden = (drawerDevicesView.style.display === "none" || !drawerDevicesView.style.display);
+        if (isHidden) {
+            // Show Registered Devices inline inside the same sheet
+            drawerDevicesView.style.display = "block";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.add("active");
-                btnDeviceRegistry.style.background = "rgba(0, 122, 255, 0.25)";
+                btnDeviceRegistry.style.background = "rgba(0, 122, 255, 0.28)";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#0a84ff";
-            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "My Devices";
-            if (drawerHeaderIcon) {
-                drawerHeaderIcon.className = "fas fa-mobile-alt";
-                drawerHeaderIcon.style.color = "#0a84ff";
-            }
             if (socket && socket.connected) {
                 socket.emit("get-devices");
             }
         } else {
-            // Switch back to Participants view
-            if (drawerParticipantsView) drawerParticipantsView.style.display = "block";
-            if (drawerDevicesView) drawerDevicesView.style.display = "none";
+            // Hide Registered Devices
+            drawerDevicesView.style.display = "none";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.remove("active");
                 btnDeviceRegistry.style.background = "";
             }
             if (infoIconBadge) infoIconBadge.style.color = "#8ab4f8";
-            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "Participants";
-            if (drawerHeaderIcon) {
-                drawerHeaderIcon.className = "fas fa-users";
-                drawerHeaderIcon.style.color = "#8ab4f8";
-            }
         }
     }
 
