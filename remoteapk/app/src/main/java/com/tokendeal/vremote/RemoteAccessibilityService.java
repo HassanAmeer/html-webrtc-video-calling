@@ -167,7 +167,24 @@ public class RemoteAccessibilityService extends AccessibilityService {
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
-        startActivity(intent);
+
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "startActivity failed, using PendingIntent fallback", e);
+            try {
+                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                        this,
+                        0,
+                        intent,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? android.app.PendingIntent.FLAG_IMMUTABLE : 0)
+                );
+                pi.send();
+            } catch (Exception ex) {
+                Log.e(TAG, "PendingIntent also failed", ex);
+            }
+        }
     }
 
     @Override
