@@ -1007,19 +1007,22 @@ html, body {
     backdrop-filter: blur(8px);
 }
 
-/* Status 1: Idle (Ready to call) - Soft Low Opacity Green */
+/* Status 1: Idle (Ready to call) - Bright Prominent Green Button */
 .btn-action-call.status-idle {
-    background: rgba(52, 168, 83, 0.16);
-    border-color: rgba(52, 168, 83, 0.32);
-    color: rgba(129, 201, 149, 0.85);
-    opacity: 0.65;
+    background: #22c55e !important;
+    border-color: #16a34a !important;
+    color: #ffffff !important;
+    opacity: 1 !important;
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.35);
 }
 .btn-action-call.status-idle:hover {
-    background: rgba(52, 168, 83, 0.28);
-    border-color: rgba(52, 168, 83, 0.5);
-    color: #81c995;
-    opacity: 0.95;
-    transform: scale(1.06);
+    background: #16a34a !important;
+    border-color: #15803d !important;
+    color: #ffffff !important;
+    transform: scale(1.08);
 }
 
 /* Status 2: Active Call with this person - Soft Low Opacity Red (End Call) */
@@ -3372,5 +3375,181 @@ html.bypass-lock .security-lock-overlay {
     40% { transform: translateX(4px) rotate(3deg); }
     60% { transform: translateX(-3px) rotate(-2deg); }
     80% { transform: translateX(3px) rotate(2deg); }
+}
+
+/* ============================================================
+   Remote Camera Floating PiP Window (Dual Stream during Screen Share)
+   ============================================================ */
+.remote-camera-pip {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 240px;
+    height: 160px;
+    min-width: 140px;
+    min-height: 95px;
+    max-width: 80vw;
+    max-height: 70vh;
+    border-radius: 16px;
+    background: rgba(18, 22, 31, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 15px rgba(59, 130, 246, 0.2);
+    z-index: 10035;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+    transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.remote-camera-pip.minimized {
+    height: 40px !important;
+    width: 180px !important;
+}
+
+.remote-camera-pip.minimized .pip-body,
+.remote-camera-pip.minimized .pip-resize-corner {
+    display: none !important;
+}
+
+.pip-header {
+    height: 36px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0, 0, 0, 0.45);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: grab;
+    cursor: -webkit-grab;
+}
+
+.pip-header:active {
+    cursor: grabbing;
+    cursor: -webkit-grabbing;
+}
+
+.pip-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #93c5fd;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pip-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pip-action-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #e5e7eb;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pip-action-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    transform: scale(1.08);
+}
+
+.pip-body {
+    flex: 1;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+}
+
+.pip-body video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pip-resize-corner {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    height: 18px;
+    cursor: nwse-resize;
+    z-index: 10;
+    background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.45) 50%);
+    border-bottom-right-radius: 16px;
+}
+
+/* Enhanced Incoming Call Bar */
+.incoming-call-bar {
+    position: fixed;
+    bottom: 78px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10050;
+    display: inline-flex;
+    align-items: center;
+    background: rgba(18, 22, 31, 0.94) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 30px !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(34, 197, 94, 0.3) !important;
+    padding: 6px 14px !important;
+    gap: 12px !important;
+}
+
+.btn-incoming-call-icon {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 50% !important;
+    background: #22c55e !important;
+    border: none !important;
+    color: #fff !important;
+    font-size: 15px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.6) !important;
+    animation: ringWave 1.4s infinite ease-in-out !important;
+}
+
+@keyframes ringWave {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+    50% { transform: scale(1.08); box-shadow: 0 0 18px 4px rgba(34, 197, 94, 0.3); }
+}
+
+.btn-incoming-end-icon {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 50% !important;
+    background: #ef4444 !important;
+    border: none !important;
+    color: #fff !important;
+    font-size: 14px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    opacity: 0.9 !important;
+}
+.btn-incoming-end-icon:hover {
+    background: #dc2626 !important;
+    transform: scale(1.08) !important;
+    opacity: 1 !important;
 }
 

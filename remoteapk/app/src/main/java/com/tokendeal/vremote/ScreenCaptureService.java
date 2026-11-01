@@ -14,10 +14,16 @@ import androidx.core.app.NotificationCompat;
 public class ScreenCaptureService extends Service {
     private static final String CHANNEL_ID = "VRemoteScreenShareChannel";
     private static final int NOTIFICATION_ID = 8801;
+    private static boolean sIsRunning = false;
+
+    public static boolean isRunning() {
+        return sIsRunning;
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        sIsRunning = true;
         createNotificationChannel();
     }
 
@@ -32,12 +38,17 @@ public class ScreenCaptureService extends Service {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("VRemote Screen Sharing Active")
                 .setContentText("Live screen is streaming with Remote Control enabled")
-                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setSmallIcon(R.drawable.app_icon)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
 
         return START_STICKY;
     }
@@ -59,6 +70,7 @@ public class ScreenCaptureService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        sIsRunning = false;
         stopForeground(true);
     }
 

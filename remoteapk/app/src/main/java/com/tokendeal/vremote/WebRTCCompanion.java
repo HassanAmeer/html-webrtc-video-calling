@@ -56,7 +56,12 @@ public class WebRTCCompanion {
     public WebRTCCompanion(Context context, String serverUrl, String initialId, Callback callback) {
         this.context = context.getApplicationContext();
         this.serverUrl = serverUrl;
-        this.myId = (initialId != null && !initialId.trim().isEmpty()) ? initialId.trim() : "10";
+        if (initialId != null && !initialId.trim().isEmpty()) {
+            String clean = initialId.trim();
+            this.myId = clean.endsWith("_screen") ? clean : (clean + "_screen");
+        } else {
+            this.myId = "";
+        }
         this.callback = callback;
 
         initWebRTC();
@@ -71,10 +76,16 @@ public class WebRTCCompanion {
         this.isFullControlEnabled = enabled;
     }
 
+    public boolean isSharing() {
+        return screenCapturer != null;
+    }
+
     public void setMyId(String newId) {
         if (newId == null || newId.trim().isEmpty()) return;
-        this.myId = newId.trim();
-        if (socket != null && socket.connected()) {
+        String clean = newId.trim();
+        this.myId = clean.endsWith("_screen") ? clean : (clean + "_screen");
+        if (socket != null && socket.connected() && !this.myId.isEmpty()) {
+            Log.i(TAG, "Companion registering socket as: " + this.myId);
             socket.emit("join-user", this.myId);
         }
     }
@@ -125,9 +136,12 @@ public class WebRTCCompanion {
             socket = IO.socket(URI.create(serverUrl), opts);
 
             socket.on(Socket.EVENT_CONNECT, args -> {
-                Log.i(TAG, "Signaling Socket Connected as: " + myId);
-                socket.emit("join-user", myId);
-                if (callback != null) callback.onConnected(myId);
+                Log.i(TAG, "Signaling Socket Connected");
+                if (myId != null && !myId.isEmpty()) {
+                    Log.i(TAG, "Emitting companion join-user: " + myId);
+                    socket.emit("join-user", myId);
+                }
+                if (callback != null && myId != null && !myId.isEmpty()) callback.onConnected(myId);
             });
 
             socket.on("name-confirmed", args -> {
@@ -456,6 +470,7 @@ public class WebRTCCompanion {
                     offerPayload.put("to", targetUser);
                     offerPayload.put("from", myId);
                     offerPayload.put("offer", sdpJson);
+                    offerPayload.put("isScreenShare", true);
 
                     if (socket != null && socket.connected()) {
                         Log.i(TAG, "Sending call offer: " + myId + " -> " + targetUser);

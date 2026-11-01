@@ -124,7 +124,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void initWebRTC() {
-        webRTCCompanion = new WebRTCCompanion(this, APP_URL, "10", this);
+        webRTCCompanion = new WebRTCCompanion(this, APP_URL, "", this);
     }
 
     public class NativeAppBridge {
@@ -212,14 +212,38 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
 
         Toast.makeText(this, "Screen sharing started to " + pendingTargetPeer, Toast.LENGTH_SHORT).show();
-        moveTaskToBack(true);
+
+        // Delay moving to back by 1200ms so WebRTC negotiation can finish cleanly
+        if (webView != null) {
+            webView.postDelayed(() -> moveTaskToBack(true), 1200);
+        } else {
+            moveTaskToBack(true);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Keep WebView execution active when backgrounded for screen capture
+        if (webView != null) {
+            webView.resumeTimers();
+        }
     }
 
     // WebRTCCompanion callbacks
-    @Override public void onConnected(String myId) {}
+    @Override public void onConnected(String myId) {
+        Log.i(TAG, "WebRTCCompanion connected as: " + myId);
+    }
     @Override public void onStatusChanged(String status, boolean isLive) {}
     @Override public void onParticipantsList(List<String> users) {}
-    @Override public void onIncomingCall(String fromUser, String callType) {}
+    @Override public void onIncomingCall(String fromUser, String callType) {
+        runOnUiThread(() -> {
+            Log.i(TAG, "Incoming call to companion from: " + fromUser + ", auto-answering");
+            if (webRTCCompanion != null) {
+                webRTCCompanion.acceptIncomingCall();
+            }
+        });
+    }
     @Override public void onRemoteVideoTrack(VideoTrack track) {}
     @Override public void onCallEnded() {
         runOnUiThread(() -> {

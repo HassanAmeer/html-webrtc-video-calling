@@ -35,6 +35,10 @@ const usersBySocket = new Map();
 function getAllUsersPayload() {
     const payload = {};
     for (const [id, user] of usersBySocket.entries()) {
+        // Exclude internal companion screen share sockets from public participants list
+        if (user.username.endsWith("_screen") || user.username.startsWith("mobile_remote_")) {
+            continue;
+        }
         payload[user.username] = { username: user.username, id };
     }
     return payload;
@@ -84,12 +88,21 @@ io.on("connection", (socket) => {
         const cleanName = requestedName.replace(/[^\w\s-]/gi, "").trim().substring(0, 30);
         if (!cleanName) return;
 
-        // Ensure unique name
+        // Ensure unique name (Companion screen sockets replace previous instance without suffix)
         let finalName = cleanName;
-        let suffix = 1;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (sId !== socket.id && u.username.toLowerCase() === finalName.toLowerCase()) {
-                finalName = `${cleanName}_${suffix++}`;
+        if (cleanName.endsWith("_screen") || cleanName.startsWith("mobile_remote_")) {
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (sId !== socket.id && u.username.toLowerCase() === cleanName.toLowerCase()) {
+                    usersBySocket.delete(sId);
+                }
+            }
+            finalName = cleanName;
+        } else {
+            let suffix = 1;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (sId !== socket.id && u.username.toLowerCase() === finalName.toLowerCase()) {
+                    finalName = `${cleanName}_${suffix++}`;
+                }
             }
         }
 

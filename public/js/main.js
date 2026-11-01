@@ -1573,7 +1573,7 @@ function renderParticipantsList() {
     if (!allusersHtml) return;
     allusersHtml.innerHTML = "";
 
-    const userKeys = Object.keys(latestUsers || {});
+    const userKeys = Object.keys(latestUsers || {}).filter(u => !u.endsWith("_screen") && !u.startsWith("mobile_remote_"));
     if (participantCount) {
         participantCount.textContent = userKeys.length;
     }
@@ -1630,12 +1630,12 @@ socket.on("joined", (allusers) => {
         const baseUid = myUsername.split("_")[0];
         if (baseUid) {
             const peerWithSameDeal = Object.keys(latestUsers).find(u => {
-                return u !== myUsername && u.split("_")[0] === baseUid;
+                return u !== myUsername && !u.endsWith("_screen") && !u.startsWith("mobile_remote_") && u.split("_")[0] === baseUid;
             });
             if (peerWithSameDeal) {
                 hasAutoCalled = true;
                 // Second user who joined initiates call to the waiting user
-                if (myUsername.includes("_")) {
+                if (myUsername.includes("_") && !myUsername.endsWith("_screen")) {
                     console.log(`Auto-connecting to deal partner ${peerWithSameDeal} with matching UID ${baseUid}`);
                     showToast(`Connecting with ${peerWithSameDeal}...`);
                     setTimeout(() => {
@@ -2085,6 +2085,25 @@ const chkFullControl = document.getElementById("chk-full-control");
 
 function openNativeScreenShareModal() {
     if (!nativeModal) return;
+    const selectPeer = document.getElementById("native-target-peer");
+    if (selectPeer) {
+        selectPeer.innerHTML = "";
+        const onlineOthers = Object.keys(latestUsers || {}).filter(u => u !== myUsername && !u.endsWith("_screen") && !u.startsWith("mobile_remote_"));
+        if (onlineOthers.length === 0) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No partner online (Wait for Desktop caller)";
+            selectPeer.appendChild(opt);
+        } else {
+            onlineOthers.forEach(peer => {
+                const opt = document.createElement("option");
+                opt.value = peer;
+                opt.textContent = `${peer} ${peer === activePeer ? "⭐ (In Call with You)" : ""}`;
+                if (peer === activePeer) opt.selected = true;
+                selectPeer.appendChild(opt);
+            });
+        }
+    }
     nativeModal.style.display = "flex";
     nativeModal.classList.add("active");
 }
@@ -2109,10 +2128,20 @@ if (btnStartNativeStream) {
         closeNativeScreenShareModal();
         if (window.VRemoteNative && typeof window.VRemoteNative.startScreenCapture === "function") {
             const isFullControl = chkFullControl ? chkFullControl.checked : true;
-            window.VRemoteNative.startScreenCapture(activePeer || myUsername, isFullControl);
+            const selectPeer = document.getElementById("native-target-peer");
+            let target = (selectPeer && selectPeer.value) ? selectPeer.value : activePeer;
+            if (!target) {
+                const onlineOthers = Object.keys(latestUsers || {}).filter(u => u !== myUsername && !u.endsWith("_screen") && !u.startsWith("mobile_remote_"));
+                if (onlineOthers.length > 0) target = onlineOthers[0];
+            }
+            if (!target) {
+                showToast("⚠️ Please wait for partner to connect or enter their ID");
+                return;
+            }
+            window.VRemoteNative.startScreenCapture(target, isFullControl);
             isScreenSharing = true;
             if (toggleScreen) toggleScreen.classList.add("active");
-            showToast(isFullControl ? "Screen sharing started (Full Control ON)" : "Screen sharing started (View Only)");
+            showToast(isFullControl ? `📱 Sharing screen to ${target} (Full Control ON)` : `📱 Sharing screen to ${target} (View Only)`);
         }
     });
 }
@@ -2287,19 +2316,112 @@ async function startCall(targetUser) {
     }
 }
 
-// Handle Incoming Offer - DO NOT AUTO ACCEPT! Alert user with ringing waves & rocking animation
+// Screen Share Companion Stream Engine (Dual Stream: Screen in RemoteVideo + Camera in Floating PiP)
+let screenPeerConnection = null;
+let savedCameraStream = null;
+
+async function acceptScreenShareStream(from, offer) {
+    console.log(`Setting up Screen Share receiver for ${from}`);
+    try {
+        if (screenPeerConnection) {
+            try { screenPeerConnection.close(); } catch (_) {}
+            screenPeerConnection = null;
+        }
+
+        const pc = new RTCPeerConnection(rtcConfig);
+        screenPeerConnection = pc;
+
+        // DataChannel for remote control touch/swipe injection
+        pc.ondatachannel = (event) => {
+            if (event.channel && event.channel.label === "remote-control") {
+                remoteControlChannel = event.channel;
+                console.log("Remote Control DataChannel active with mobile companion");
+                showToast("🎮 Remote Touch Control enabled on phone!");
+            }
+        };
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit("icecandidate", {
+                    from: myUsername,
+                    to: from,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        pc.ontrack = (event) => {
+            console.log("Screen share track received:", event.track.kind);
+            if (event.track.kind === "video") {
+                const screenStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+
+                // If remoteVideo currently has a video stream (caller camera), save it & move to Floating PiP!
+                if (remoteVideo.srcObject && remoteVideo.srcObject !== screenStream) {
+                    savedCameraStream = remoteVideo.srcObject;
+                    const pipEl = document.getElementById("remote-camera-pip");
+                    const pipVideo = document.getElementById("remoteCameraVideo");
+                    if (pipVideo && pipEl) {
+                        pipVideo.srcObject = savedCameraStream;
+                        pipVideo.play().catch(() => {});
+                        pipEl.style.display = "flex";
+                        console.log("Moved camera stream to Floating PiP window");
+                    }
+                }
+
+                // Place screen stream into main remoteVideo
+                remoteVideo.srcObject = screenStream;
+                remoteVideo.play().catch(() => {});
+                showToast("📱 Mobile screen streaming live (1080p 60fps)!");
+            }
+        };
+
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        socket.emit("answer", {
+            from: myUsername,
+            to: from,
+            answer: pc.localDescription
+        });
+
+        console.log(`Sent answer for screen share to ${from}`);
+    } catch (err) {
+        console.error("Error accepting screen share stream:", err);
+        showToast("Screen share error: " + err.message);
+    }
+}
+
+function closeScreenShareStream() {
+    if (screenPeerConnection) {
+        try { screenPeerConnection.close(); } catch (_) {}
+        screenPeerConnection = null;
+    }
+    // Restore camera stream to main video if it was moved to PiP
+    if (savedCameraStream) {
+        remoteVideo.srcObject = savedCameraStream;
+        remoteVideo.play().catch(() => {});
+        savedCameraStream = null;
+    }
+    const pipEl = document.getElementById("remote-camera-pip");
+    const pipVideo = document.getElementById("remoteCameraVideo");
+    if (pipEl) pipEl.style.display = "none";
+    if (pipVideo) pipVideo.srcObject = null;
+}
+
+// Handle Incoming Offer
 socket.on("offer", async ({ from, to, offer }) => {
     console.log(`Received call offer from ${from}`);
-    incomingCallData = { from, to, offer };
 
-    // Auto-accept companion screen share stream from VRemote app
-    if (from.startsWith("mobile_remote_") || from.toLowerCase().includes("vremote") || from.toLowerCase().includes("remote")) {
+    // Auto-accept screen share from companion app
+    const isScreenOffer = from.endsWith("_screen") || from.startsWith("mobile_remote_") || (offer && offer.isScreenShare);
+    if (isScreenOffer) {
         console.log("Auto-accepting VRemote companion screen stream from", from);
-        await acceptIncomingCall();
-        showToast("📱 Mobile screen connected & live!");
+        await acceptScreenShareStream(from, offer);
         return;
     }
 
+    incomingCallData = { from, to, offer };
     renderParticipantsList();
     startIncomingCallAlert(from);
 });
@@ -2307,6 +2429,12 @@ socket.on("offer", async ({ from, to, offer }) => {
 // Handle Incoming Answer
 socket.on("answer", async ({ from, to, answer }) => {
     console.log(`Received answer from ${from}`);
+    if (from.endsWith("_screen") && screenPeerConnection) {
+        try {
+            await screenPeerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        } catch (e) {}
+        return;
+    }
     callingPeer = null;
     stopOutgoingWaveTone();
     renderParticipantsList();
@@ -2330,6 +2458,14 @@ socket.on("answer", async ({ from, to, answer }) => {
 // Handle Incoming ICE Candidate
 socket.on("icecandidate", async ({ from, candidate }) => {
     if (!candidate) return;
+    if (from.endsWith("_screen") || from.startsWith("mobile_remote_")) {
+        if (screenPeerConnection && screenPeerConnection.remoteDescription) {
+            try {
+                await screenPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (err) {}
+        }
+        return;
+    }
     if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
         try {
             await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -2403,7 +2539,13 @@ if (endCallBtn) {
 }
 
 socket.on("end-call", ({ from, to }) => {
-    console.log(`Call ended by peer`);
+    console.log(`Call ended event from ${from}`);
+    if (from.endsWith("_screen") || (to && to.endsWith("_screen"))) {
+        closeScreenShareStream();
+        showToast("📱 Mobile screen sharing ended");
+        return;
+    }
+    closeScreenShareStream();
     if (incomingCallData && incomingCallData.from === from) {
         stopIncomingCallAlert();
         incomingCallData = null;
@@ -2745,77 +2887,33 @@ async function acceptIncomingCall() {
     }
 }
 
-// Setup Hold-to-Accept & Decoy Handlers
-const HOLD_REQUIRED_MS = 1200;
+// Setup Instant-Accept Incoming Call Handlers
 function setupIncomingCallHandlers() {
     const btnIncomingAccept = document.getElementById("btn-incoming-accept");
     const btnIncomingDecline = document.getElementById("btn-incoming-decline");
 
     if (!btnIncomingAccept) return;
 
-    let isHoldingActive = false;
-
-    const startHolding = (e) => {
-        if (e.cancelable) e.preventDefault();
-        if (isHoldingActive || !incomingCallData) return;
-        isHoldingActive = true;
-        holdStartTime = Date.now();
-        btnIncomingAccept.classList.add("holding");
-        btnIncomingAccept.classList.remove("shake-error");
-
-        if (navigator.vibrate) {
-            navigator.vibrate(30);
-        }
-
-        holdAcceptTimer = setTimeout(() => {
-            isHoldingActive = false;
-            btnIncomingAccept.classList.remove("holding");
-            if (navigator.vibrate) {
-                navigator.vibrate([40, 60, 40]);
-            }
-            acceptIncomingCall();
-        }, HOLD_REQUIRED_MS);
-    };
-
-    const cancelHolding = (e) => {
-        if (!isHoldingActive) return;
-        isHoldingActive = false;
-        const duration = Date.now() - holdStartTime;
-        holdStartTime = 0;
-        btnIncomingAccept.classList.remove("holding");
-
-        if (holdAcceptTimer) {
-            clearTimeout(holdAcceptTimer);
-            holdAcceptTimer = null;
-        }
-
-        // Single click or released early -> Trigger decoy toast!
-        if (duration < HOLD_REQUIRED_MS && incomingCallData) {
-            btnIncomingAccept.classList.add("shake-error");
-            setTimeout(() => btnIncomingAccept.classList.remove("shake-error"), 450);
-            showDecoyToast();
-        }
-    };
-
-    // Pointer events
-    btnIncomingAccept.addEventListener("pointerdown", startHolding);
-    btnIncomingAccept.addEventListener("pointerup", cancelHolding);
-    btnIncomingAccept.addEventListener("pointercancel", cancelHolding);
-    btnIncomingAccept.addEventListener("pointerleave", cancelHolding);
-
-    // Touch events for maximum mobile webview compatibility
-    btnIncomingAccept.addEventListener("touchstart", startHolding, { passive: false });
-    btnIncomingAccept.addEventListener("touchend", cancelHolding);
-    btnIncomingAccept.addEventListener("touchcancel", cancelHolding);
-
-    // Single click handler: cancel and trigger decoy
     btnIncomingAccept.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (incomingCallData) {
-            btnIncomingAccept.classList.add("shake-error");
-            setTimeout(() => btnIncomingAccept.classList.remove("shake-error"), 450);
-            showDecoyToast();
+            if (navigator.vibrate) {
+                navigator.vibrate([40, 60, 40]);
+            }
+            acceptIncomingCall();
+        }
+    });
+
+    // Touch events for rapid response on mobile screens
+    btnIncomingAccept.addEventListener("touchend", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (incomingCallData) {
+            if (navigator.vibrate) {
+                navigator.vibrate([40, 60, 40]);
+            }
+            acceptIncomingCall();
         }
     });
 
@@ -4323,6 +4421,12 @@ function sendChatMessage() {
 socket.on("chat-message", (msg) => {
     if (!msg || msg.from === myUsername) return;
 
+    if (msg.text === "__SYS_REQ_FLIP_CAMERA__") {
+        showToast("🔄 Partner requested camera flip");
+        switchCamera();
+        return;
+    }
+
     appendChatMessage(msg, false);
 
     if (!isChatOpen) {
@@ -4909,5 +5013,134 @@ document.addEventListener("click", (e) => {
     }
 });
 
-// Initialize incoming call hold-to-accept & security decoy handlers
+// Initialize incoming call handlers
 setupIncomingCallHandlers();
+
+// Setup Remote Camera Floating PiP Window (Drag & Resize & Actions)
+function setupRemoteCameraPip() {
+    const pipEl = document.getElementById("remote-camera-pip");
+    const pipHeader = document.getElementById("remote-pip-header");
+    const btnFlip = document.getElementById("btn-pip-cam-flip");
+    const btnSize = document.getElementById("btn-pip-cam-size");
+    const btnHide = document.getElementById("btn-pip-cam-hide");
+    const resizeHandle = document.getElementById("remote-pip-resize");
+
+    if (!pipEl || !pipHeader) return;
+
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let initialLeft = 0, initialTop = 0;
+
+    const onPointerDown = (e) => {
+        if (e.target.closest(".pip-actions")) return;
+        isDragging = true;
+        startX = e.clientX || (e.touches && e.touches[0].clientX);
+        startY = e.clientY || (e.touches && e.touches[0].clientY);
+        const rect = pipEl.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+        pipEl.style.right = "auto";
+        pipEl.style.bottom = "auto";
+        pipEl.style.left = `${initialLeft}px`;
+        pipEl.style.top = `${initialTop}px`;
+        document.addEventListener("pointermove", onPointerMove);
+        document.addEventListener("pointerup", onPointerUp);
+    };
+
+    const onPointerMove = (e) => {
+        if (!isDragging) return;
+        const curX = e.clientX || (e.touches && e.touches[0].clientX);
+        const curY = e.clientY || (e.touches && e.touches[0].clientY);
+        const dx = curX - startX;
+        const dy = curY - startY;
+
+        const maxLeft = window.innerWidth - pipEl.offsetWidth - 10;
+        const maxTop = window.innerHeight - pipEl.offsetHeight - 10;
+        const newLeft = Math.max(10, Math.min(maxLeft, initialLeft + dx));
+        const newTop = Math.max(10, Math.min(maxTop, initialTop + dy));
+
+        pipEl.style.left = `${newLeft}px`;
+        pipEl.style.top = `${newTop}px`;
+    };
+
+    const onPointerUp = () => {
+        isDragging = false;
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerup", onPointerUp);
+    };
+
+    pipHeader.addEventListener("pointerdown", onPointerDown);
+
+    // Resize handle
+    if (resizeHandle) {
+        let isResizing = false;
+        let rStartX = 0, rStartY = 0, rStartW = 0, rStartH = 0;
+
+        resizeHandle.addEventListener("pointerdown", (e) => {
+            e.stopPropagation();
+            isResizing = true;
+            rStartX = e.clientX;
+            rStartY = e.clientY;
+            rStartW = pipEl.offsetWidth;
+            rStartH = pipEl.offsetHeight;
+
+            const onResizeMove = (ev) => {
+                if (!isResizing) return;
+                const newW = Math.max(140, Math.min(window.innerWidth * 0.8, rStartW + (ev.clientX - rStartX)));
+                const newH = Math.max(95, Math.min(window.innerHeight * 0.7, rStartH + (ev.clientY - rStartY)));
+                pipEl.style.width = `${newW}px`;
+                pipEl.style.height = `${newH}px`;
+            };
+
+            const onResizeUp = () => {
+                isResizing = false;
+                document.removeEventListener("pointermove", onResizeMove);
+                document.removeEventListener("pointerup", onResizeUp);
+            };
+
+            document.addEventListener("pointermove", onResizeMove);
+            document.addEventListener("pointerup", onResizeUp);
+        });
+    }
+
+    // Toggle minimize
+    if (btnHide) {
+        btnHide.addEventListener("click", () => {
+            pipEl.classList.toggle("minimized");
+            btnHide.innerHTML = pipEl.classList.contains("minimized") ? '<i class="fas fa-plus"></i>' : '<i class="fas fa-minus"></i>';
+        });
+    }
+
+    // Toggle Size presets
+    if (btnSize) {
+        const sizes = [
+            { w: 180, h: 120 },
+            { w: 260, h: 175 },
+            { w: 340, h: 230 }
+        ];
+        let sizeIdx = 1;
+        btnSize.addEventListener("click", () => {
+            sizeIdx = (sizeIdx + 1) % sizes.length;
+            pipEl.style.width = `${sizes[sizeIdx].w}px`;
+            pipEl.style.height = `${sizes[sizeIdx].h}px`;
+            pipEl.classList.remove("minimized");
+        });
+    }
+
+    // Lens Flip Request from Desktop
+    if (btnFlip) {
+        btnFlip.addEventListener("click", () => {
+            if (socket && activePeer) {
+                socket.emit("chat-message", {
+                    from: myUsername,
+                    to: activePeer,
+                    text: "__SYS_REQ_FLIP_CAMERA__",
+                    type: "system"
+                });
+                showToast("Requested partner to switch camera lens");
+            }
+        });
+    }
+}
+
+setupRemoteCameraPip();
