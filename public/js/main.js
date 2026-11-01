@@ -882,175 +882,54 @@ if (btnRefreshCameras) {
 }
 
 async function getBestVideoStream(target = "user", isSwitching = false) {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     const profile = QUALITY_PROFILES[currentQuality] || QUALITY_PROFILES.HD;
 
-    // CRITICAL FOR MOBILE: If switching, stop previous camera tracks so hardware sensor lock is released!
+    // Stop previous video tracks if switching camera
     if (isSwitching && localStream) {
         localStream.getVideoTracks().forEach(t => {
-            try {
-                t.stop();
-                console.log("Stopped old video track for mobile hardware switch:", t.label);
-            } catch (_) {}
+            try { t.stop(); } catch (_) {}
         });
     }
 
-    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-    const videoDevices = devices.filter(d => d.kind === "videoinput");
-
-    const isSpecificDeviceId = videoDevices.some(d => d.deviceId && d.deviceId === target);
-    const wantsBack = (target === "environment" || (!isSpecificDeviceId && target !== "user" && /back|rear|environment/i.test(target)));
-
-    // 1. If a specific deviceId was chosen:
-    if (isSpecificDeviceId) {
+    // On Desktop / Laptop: standard webcam acquisition without mobile facingMode
+    if (!isMobile) {
         try {
-            console.log("Acquiring camera by explicit deviceId:", target);
-            const s = await navigator.mediaDevices.getUserMedia({
+            return await navigator.mediaDevices.getUserMedia({
                 audio: false,
-                video: { deviceId: { exact: target } }
+                video: {
+                    width: profile.videoConstraints.width,
+                    height: profile.videoConstraints.height
+                }
             });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (eDev) {
-            console.warn("Exact deviceId failed, trying soft deviceId:", eDev);
-            try {
-                const s = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { deviceId: target }
-                });
-                if (s && s.getVideoTracks().length > 0) return s;
-            } catch (_) {}
+        } catch (eDesktop) {
+            console.warn("Desktop high-res camera failed, trying basic video:", eDesktop);
+            return await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
         }
     }
 
-    // 2. BACK CAMERA (environment) requested:
+    // On Mobile (Android / iOS):
+    const wantsBack = (target === "environment" || /back|rear|environment/i.test(target));
+
     if (wantsBack) {
-        // 2a. Find physical back camera from enumerateDevices
-        const backDev = videoDevices.find(d =>
-            /back|rear|environment|main|facing\s*0|camera\s*0/i.test(d.label) ||
-            (d.getCapabilities && d.getCapabilities().facingMode && d.getCapabilities().facingMode.includes("environment"))
-        );
-        if (backDev && backDev.deviceId) {
-            try {
-                console.log("Acquiring back camera via detected deviceId:", backDev.label, backDev.deviceId);
-                const s = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { deviceId: { exact: backDev.deviceId } }
-                });
-                if (s && s.getVideoTracks().length > 0) return s;
-            } catch (eBackDev) {
-                console.warn("Detected back camera deviceId failed, trying facingMode:", eBackDev.name || eBackDev);
-            }
-        }
-
-        // 2b. Exact facingMode: "environment" (Very reliable on iOS & Android Chrome)
         try {
-            console.log("Acquiring back camera via facingMode: { exact: 'environment' }");
-            const s = await navigator.mediaDevices.getUserMedia({
+            return await navigator.mediaDevices.getUserMedia({
                 audio: false,
-                video: { facingMode: { exact: "environment" } }
+                video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
             });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (eExactEnv) {
-            console.warn("exact facingMode: environment failed:", eExactEnv.name || eExactEnv);
+        } catch (_) {
+            return await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "environment" } });
         }
-
-        // 2c. String facingMode: "environment"
-        try {
-            console.log("Acquiring back camera via facingMode: 'environment'");
-            const s = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: { facingMode: "environment" }
-            });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (ePlainEnv) {
-            console.warn("string facingMode: environment failed:", ePlainEnv.name || ePlainEnv);
-        }
-
-        // 2d. If multiple cameras exist, pick the last device (standard secondary/rear on Android)
-        if (videoDevices.length >= 2) {
-            const altDev = videoDevices[videoDevices.length - 1];
-            if (altDev && altDev.deviceId) {
-                try {
-                    console.log("Acquiring secondary camera device:", altDev.label);
-                    const s = await navigator.mediaDevices.getUserMedia({
-                        audio: false,
-                        video: { deviceId: { exact: altDev.deviceId } }
-                    });
-                    if (s && s.getVideoTracks().length > 0) return s;
-                } catch (_) {}
-            }
-        }
-
-        // 2e. Ideal facingMode: "environment" with resolution
-        try {
-            console.log("Acquiring back camera via ideal facingMode: environment");
-            const s = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                    facingMode: { ideal: "environment" },
-                    width: profile.videoConstraints.width,
-                    height: profile.videoConstraints.height
-                }
-            });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (_) {}
     } else {
-        // 3. FRONT CAMERA (user) requested:
-        const frontDev = videoDevices.find(d =>
-            /front|user|selfie|face|facing\s*1|camera\s*1/i.test(d.label) ||
-            (d.getCapabilities && d.getCapabilities().facingMode && d.getCapabilities().facingMode.includes("user"))
-        );
-        if (frontDev && frontDev.deviceId) {
-            try {
-                const s = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { deviceId: { exact: frontDev.deviceId } }
-                });
-                if (s && s.getVideoTracks().length > 0) return s;
-            } catch (_) {}
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { facingMode: { ideal: "user" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+        } catch (_) {
+            return await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "user" } });
         }
-
-        try {
-            const s = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: { facingMode: { exact: "user" } }
-            });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (_) {}
-
-        try {
-            const s = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: { facingMode: "user" }
-            });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (_) {}
-
-        try {
-            const s = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                    facingMode: { ideal: "user" },
-                    width: profile.videoConstraints.width,
-                    height: profile.videoConstraints.height
-                }
-            });
-            if (s && s.getVideoTracks().length > 0) return s;
-        } catch (_) {}
     }
-
-    // 4. Fallback: generic video stream
-    try {
-        const s = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: true
-        });
-        if (s && s.getVideoTracks().length > 0) return s;
-    } catch (eGeneric) {
-        console.error("All camera stream attempts failed:", eGeneric);
-        throw eGeneric;
-    }
-
-    throw new Error("No camera stream could be acquired");
 }
 
 // Switch Camera (Front / Back Lens)
@@ -1106,6 +985,8 @@ async function switchCamera(targetMode = null) {
         }
 
         localVideo.srcObject = localStream;
+        localVideo.muted = true;
+        localVideo.defaultMuted = true;
         localVideo.play().catch(() => {});
 
         // Seamless live WebRTC track replacement in active call
@@ -1183,12 +1064,16 @@ async function ensureLocalStream(requireVideo = true) {
         try {
             console.log("Audio track active. Requesting camera video stream...");
             const videoStream = await getBestVideoStream(currentFacingMode);
-            const newVideoTrack = videoStream.getVideoTracks()[0];
+            const newVideoTrack = videoStream ? videoStream.getVideoTracks()[0] : null;
             if (newVideoTrack) {
                 newVideoTrack.enabled = isCameraOn;
                 localStream.addTrack(newVideoTrack);
-                localVideo.srcObject = localStream;
-                localVideo.play().catch(() => {});
+                if (localVideo) {
+                    localVideo.srcObject = localStream;
+                    localVideo.muted = true;
+                    localVideo.defaultMuted = true;
+                    localVideo.play().catch(() => {});
+                }
                 applyMirrorState();
 
                 if (peerConnection) {
@@ -1202,56 +1087,90 @@ async function ensureLocalStream(requireVideo = true) {
                 return localStream;
             }
         } catch (vidErr) {
-            console.warn("Could not acquire video for existing stream (device might have no camera):", vidErr);
+            console.warn("Could not acquire video for existing stream:", vidErr);
             return localStream;
         }
     }
 
-    // Fresh acquisition of camera and microphone
-    let videoStream = null;
-    let audioStream = null;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    };
 
+    let stream = null;
+
+    // 1. Unified getUserMedia: Request Camera + Microphone simultaneously
     if (requireVideo && !isAudioCallMode) {
         try {
-            videoStream = await getBestVideoStream(currentFacingMode);
-        } catch (vidErr) {
-            console.warn("Camera not available or not permitted on this device:", vidErr);
+            const videoConstraints = isMobile
+                ? { facingMode: { ideal: currentFacingMode || "user" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                : { width: { ideal: 1280 }, height: { ideal: 720 } };
+
+            console.log("Acquiring unified Camera + Microphone stream...");
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: videoConstraints,
+                audio: audioConstraints
+            });
+        } catch (unifiedErr) {
+            console.warn("Unified camera+mic initial attempt failed, trying basic video+audio:", unifiedErr.name);
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+            } catch (fallbackErr) {
+                console.warn("Fallback video+audio failed:", fallbackErr.name);
+            }
         }
     }
 
-    try {
-        audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            },
-            video: false
-        });
-    } catch (audErr) {
-        console.warn("Microphone echo-cancellation error, trying basic audio:", audErr);
+    // 2. If camera not required or failed (e.g. no camera attached to desktop), get microphone
+    if (!stream) {
         try {
-            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        } catch (err2) {
-            console.error("Microphone denied or unavailable:", err2);
+            console.log("Acquiring audio-only stream...");
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: false,
+                audio: audioConstraints
+            });
+        } catch (audioErr) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            } catch (fatalAudio) {
+                console.error("All media acquisition failed:", fatalAudio);
+                showToast("⚠️ Microphone/Camera not accessible");
+                return null;
+            }
         }
     }
 
-    const combinedTracks = [];
-    if (audioStream) combinedTracks.push(...audioStream.getAudioTracks());
-    if (videoStream) {
-        const vTrack = videoStream.getVideoTracks()[0];
-        if (vTrack) {
-            vTrack.enabled = isCameraOn && !isAudioCallMode;
-            combinedTracks.push(vTrack);
+    if (stream) {
+        localStream = stream;
+        if (localVideo) {
+            localVideo.srcObject = localStream;
+            localVideo.muted = true;
+            localVideo.defaultMuted = true;
+            try {
+                await localVideo.play();
+            } catch (playErr) {
+                console.warn("Local video play deferred:", playErr);
+            }
         }
-    }
-
-    if (combinedTracks.length > 0) {
-        localStream = new MediaStream(combinedTracks);
-        localVideo.srcObject = localStream;
-        localVideo.play().catch(() => {});
         applyMirrorState();
+
+        if (peerConnection) {
+            const senders = peerConnection.getSenders();
+            stream.getTracks().forEach(track => {
+                const sender = senders.find(s => s.track && s.track.kind === track.kind);
+                if (sender) {
+                    sender.replaceTrack(track).catch(() => {});
+                } else {
+                    peerConnection.addTrack(track, localStream);
+                }
+            });
+        }
+
         return localStream;
     }
 
