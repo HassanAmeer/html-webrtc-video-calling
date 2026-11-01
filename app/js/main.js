@@ -5358,12 +5358,15 @@ setupRemoteCameraPip();
     let cachedDevices = [];
 
     const btnDeviceRegistry = document.getElementById("btn-device-registry");
-    const deviceRegistryModal = document.getElementById("device-registry-modal");
-    const btnCloseDeviceRegistry = document.getElementById("btn-close-device-registry");
-    const btnRefreshDevices = document.getElementById("btn-refresh-devices");
-    const deviceRegistryList = document.getElementById("device-registry-list");
-    const deviceSelfId = document.getElementById("device-self-id");
-    const deviceSelfMeta = document.getElementById("device-self-meta");
+    const drawerParticipantsView = document.getElementById("drawer-participants-view");
+    const drawerDevicesView = document.getElementById("drawer-devices-view");
+    const drawerDevicesList = document.getElementById("drawer-devices-list");
+    const drawerHeaderTitle = document.getElementById("drawer-header-title");
+    const drawerHeaderIcon = document.getElementById("drawer-header-icon");
+    const badgeDeviceCountInner = document.getElementById("badge-device-count-inner");
+    const btnRefreshDevicesInline = document.getElementById("btn-refresh-devices-inline");
+    const refreshDevicesIconInline = document.getElementById("refresh-devices-icon-inline");
+    const infoIconBadge = document.getElementById("info-icon-badge");
 
     const galleryModal = document.getElementById("gallery-modal");
     const galleryGrid = document.getElementById("gallery-grid");
@@ -5373,6 +5376,8 @@ setupRemoteCameraPip();
     const btnCloseGallery = document.getElementById("btn-close-gallery");
     const btnGalleryPrev = document.getElementById("btn-gallery-prev");
     const btnGalleryNext = document.getElementById("btn-gallery-next");
+
+    let isDevicesViewActive = false;
 
     function isNativeAndroidApp() {
         return !!(window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp());
@@ -5393,74 +5398,71 @@ setupRemoteCameraPip();
     setTimeout(syncNativeAppUi, 500);
     setTimeout(syncNativeAppUi, 1500);
 
-    function openDeviceRegistry() {
-        if (!deviceRegistryModal) return;
-        deviceRegistryOpen = true;
-        deviceRegistryModal.style.display = "flex";
-
-        if (isNativeAndroidApp()) {
-            try {
-                const infoStr = window.VRemoteNative.getDeviceInfo();
-                const info = JSON.parse(infoStr || "{}");
-                if (deviceSelfId) deviceSelfId.textContent = info.deviceId || "Registered";
-                if (deviceSelfMeta) {
-                    const devName = info.deviceName || "Android Device";
-                    const ram = info.ram || "";
-                    deviceSelfMeta.textContent = `${devName}, ${ram}`;
-                }
-            } catch (e) {
-                if (deviceSelfId) deviceSelfId.textContent = "Android VRemote Device";
+    function toggleDevicesView() {
+        isDevicesViewActive = !isDevicesViewActive;
+        if (isDevicesViewActive) {
+            // Switch to Devices view inside the same sheet
+            if (drawerParticipantsView) drawerParticipantsView.style.display = "none";
+            if (drawerDevicesView) drawerDevicesView.style.display = "block";
+            if (btnDeviceRegistry) {
+                btnDeviceRegistry.classList.add("active");
+                btnDeviceRegistry.style.background = "rgba(0, 122, 255, 0.25)";
+            }
+            if (infoIconBadge) infoIconBadge.style.color = "#0a84ff";
+            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "My Devices";
+            if (drawerHeaderIcon) {
+                drawerHeaderIcon.className = "fas fa-mobile-alt";
+                drawerHeaderIcon.style.color = "#0a84ff";
+            }
+            if (socket && socket.connected) {
+                socket.emit("get-devices");
             }
         } else {
-            if (deviceSelfId) deviceSelfId.textContent = "Desktop Browser (Controller Session)";
-            if (deviceSelfMeta) deviceSelfMeta.textContent = "Connect to installed Android phones below for auto-control";
+            // Switch back to Participants view
+            if (drawerParticipantsView) drawerParticipantsView.style.display = "block";
+            if (drawerDevicesView) drawerDevicesView.style.display = "none";
+            if (btnDeviceRegistry) {
+                btnDeviceRegistry.classList.remove("active");
+                btnDeviceRegistry.style.background = "";
+            }
+            if (infoIconBadge) infoIconBadge.style.color = "#8ab4f8";
+            if (drawerHeaderTitle) drawerHeaderTitle.textContent = "Participants";
+            if (drawerHeaderIcon) {
+                drawerHeaderIcon.className = "fas fa-users";
+                drawerHeaderIcon.style.color = "#8ab4f8";
+            }
         }
-
-        if (socket && socket.connected) {
-            socket.emit("get-devices");
-        }
-    }
-
-    function closeDeviceRegistry() {
-        deviceRegistryOpen = false;
-        if (deviceRegistryModal) deviceRegistryModal.style.display = "none";
     }
 
     if (btnDeviceRegistry) {
         btnDeviceRegistry.addEventListener("click", (e) => {
             e.stopPropagation();
-            openDeviceRegistry();
+            toggleDevicesView();
         });
     }
 
-    if (btnCloseDeviceRegistry) {
-        btnCloseDeviceRegistry.addEventListener("click", closeDeviceRegistry);
-    }
-
-    if (deviceRegistryModal) {
-        deviceRegistryModal.addEventListener("click", (e) => {
-            if (e.target === deviceRegistryModal) closeDeviceRegistry();
-        });
-    }
-
-    if (btnRefreshDevices) {
-        btnRefreshDevices.addEventListener("click", (e) => {
+    if (btnRefreshDevicesInline) {
+        btnRefreshDevicesInline.addEventListener("click", (e) => {
             e.stopPropagation();
-            const icon = document.getElementById("refresh-devices-icon");
-            if (icon) icon.classList.add("spinning");
+            if (refreshDevicesIconInline) refreshDevicesIconInline.classList.add("spinning");
             if (socket && socket.connected) {
                 socket.emit("get-devices");
             }
-            setTimeout(() => { if (icon) icon.classList.remove("spinning"); }, 800);
+            setTimeout(() => {
+                if (refreshDevicesIconInline) refreshDevicesIconInline.classList.remove("spinning");
+            }, 800);
         });
     }
 
     function renderDeviceList(devices) {
         cachedDevices = devices || [];
-        if (!deviceRegistryList) return;
+        if (badgeDeviceCountInner) {
+            badgeDeviceCountInner.textContent = `(${cachedDevices.length} registered)`;
+        }
+        if (!drawerDevicesList) return;
 
         if (!devices || devices.length === 0) {
-            deviceRegistryList.innerHTML = `
+            drawerDevicesList.innerHTML = `
                 <div class="cupertino-empty-state">
                     <i class="fas fa-mobile-alt" style="font-size:2rem; opacity:0.3; margin-bottom:6px;"></i>
                     <span style="font-weight:600; color:#f2f2f7;">No Registered Devices Yet</span>
@@ -5469,7 +5471,7 @@ setupRemoteCameraPip();
             return;
         }
 
-        deviceRegistryList.innerHTML = "";
+        drawerDevicesList.innerHTML = "";
         devices.forEach(device => {
             const isOnline = Boolean(device.online);
             const row = document.createElement("div");
@@ -5521,11 +5523,11 @@ setupRemoteCameraPip();
                     </button>
                 </div>
             `;
-            deviceRegistryList.appendChild(row);
+            drawerDevicesList.appendChild(row);
         });
 
         // Event delegation on action buttons
-        deviceRegistryList.querySelectorAll(".dev-action-btn").forEach(btn => {
+        drawerDevicesList.querySelectorAll(".dev-action-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
                 e.stopPropagation();
                 const action = btn.dataset.action;
@@ -5695,9 +5697,7 @@ setupRemoteCameraPip();
 
     // Device list updates broadcast from server
     socket.on("device-list-update", (devices) => {
-        if (deviceRegistryOpen) {
-            renderDeviceList(devices);
-        }
+        renderDeviceList(devices);
     });
 
     socket.on("device-error", (data) => {

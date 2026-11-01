@@ -336,13 +336,13 @@
         <aside id="participants-drawer" class="participants-drawer">
             <div class="drawer-header">
                 <div class="drawer-title">
-                    <i class="fas fa-users" style="color: #8ab4f8; font-size: 1.5rem;"></i>
-                    <span>Participants</span>
+                    <i id="drawer-header-icon" class="fas fa-users" style="color: #8ab4f8; font-size: 1.5rem;"></i>
+                    <span id="drawer-header-title">Participants</span>
                     <span id="participant-count" class="participant-count-badge">0</span>
                 </div>
                 <div class="drawer-header-actions">
-                    <button id="btn-device-registry" class="drawer-header-btn" title="My Devices / Device Registry">
-                        <i class="fas fa-info-circle" style="color: #8ab4f8;"></i>
+                    <button id="btn-device-registry" class="drawer-header-btn" title="Toggle Registered Devices / My Devices">
+                        <i class="fas fa-info-circle" id="info-icon-badge" style="color: #8ab4f8;"></i>
                     </button>
                     <button id="refresh-participants-btn" class="drawer-header-btn" title="Refresh Participants / Check Another Participant">
                         <i class="fas fa-sync-alt" id="refresh-icon"></i>
@@ -354,7 +354,7 @@
             </div>
 
             <!-- Join / Update Name Section inside Drawer -->
-            <div class="drawer-user-box">
+            <div class="drawer-user-box" id="drawer-user-box">
                 <label class="drawer-label">Your Display Name</label>
                 <div class="drawer-input-row">
                     <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
@@ -362,8 +362,8 @@
                 </div>
             </div>
 
-            <!-- Online Participants List -->
-            <div class="drawer-list-container">
+            <!-- Online Participants List View -->
+            <div id="drawer-participants-view" class="drawer-list-container">
                 <div class="drawer-list-header">
                     <span>Active Users</span>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -378,6 +378,28 @@
                 </ul>
             </div>
 
+            <!-- Inline Device Registry View (Toggled inside same sheet by Info Icon) -->
+            <div id="drawer-devices-view" class="drawer-list-container" style="display: none;">
+                <div class="drawer-list-header">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <i class="fas fa-mobile-alt" style="color:#0a84ff;"></i>
+                        <span style="font-weight:600; color:#f2f2f7;">My Registered Devices</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="badge-device-count-inner" style="font-size: 11px; opacity: 0.7;">(0 devices)</span>
+                        <button id="btn-refresh-devices-inline" class="refresh-list-btn" title="Refresh Devices">
+                            <i class="fas fa-sync-alt" id="refresh-devices-icon-inline"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div id="drawer-devices-list" class="cupertino-device-list" style="padding: 6px 10px 14px;">
+                    <div class="cupertino-empty-state">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                        <span>Loading registered devices...</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Drawer Bottom Close Footer -->
             <div class="drawer-footer">
                 <button id="btn-footer-close-sheet" class="drawer-footer-btn">
@@ -386,50 +408,7 @@
             </div>
         </aside>
 
-        <!-- Device Registry Modal (Cupertino iOS Style) -->
-        <div id="device-registry-modal" class="cupertino-modal-backdrop" style="display:none;">
-            <div class="cupertino-modal-card">
-                <!-- Modal Navigation Bar -->
-                <div class="cupertino-modal-header">
-                    <div class="cupertino-title-wrap">
-                        <i class="fas fa-mobile-alt" style="color:#007aff; font-size:1.15rem;"></i>
-                        <span class="cupertino-title">My Registered Devices</span>
-                    </div>
-                    <div class="cupertino-header-actions">
-                        <button id="btn-refresh-devices" class="cupertino-icon-btn" title="Refresh Device List">
-                            <i class="fas fa-sync-alt" id="refresh-devices-icon"></i>
-                        </button>
-                        <button id="btn-close-device-registry" class="cupertino-icon-btn" title="Close">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Self Device Banner (Cupertino Style) -->
-                <div id="device-registry-self-info" class="cupertino-self-banner">
-                    <div class="cupertino-self-tag">THIS DEVICE</div>
-                    <div id="device-self-id" class="cupertino-self-id">Detecting...</div>
-                    <div id="device-self-meta" class="cupertino-self-sub"></div>
-                </div>
-
-                <!-- Devices List (Ultra-compact, minimal gaps) -->
-                <div class="cupertino-list-scroll">
-                    <div id="device-registry-list" class="cupertino-device-list">
-                        <div class="cupertino-empty-state">
-                            <i class="fas fa-circle-notch fa-spin"></i>
-                            <span>Loading registered devices...</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Footer note -->
-                <div class="cupertino-modal-footer">
-                    <span>Devices auto-register permanently when VRemote is launched</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Gallery / Video Browser Modal -->
+        <!-- Gallery / Video Browser Modal (50 items preview & download) -->
         <div id="gallery-modal" class="cupertino-modal-backdrop" style="display:none; z-index:9960;">
             <div class="cupertino-modal-card gallery-card-size">
                 <div class="cupertino-modal-header">

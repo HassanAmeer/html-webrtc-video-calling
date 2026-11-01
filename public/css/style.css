@@ -806,6 +806,12 @@ video::-webkit-media-controls-enclosure {
     transform: scale(1.08);
 }
 
+.drawer-header-btn.active {
+    background: rgba(10, 132, 255, 0.28);
+    color: #0a84ff;
+    box-shadow: 0 0 10px rgba(10, 132, 255, 0.4);
+}
+
 .drawer-close-icon {
     background: rgba(255, 255, 255, 0.08);
     border: none;
