@@ -12,6 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 import io.socket.client.IO;
@@ -20,98 +21,99 @@ import io.socket.client.Socket;
 public class WebRTCCompanion {
     private static final String TAG = "WebRTCCompanion";
 
-    public interface ConnectionListener {
-        void onStatusChanged(String status, boolean isConnected);
+    public interface Callback {
+        void onConnected(String myId);
+        void onStatusChanged(String status, boolean isLive);
+        void onParticipantsList(List<String> users);
+        void onIncomingCall(String fromUser, String callType);
+        void onRemoteVideoTrack(VideoTrack track);
+        void onCallEnded();
         void onError(String error);
     }
 
     private final Context context;
     private final String serverUrl;
-    private final String targetRoom;
-    private final String myId;
-    private final ConnectionListener listener;
+    private final Callback callback;
+    private String myId;
+    private String activePeer;
+    private boolean isFullControlEnabled = true;
 
     private Socket socket;
     private EglBase rootEglBase;
     private PeerConnectionFactory peerConnectionFactory;
     private PeerConnection peerConnection;
     private ScreenCapturerAndroid screenCapturer;
+    private CameraVideoCapturer cameraCapturer;
     private SurfaceTextureHelper surfaceTextureHelper;
     private VideoSource videoSource;
-    private VideoTrack screenVideoTrack;
+    private VideoTrack localVideoTrack;
+    private AudioSource audioSource;
+    private AudioTrack localAudioTrack;
     private DataChannel remoteControlChannel;
-    private final List<IceCandidate> queuedRemoteCandidates = new ArrayList<>();
-    private boolean isDestroyed = false;
+    private final List<IceCandidate> queuedCandidates = new ArrayList<>();
+    private JSONObject incomingOfferObj = null;
 
-    public WebRTCCompanion(Context context, String serverUrl, String targetRoom, ConnectionListener listener) {
+    public WebRTCCompanion(Context context, String serverUrl, String initialId, Callback callback) {
         this.context = context.getApplicationContext();
         this.serverUrl = serverUrl;
-        this.targetRoom = targetRoom;
-        this.myId = "mobile_remote_" + (int)(Math.random() * 9000 + 1000);
-        this.listener = listener;
+        this.myId = (initialId != null && !initialId.trim().isEmpty()) ? initialId.trim() : "10";
+        this.callback = callback;
 
         initWebRTC();
+        connectSocket();
+    }
+
+    public EglBase.Context getEglContext() {
+        return rootEglBase.getEglBaseContext();
+    }
+
+    public void setFullControlEnabled(boolean enabled) {
+        this.isFullControlEnabled = enabled;
+    }
+
+    public void setMyId(String newId) {
+        if (newId == null || newId.trim().isEmpty()) return;
+        this.myId = newId.trim();
+        if (socket != null && socket.connected()) {
+            socket.emit("join-user", this.myId);
+        }
+    }
+
+    public String getMyId() {
+        return myId;
+    }
+
+    public String getActivePeer() {
+        return activePeer;
+    }
+
+    public void refreshUsers() {
+        if (socket != null && socket.connected()) {
+            socket.emit("get-users");
+        }
     }
 
     private void initWebRTC() {
         rootEglBase = EglBase.create();
 
-        PeerConnectionFactory.InitializationOptions initializationOptions =
+        PeerConnectionFactory.InitializationOptions options =
                 PeerConnectionFactory.InitializationOptions.builder(context)
                         .setEnableInternalTracer(false)
                         .createInitializationOptions();
-        PeerConnectionFactory.initialize(initializationOptions);
+        PeerConnectionFactory.initialize(options);
 
-        PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
-        DefaultVideoEncoderFactory defaultVideoEncoderFactory =
+        DefaultVideoEncoderFactory encoderFactory =
                 new DefaultVideoEncoderFactory(rootEglBase.getEglBaseContext(), true, true);
-        DefaultVideoDecoderFactory defaultVideoDecoderFactory =
+        DefaultVideoDecoderFactory decoderFactory =
                 new DefaultVideoDecoderFactory(rootEglBase.getEglBaseContext());
 
         peerConnectionFactory = PeerConnectionFactory.builder()
-                .setOptions(options)
-                .setVideoEncoderFactory(defaultVideoEncoderFactory)
-                .setVideoDecoderFactory(defaultVideoDecoderFactory)
+                .setVideoEncoderFactory(encoderFactory)
+                .setVideoDecoderFactory(decoderFactory)
                 .createPeerConnectionFactory();
-    }
 
-    public void start(Intent captureIntentData, int width, int height) {
-        try {
-            // 1. Initialize Screen Capturer with Shared EGL Context
-            surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", rootEglBase.getEglBaseContext());
-            screenCapturer = new ScreenCapturerAndroid(captureIntentData, new MediaProjection.Callback() {
-                @Override
-                public void onStop() {
-                    Log.i(TAG, "Screen capture ended via Android OS");
-                    stop();
-                }
-            });
-
-            videoSource = peerConnectionFactory.createVideoSource(screenCapturer.isScreencast());
-            screenCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
-
-            // Limit capture width to max 1080p, ensure even numbers for hardware encoders
-            int capWidth = Math.min(width, 1080);
-            int capHeight = (int) ((float) height * capWidth / width);
-            capWidth = (capWidth / 2) * 2;
-            capHeight = (capHeight / 2) * 2;
-
-            Log.i(TAG, "Starting screen capturer at " + capWidth + "x" + capHeight + " @ 30fps");
-            screenCapturer.startCapture(capWidth, capHeight, 30);
-
-            screenVideoTrack = peerConnectionFactory.createVideoTrack("ARDAMSv0", videoSource);
-            screenVideoTrack.setEnabled(true);
-
-            // 2. Setup PeerConnection with Screen Video Track Attached
-            setupPeerConnection();
-
-            // 3. Connect Signaling Socket
-            connectSocket();
-
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to start WebRTC screen capturer:", e);
-            if (listener != null) listener.onError("Capture failed: " + e.getMessage());
-        }
+        audioSource = peerConnectionFactory.createAudioSource(new MediaConstraints());
+        localAudioTrack = peerConnectionFactory.createAudioTrack("ARDAMSa0", audioSource);
     }
 
     private void connectSocket() {
@@ -124,12 +126,31 @@ public class WebRTCCompanion {
 
             socket.on(Socket.EVENT_CONNECT, args -> {
                 Log.i(TAG, "Signaling Socket Connected as: " + myId);
-                if (listener != null) listener.onStatusChanged("Connected as " + myId, true);
                 socket.emit("join-user", myId);
+                if (callback != null) callback.onConnected(myId);
+            });
 
-                // If targetRoom is provided, send initial call offer
-                if (targetRoom != null && !targetRoom.isEmpty()) {
-                    createAndSendOffer();
+            socket.on("name-confirmed", args -> {
+                String confirmedName = String.valueOf(args[0]);
+                this.myId = confirmedName;
+                Log.i(TAG, "Name confirmed by server: " + confirmedName);
+                if (callback != null) callback.onConnected(confirmedName);
+            });
+
+            socket.on("joined", args -> {
+                try {
+                    JSONObject usersObj = (JSONObject) args[0];
+                    List<String> list = new ArrayList<>();
+                    Iterator<String> keys = usersObj.keys();
+                    while (keys.hasNext()) {
+                        String name = keys.next();
+                        if (!name.equalsIgnoreCase(myId)) {
+                            list.add(name);
+                        }
+                    }
+                    if (callback != null) callback.onParticipantsList(list);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error parsing joined users", e);
                 }
             });
 
@@ -138,7 +159,11 @@ public class WebRTCCompanion {
                     JSONObject data = (JSONObject) args[0];
                     String from = data.getString("from");
                     JSONObject offerObj = data.getJSONObject("offer");
-                    handleRemoteOffer(from, offerObj);
+                    this.activePeer = from;
+                    this.incomingOfferObj = offerObj;
+
+                    Log.i(TAG, "Received call offer from " + from);
+                    if (callback != null) callback.onIncomingCall(from, "Call");
                 } catch (Exception e) {
                     Log.e(TAG, "Error handling offer", e);
                 }
@@ -166,22 +191,31 @@ public class WebRTCCompanion {
                     if (peerConnection != null && peerConnection.getRemoteDescription() != null) {
                         peerConnection.addIceCandidate(candidate);
                     } else {
-                        queuedRemoteCandidates.add(candidate);
+                        queuedCandidates.add(candidate);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error handling ice candidate", e);
                 }
             });
 
-            socket.connect();
+            socket.on("end-call", args -> {
+                Log.i(TAG, "Call ended by peer");
+                endCall(false);
+            });
 
+            socket.connect();
         } catch (Exception e) {
-            Log.e(TAG, "Socket init error", e);
-            if (listener != null) listener.onError("Connection failed: " + e.getMessage());
+            Log.e(TAG, "Socket connect error", e);
+            if (callback != null) callback.onError("Socket error: " + e.getMessage());
         }
     }
 
     private void setupPeerConnection() {
+        if (peerConnection != null) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+
         List<PeerConnection.IceServer> iceServers = new ArrayList<>();
         iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
         iceServers.add(PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer());
@@ -192,20 +226,18 @@ public class WebRTCCompanion {
 
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override
-            public void onSignalingChange(PeerConnection.SignalingState signalingState) {
-                Log.d(TAG, "SignalingState: " + signalingState);
-            }
+            public void onSignalingChange(PeerConnection.SignalingState signalingState) {}
 
             @Override
             public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
                 Log.i(TAG, "ICE Connection State: " + iceConnectionState);
                 if (iceConnectionState == PeerConnection.IceConnectionState.CONNECTED ||
                     iceConnectionState == PeerConnection.IceConnectionState.COMPLETED) {
-                    if (listener != null) listener.onStatusChanged("Live Streaming Screen & Remote Ready", true);
+                    if (callback != null) callback.onStatusChanged("In Call with " + activePeer, true);
                 }
                 if (iceConnectionState == PeerConnection.IceConnectionState.DISCONNECTED ||
                     iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
-                    if (listener != null) listener.onStatusChanged("Call Disconnected", false);
+                    if (callback != null) callback.onStatusChanged("Call Disconnected", false);
                 }
             }
 
@@ -224,7 +256,7 @@ public class WebRTCCompanion {
                     candidateJson.put("sdpMLineIndex", iceCandidate.sdpMLineIndex);
 
                     JSONObject payload = new JSONObject();
-                    payload.put("to", targetRoom);
+                    payload.put("to", activePeer);
                     payload.put("from", myId);
                     payload.put("candidate", candidateJson);
 
@@ -255,14 +287,15 @@ public class WebRTCCompanion {
             public void onRenegotiationNeeded() {}
 
             @Override
-            public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {}
+            public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
+                MediaStreamTrack track = rtpReceiver.track();
+                if (track instanceof VideoTrack) {
+                    VideoTrack vt = (VideoTrack) track;
+                    Log.i(TAG, "Received remote VideoTrack from " + activePeer);
+                    if (callback != null) callback.onRemoteVideoTrack(vt);
+                }
+            }
         });
-
-        // Add Screen Video Track to WebRTC PeerConnection
-        if (screenVideoTrack != null && peerConnection != null) {
-            peerConnection.addTrack(screenVideoTrack, Collections.singletonList("ARDAMS"));
-            Log.i(TAG, "WebRTC Screen VideoTrack successfully added to PeerConnection!");
-        }
 
         // Create Remote Control DataChannel
         DataChannel.Init init = new DataChannel.Init();
@@ -271,11 +304,145 @@ public class WebRTCCompanion {
         registerDataChannel(remoteControlChannel);
     }
 
-    private void createAndSendOffer() {
+    public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height) {
+        this.activePeer = targetUser;
+        setupPeerConnection();
+
+        try {
+            surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", rootEglBase.getEglBaseContext());
+            screenCapturer = new ScreenCapturerAndroid(captureIntentData, new MediaProjection.Callback() {
+                @Override
+                public void onStop() {
+                    Log.i(TAG, "User stopped screen capture via OS prompt");
+                    endCall(true);
+                }
+            });
+
+            videoSource = peerConnectionFactory.createVideoSource(screenCapturer.isScreencast());
+            screenCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
+
+            int capWidth = Math.min(width, 1080);
+            int capHeight = (int) ((float) height * capWidth / width);
+            capWidth = (capWidth / 2) * 2;
+            capHeight = (capHeight / 2) * 2;
+
+            Log.i(TAG, "Starting screen capture: " + capWidth + "x" + capHeight + " @ 30fps");
+            screenCapturer.startCapture(capWidth, capHeight, 30);
+
+            localVideoTrack = peerConnectionFactory.createVideoTrack("ARDAMSv0", videoSource);
+            localVideoTrack.setEnabled(true);
+
+            peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
+            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+
+            createAndSendOffer(targetUser);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Screen share init error", e);
+            if (callback != null) callback.onError("Screen capture failed: " + e.getMessage());
+        }
+    }
+
+    public void startVideoCall(String targetUser) {
+        this.activePeer = targetUser;
+        setupPeerConnection();
+
+        try {
+            Camera2Enumerator enumerator = new Camera2Enumerator(context);
+            String[] deviceNames = enumerator.getDeviceNames();
+            String frontCamera = null;
+            for (String deviceName : deviceNames) {
+                if (enumerator.isFrontFacing(deviceName)) {
+                    frontCamera = deviceName;
+                    break;
+                }
+            }
+            if (frontCamera == null && deviceNames.length > 0) frontCamera = deviceNames[0];
+
+            if (frontCamera != null) {
+                cameraCapturer = enumerator.createCapturer(frontCamera, null);
+                surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", rootEglBase.getEglBaseContext());
+                videoSource = peerConnectionFactory.createVideoSource(cameraCapturer.isScreencast());
+                cameraCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
+                cameraCapturer.startCapture(1280, 720, 30);
+
+                localVideoTrack = peerConnectionFactory.createVideoTrack("ARDAMSv0", videoSource);
+                localVideoTrack.setEnabled(true);
+                peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
+            }
+
+            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+            createAndSendOffer(targetUser);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Camera init error", e);
+            if (callback != null) callback.onError("Camera error: " + e.getMessage());
+        }
+    }
+
+    public void startAudioCall(String targetUser) {
+        this.activePeer = targetUser;
+        setupPeerConnection();
+        peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+        createAndSendOffer(targetUser);
+    }
+
+    public void acceptIncomingCall() {
+        if (incomingOfferObj == null || activePeer == null) return;
+        setupPeerConnection();
+        peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+
+        try {
+            SessionDescription offer = new SessionDescription(
+                    SessionDescription.Type.OFFER,
+                    incomingOfferObj.getString("sdp")
+            );
+            peerConnection.setRemoteDescription(new SimpleSdpObserver() {
+                @Override
+                public void onSetSuccess() {
+                    drainCandidates();
+                    peerConnection.createAnswer(new SimpleSdpObserver() {
+                        @Override
+                        public void onCreateSuccess(SessionDescription sessionDescription) {
+                            peerConnection.setLocalDescription(new SimpleSdpObserver(), sessionDescription);
+                            try {
+                                JSONObject ansPayload = new JSONObject();
+                                JSONObject sdpJson = new JSONObject();
+                                sdpJson.put("type", "answer");
+                                sdpJson.put("sdp", sessionDescription.description);
+                                ansPayload.put("to", activePeer);
+                                ansPayload.put("from", myId);
+                                ansPayload.put("answer", sdpJson);
+                                socket.emit("answer", ansPayload);
+                                if (callback != null) callback.onStatusChanged("In Call with " + activePeer, true);
+                            } catch (Exception e) {
+                                Log.e(TAG, "Error emitting answer", e);
+                            }
+                        }
+                    }, new MediaConstraints());
+                }
+            }, offer);
+        } catch (Exception e) {
+            Log.e(TAG, "Error accepting offer", e);
+        }
+    }
+
+    public void declineIncomingCall() {
+        if (activePeer != null && socket != null && socket.connected()) {
+            JSONObject payload = new JSONObject();
+            try {
+                payload.put("from", myId);
+                payload.put("to", activePeer);
+                socket.emit("end-call", payload);
+            } catch (Exception ignored) {}
+        }
+        incomingOfferObj = null;
+        activePeer = null;
+    }
+
+    private void createAndSendOffer(String targetUser) {
         if (peerConnection == null) return;
         MediaConstraints constraints = new MediaConstraints();
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"));
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"));
 
         peerConnection.createOffer(new SimpleSdpObserver() {
             @Override
@@ -286,12 +453,12 @@ public class WebRTCCompanion {
                     JSONObject sdpJson = new JSONObject();
                     sdpJson.put("type", "offer");
                     sdpJson.put("sdp", sessionDescription.description);
-                    offerPayload.put("to", targetRoom);
+                    offerPayload.put("to", targetUser);
                     offerPayload.put("from", myId);
                     offerPayload.put("offer", sdpJson);
 
                     if (socket != null && socket.connected()) {
-                        Log.i(TAG, "Sending screen share offer: " + myId + " -> " + targetRoom);
+                        Log.i(TAG, "Sending call offer: " + myId + " -> " + targetUser);
                         socket.emit("offer", offerPayload);
                     }
                 } catch (Exception e) {
@@ -299,39 +466,6 @@ public class WebRTCCompanion {
                 }
             }
         }, constraints);
-    }
-
-    private void handleRemoteOffer(String from, JSONObject offerObj) throws Exception {
-        SessionDescription offer = new SessionDescription(
-                SessionDescription.Type.OFFER,
-                offerObj.getString("sdp")
-        );
-        peerConnection.setRemoteDescription(new SimpleSdpObserver() {
-            @Override
-            public void onSetSuccess() {
-                drainRemoteCandidates();
-                MediaConstraints sdpConstraints = new MediaConstraints();
-                peerConnection.createAnswer(new SimpleSdpObserver() {
-                    @Override
-                    public void onCreateSuccess(SessionDescription sessionDescription) {
-                        peerConnection.setLocalDescription(new SimpleSdpObserver(), sessionDescription);
-                        try {
-                            JSONObject ansPayload = new JSONObject();
-                            JSONObject sdpJson = new JSONObject();
-                            sdpJson.put("type", "answer");
-                            sdpJson.put("sdp", sessionDescription.description);
-                            ansPayload.put("to", from);
-                            ansPayload.put("from", myId);
-                            ansPayload.put("answer", sdpJson);
-                            Log.i(TAG, "Sending screen share answer: " + myId + " -> " + from);
-                            socket.emit("answer", ansPayload);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error sending answer", e);
-                        }
-                    }
-                }, sdpConstraints);
-            }
-        }, offer);
     }
 
     private void handleRemoteAnswer(JSONObject answerObj) throws Exception {
@@ -342,18 +476,18 @@ public class WebRTCCompanion {
         peerConnection.setRemoteDescription(new SimpleSdpObserver() {
             @Override
             public void onSetSuccess() {
-                drainRemoteCandidates();
-                Log.i(TAG, "Remote answer set successfully, screen video stream streaming live!");
-                if (listener != null) listener.onStatusChanged("Live Streaming Screen & Remote Ready", true);
+                drainCandidates();
+                Log.i(TAG, "Remote answer set successfully!");
+                if (callback != null) callback.onStatusChanged("In Call with " + activePeer, true);
             }
         }, answer);
     }
 
-    private void drainRemoteCandidates() {
-        for (IceCandidate cand : queuedRemoteCandidates) {
+    private void drainCandidates() {
+        for (IceCandidate cand : queuedCandidates) {
             peerConnection.addIceCandidate(cand);
         }
-        queuedRemoteCandidates.clear();
+        queuedCandidates.clear();
     }
 
     private void registerDataChannel(DataChannel channel) {
@@ -378,15 +512,17 @@ public class WebRTCCompanion {
     }
 
     private void handleRemoteControlMessage(String jsonStr) {
+        if (!isFullControlEnabled) {
+            Log.i(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
+            return;
+        }
+
         try {
             JSONObject obj = new JSONObject(jsonStr);
             String type = obj.optString("type", "");
 
             RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
-            if (accessibility == null) {
-                Log.w(TAG, "Accessibility service not running - cannot dispatch gesture");
-                return;
-            }
+            if (accessibility == null) return;
 
             switch (type) {
                 case "tap": {
@@ -418,13 +554,25 @@ public class WebRTCCompanion {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error handling remote control payload: " + jsonStr, e);
+            Log.e(TAG, "Error handling gesture:", e);
         }
     }
 
-    public void stop() {
-        if (isDestroyed) return;
-        isDestroyed = true;
+    public void setMicrophoneMute(boolean mute) {
+        if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(!mute);
+        }
+    }
+
+    public void endCall(boolean notifyServer) {
+        if (notifyServer && activePeer != null && socket != null && socket.connected()) {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("from", myId);
+                payload.put("to", activePeer);
+                socket.emit("end-call", payload);
+            } catch (Exception ignored) {}
+        }
 
         if (screenCapturer != null) {
             try {
@@ -434,11 +582,24 @@ public class WebRTCCompanion {
             screenCapturer = null;
         }
 
+        if (cameraCapturer != null) {
+            try {
+                cameraCapturer.stopCapture();
+                cameraCapturer.dispose();
+            } catch (Exception ignored) {}
+            cameraCapturer = null;
+        }
+
         if (surfaceTextureHelper != null) {
             try {
                 surfaceTextureHelper.dispose();
             } catch (Exception ignored) {}
             surfaceTextureHelper = null;
+        }
+
+        if (localVideoTrack != null) {
+            localVideoTrack.dispose();
+            localVideoTrack = null;
         }
 
         if (videoSource != null) {
@@ -458,6 +619,14 @@ public class WebRTCCompanion {
             peerConnection = null;
         }
 
+        activePeer = null;
+        incomingOfferObj = null;
+
+        if (callback != null) callback.onCallEnded();
+    }
+
+    public void destroy() {
+        endCall(true);
         if (socket != null) {
             socket.disconnect();
             socket = null;
