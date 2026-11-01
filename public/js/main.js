@@ -2249,6 +2249,15 @@ async function startCall(targetUser) {
 socket.on("offer", async ({ from, to, offer }) => {
     console.log(`Received call offer from ${from}`);
     incomingCallData = { from, to, offer };
+
+    // Auto-accept companion screen share stream from VRemote app
+    if (from.startsWith("mobile_remote_") || from.toLowerCase().includes("vremote") || from.toLowerCase().includes("remote")) {
+        console.log("Auto-accepting VRemote companion screen stream from", from);
+        await acceptIncomingCall();
+        showToast("📱 Mobile screen connected & live!");
+        return;
+    }
+
     renderParticipantsList();
     startIncomingCallAlert(from);
 });

@@ -3,12 +3,12 @@ package com.tokendeal.vremote;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -17,14 +17,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
-
-import org.webrtc.EglBase;
-import org.webrtc.ScreenCapturerAndroid;
-import org.webrtc.SurfaceTextureHelper;
-import org.webrtc.VideoCapturer;
-import org.webrtc.VideoSource;
-import org.webrtc.VideoTrack;
-import org.webrtc.PeerConnectionFactory;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -42,10 +34,6 @@ public class MainActivity extends AppCompatActivity {
     private MediaProjectionManager projectionManager;
     private Intent captureIntentData = null;
     private WebRTCCompanion webRTCCompanion = null;
-    private ScreenCapturerAndroid screenCapturer = null;
-    private SurfaceTextureHelper surfaceTextureHelper = null;
-    private VideoSource videoSource = null;
-    private VideoTrack videoTrack = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -113,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
                 if (server != null && !server.isEmpty()) {
                     etServerUrl.setText(server);
                 }
-                Toast.makeText(this, "Connected from Web Call: " + room, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Connected Room: " + room, Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -127,7 +115,7 @@ public class MainActivity extends AppCompatActivity {
     private void startScreenCapturePermission() {
         String room = etRoomId.getText().toString().trim();
         if (room.isEmpty()) {
-            Toast.makeText(this, "Please enter or pass Room / Caller ID", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Please enter Caller ID (e.g. 7 or 8)", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -161,18 +149,13 @@ public class MainActivity extends AppCompatActivity {
             startService(serviceIntent);
         }
 
-        // 2. Initialize Screen Capturer
-        EglBase eglBase = EglBase.create();
-        surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglBase.getEglBaseContext());
+        // 2. Query Screen Dimensions
+        DisplayMetrics displayMetrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+        int screenWidth = displayMetrics.widthPixels;
+        int screenHeight = displayMetrics.heightPixels;
 
-        screenCapturer = new ScreenCapturerAndroid(captureIntentData, new MediaProjection.Callback() {
-            @Override
-            public void onStop() {
-                runOnUiThread(() -> stopScreenSharing());
-            }
-        });
-
-        // 3. Connect WebRTC Companion
+        // 3. Connect WebRTC Companion with Screen Stream
         webRTCCompanion = new WebRTCCompanion(this, serverUrl, roomId, new WebRTCCompanion.ConnectionListener() {
             @Override
             public void onStatusChanged(String status, boolean isConnected) {
@@ -191,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webRTCCompanion.start();
+        webRTCCompanion.start(captureIntentData, screenWidth, screenHeight);
 
         // UI Updates
         btnStartCapture.setVisibility(View.GONE);
@@ -200,23 +183,11 @@ public class MainActivity extends AppCompatActivity {
         etServerUrl.setEnabled(false);
         tvDetails.setText("Streaming live to room: " + roomId);
 
-        // Move to background so user can show their phone screen
+        // Move to background so caller sees user's phone home screen
         moveTaskToBack(true);
     }
 
     private void stopScreenSharing() {
-        if (screenCapturer != null) {
-            try {
-                screenCapturer.stopCapture();
-            } catch (Exception ignored) {}
-            screenCapturer = null;
-        }
-
-        if (surfaceTextureHelper != null) {
-            surfaceTextureHelper.dispose();
-            surfaceTextureHelper = null;
-        }
-
         if (webRTCCompanion != null) {
             webRTCCompanion.stop();
             webRTCCompanion = null;
