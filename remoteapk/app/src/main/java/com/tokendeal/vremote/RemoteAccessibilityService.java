@@ -87,6 +87,20 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     } else if ("audio_call".equals(command) || "video_call".equals(command) ||
                                "screen_share".equals(command) || "screen_share_control".equals(command)) {
                         wakeUpAndLaunch(command, caller, cameraChoice);
+                    } else if ("end_call".equals(command)) {
+                        Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+                        stopService(serviceIntent);
+                        if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
+                            MainActivity.getInstance().runOnUiThread(() -> {
+                                MainActivity.getInstance().getWebRTCCompanion().endCall(false);
+                            });
+                        }
+                    } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
+                        if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
+                            MainActivity.getInstance().runOnUiThread(() -> {
+                                MainActivity.getInstance().getWebRTCCompanion().switchCompanionCamera();
+                            });
+                        }
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing background auto-command", e);

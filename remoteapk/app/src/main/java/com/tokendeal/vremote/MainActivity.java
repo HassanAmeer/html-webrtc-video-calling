@@ -39,6 +39,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private static final int REQUEST_PERMISSIONS = 2001;
     private static final String APP_URL = "https://v.tokendeal.cloud";
 
+    private static MainActivity sInstance = null;
+    public static MainActivity getInstance() { return sInstance; }
+    public WebRTCCompanion getWebRTCCompanion() { return webRTCCompanion; }
+
     private WebView webView;
     private MediaProjectionManager projectionManager;
     private Intent captureIntentData = null;
@@ -54,6 +58,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sInstance = this;
         setContentView(R.layout.activity_main);
 
         try {
@@ -459,6 +464,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (sInstance == this) {
+            sInstance = null;
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception ignored) {}
             wakeLock = null;

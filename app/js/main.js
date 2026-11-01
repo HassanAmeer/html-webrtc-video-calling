@@ -3930,16 +3930,18 @@ const callControlsDock = document.getElementById("call-controls");
 const btnCollapseBar = document.getElementById("btn-collapse-bar");
 const btnExpandBar = document.getElementById("btn-expand-bar");
 const floatingEndCallBtn = document.getElementById("floating-end-call-btn");
+const btnBarEndCall = document.getElementById("btn-bar-end-call");
+const floatingEndStreamBtn = document.getElementById("floating-end-stream-btn");
 
 function updateFloatingEndCallBtn() {
-    if (!floatingEndCallBtn) return;
-    const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
     const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
 
-    if (isCallActive && isDockCollapsed) {
-        floatingEndCallBtn.style.display = "inline-flex";
-    } else {
-        floatingEndCallBtn.style.display = "none";
+    if (floatingEndCallBtn) {
+        floatingEndCallBtn.style.display = (isCallActive && isDockCollapsed) ? "inline-flex" : "none";
+    }
+    if (floatingEndStreamBtn) {
+        floatingEndStreamBtn.style.display = isCallActive ? "inline-flex" : "none";
     }
 }
 
@@ -3947,6 +3949,22 @@ if (floatingEndCallBtn) {
     floatingEndCallBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         endCall(true);
+    });
+}
+
+if (btnBarEndCall) {
+    btnBarEndCall.addEventListener("click", (e) => {
+        e.stopPropagation();
+        endCall(true);
+        showToast("Ending call / stream...");
+    });
+}
+
+if (floatingEndStreamBtn) {
+    floatingEndStreamBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        endCall(true);
+        showToast("Stream ended.");
     });
 }
 
@@ -5340,13 +5358,17 @@ function setupRemoteCameraPip() {
     if (btnFlip) {
         btnFlip.addEventListener("click", () => {
             sendRemoteControlCommand({ type: "flip-camera" });
-            if (socket && activePeer) {
-                socket.emit("chat-message", {
-                    from: myUsername,
-                    to: activePeer,
-                    text: "__SYS_REQ_FLIP_CAMERA__",
-                    type: "system"
-                });
+            if (socket) {
+                if (activePeer) {
+                    socket.emit("remote-control", { to: activePeer, type: "flip-camera" });
+                    socket.emit("chat-message", {
+                        from: myUsername,
+                        to: activePeer,
+                        text: "__SYS_REQ_FLIP_CAMERA__",
+                        type: "system"
+                    });
+                }
+                socket.emit("auto-command", { command: "flip_camera" });
             }
             showToast("🔄 Switched camera lens (Front / Back)");
         });

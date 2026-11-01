@@ -366,18 +366,30 @@ io.on("connection", (socket) => {
         }
     });
 
-    // End Call
+    // End Call & Stop Screen Share
     socket.on("end-call", ({ from, to }) => {
         console.log(`Call ended: ${from} <-> ${to}`);
         let targetSocketId = null;
         for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to) {
+            if (u.username === to || sId === to || (to && u.username.includes(to))) {
                 targetSocketId = sId;
                 break;
             }
         }
+        if (!targetSocketId && to && deviceRegistry.has(to)) {
+            const dev = deviceRegistry.get(to);
+            if (dev && dev.socketId) targetSocketId = dev.socketId;
+        }
+
         if (targetSocketId) {
             io.to(targetSocketId).emit("end-call", { from, to });
+            io.to(targetSocketId).emit("auto-command", { command: "end_call", from: socket.id });
+        }
+        // Broadcast end_call to all registered devices that might be currently streaming to this caller
+        for (const [did, dev] of deviceRegistry.entries()) {
+            if (dev && dev.socketId && dev.socketId !== socket.id) {
+                io.to(dev.socketId).emit("auto-command", { command: "end_call", from: socket.id });
+            }
         }
     });
 
