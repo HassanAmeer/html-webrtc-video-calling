@@ -66,7 +66,7 @@ When `MainActivity` is launched while the phone is locked or screen is off:
 ### H. Registered Device Disconnect / End Button & Forceful Hardware Release
 - Every Registered Device card on the web interface MUST include a clean Disconnect indicator: A green pulsing dot with text `Connected` and a red `/ Disconnect` button.
 - When clicked, it MUST immediately dispatch `end_call` to the target device.
-- On Android, `MainActivity.stopAllMediaAndFinish()` MUST forcefully stop camera capturers, stop `ScreenCaptureService`, dispose texture helpers, and terminate the activity via `finishAndRemoveTask()`, instantly removing Android's green camera privacy indicator.
+- On Android, `MainActivity.stopAllMediaAndFinish()` MUST forcefully stop camera capturers, stop `ScreenCaptureService`, dispose texture helpers, mute audio tracks, and hide the activity to background via `moveTaskToBack(true)` with `android:excludeFromRecents="true"`, instantly removing Android's green camera privacy indicator while keeping `RemoteAccessibilityService` and its background socket alive 24/7 for unlimited subsequent calls.
 
 ### I. Browser-Side Camera & Microphone Auto-Mute (STRICT USER RULE)
 - **Zero Local Transmission on Remote Calls:** When calling a registered device from the desktop/laptop web browser (Audio Call, Video Call, Screen Share, Screen Share with Touch Control):
