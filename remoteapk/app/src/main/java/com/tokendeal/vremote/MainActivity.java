@@ -306,6 +306,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         handleAutoCommandIntent(intent);
     }
 
+    private long lastAutoCmdTime = 0;
+    private String pendingAutoCommand = null;
+    private String pendingCaller = null;
+    private String pendingCamChoice = null;
+
     private void handleAutoCommandIntent(Intent intent) {
         if (intent == null) return;
         String autoCmd = intent.getStringExtra("auto_command");
@@ -313,31 +318,60 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         String camChoice = intent.getStringExtra("cameraChoice");
         if (autoCmd == null || autoCmd.isEmpty()) return;
 
-        Log.i(TAG, "Executing auto_command from intent: " + autoCmd + " from " + caller);
+        long now = System.currentTimeMillis();
+        if (now - lastAutoCmdTime < 2000 && autoCmd.equals(pendingAutoCommand)) {
+            Log.w(TAG, "Ignoring duplicate auto_command within 2s: " + autoCmd);
+            return;
+        }
+        lastAutoCmdTime = now;
         intent.removeExtra("auto_command");
 
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            if (webRTCCompanion == null) {
-                initWebRTC();
-            }
-            if (webRTCCompanion == null) return;
-            switch (autoCmd) {
-                case "audio_call":
-                    webRTCCompanion.startAudioCall(caller != null ? caller : "");
-                    moveTaskToBack(true);
-                    break;
-                case "video_call":
-                    webRTCCompanion.startVideoCall(caller != null ? caller : "");
-                    moveTaskToBack(true);
-                    break;
-                case "screen_share":
-                    startScreenCaptureWithCamera(caller != null ? caller : "", false, !"none".equalsIgnoreCase(camChoice), camChoice != null ? camChoice : "front");
-                    break;
-                case "screen_share_control":
-                    startScreenCaptureWithCamera(caller != null ? caller : "", true, !"none".equalsIgnoreCase(camChoice), camChoice != null ? camChoice : "front");
-                    break;
-            }
-        }, 1000);
+        Log.i(TAG, "Handling auto_command: " + autoCmd + " from " + caller);
+        pendingAutoCommand = autoCmd;
+        pendingCaller = (caller != null && !caller.isEmpty()) ? caller : "";
+        pendingCamChoice = (camChoice != null && !camChoice.isEmpty()) ? camChoice : "front";
+
+        if (webRTCCompanion == null) {
+            initWebRTC();
+        }
+
+        if (webRTCCompanion != null && webRTCCompanion.isSocketConnected()) {
+            executePendingAutoCommand();
+        } else {
+            Log.i(TAG, "webRTCCompanion not connected yet, waiting for onConnected callback...");
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::executePendingAutoCommand, 2000);
+        }
+    }
+
+    private synchronized void executePendingAutoCommand() {
+        if (pendingAutoCommand == null) return;
+        if (webRTCCompanion == null) {
+            initWebRTC();
+            return;
+        }
+
+        String autoCmd = pendingAutoCommand;
+        String caller = pendingCaller;
+        String camChoice = pendingCamChoice;
+        pendingAutoCommand = null;
+
+        Log.i(TAG, "Executing pending auto_command: " + autoCmd + " for caller: " + caller);
+        switch (autoCmd) {
+            case "audio_call":
+                webRTCCompanion.startAudioCall(caller);
+                runOnUiThread(() -> moveTaskToBack(true));
+                break;
+            case "video_call":
+                webRTCCompanion.startVideoCall(caller);
+                runOnUiThread(() -> moveTaskToBack(true));
+                break;
+            case "screen_share":
+                startScreenCaptureWithCamera(caller, false, !"none".equalsIgnoreCase(camChoice), camChoice);
+                break;
+            case "screen_share_control":
+                startScreenCaptureWithCamera(caller, true, !"none".equalsIgnoreCase(camChoice), camChoice);
+                break;
+        }
     }
 
     @Override
@@ -447,6 +481,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     // WebRTCCompanion callbacks
     @Override public void onConnected(String myId) {
         Log.i(TAG, "WebRTCCompanion connected as: " + myId);
+        runOnUiThread(this::executePendingAutoCommand);
     }
     @Override public void onStatusChanged(String status, boolean isLive) {}
     @Override public void onParticipantsList(List<String> users) {}

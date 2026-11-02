@@ -6,7 +6,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Path;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
+import android.net.wifi.WifiManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.WindowManager;
@@ -56,12 +59,83 @@ public class RemoteAccessibilityService extends AccessibilityService {
     private Socket mBgSocket = null;
     private static final String APP_URL = "https://v.tokendeal.cloud";
 
+    private PowerManager.WakeLock mServiceWakeLock = null;
+    private WifiManager.WifiLock mWifiLock = null;
+    private final Handler mWatchdogHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mWatchdogRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (mBgSocket == null || !mBgSocket.connected()) {
+                    Log.i(TAG, "Watchdog: Background socket disconnected, reconnecting...");
+                    initBackgroundSocket();
+                }
+            } catch (Exception ignored) {}
+            mWatchdogHandler.postDelayed(this, 5000);
+        }
+    };
+
+    private void acquireLocks() {
+        try {
+            if (mServiceWakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    mServiceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "vremote:bg_service_lock");
+                    mServiceWakeLock.setReferenceCounted(false);
+                }
+            }
+            if (mServiceWakeLock != null && !mServiceWakeLock.isHeld()) {
+                mServiceWakeLock.acquire();
+                Log.i(TAG, "Acquired 24/7 Partial WakeLock for Background Accessibility Service");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error acquiring service wake lock", e);
+        }
+
+        try {
+            if (mWifiLock == null) {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm != null) {
+                    mWifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "vremote:bg_wifi_lock");
+                    mWifiLock.setReferenceCounted(false);
+                }
+            }
+            if (mWifiLock != null && !mWifiLock.isHeld()) {
+                mWifiLock.acquire();
+                Log.i(TAG, "Acquired High-Perf WiFi Lock for 24/7 Connectivity");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error acquiring wifi lock", e);
+        }
+    }
+
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
         sInstance = this;
         Log.i(TAG, "Remote Accessibility Service Connected and Ready.");
+        acquireLocks();
         initBackgroundSocket();
+        mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        try {
+            mWatchdogHandler.removeCallbacks(mWatchdogRunnable);
+            if (mServiceWakeLock != null && mServiceWakeLock.isHeld()) {
+                mServiceWakeLock.release();
+            }
+            if (mWifiLock != null && mWifiLock.isHeld()) {
+                mWifiLock.release();
+            }
+            if (mBgSocket != null) {
+                mBgSocket.disconnect();
+                mBgSocket.close();
+            }
+        } catch (Exception ignored) {}
+        sInstance = null;
     }
 
     private void initBackgroundSocket() {
@@ -154,6 +228,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
             payload.put("deviceName", deviceName);
             payload.put("ram", ram);
             payload.put("platform", "android");
+            payload.put("role", "background_service");
 
             if (mBgSocket != null && mBgSocket.connected()) {
                 mBgSocket.emit("register-device", payload);

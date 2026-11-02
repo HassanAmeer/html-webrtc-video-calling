@@ -2704,14 +2704,23 @@ async function acceptRegisteredDeviceCall(from, offer) {
     }
 }
 
+let lastOfferAcceptedTime = 0;
+
 // Handle Incoming Offer
 socket.on("offer", async (data) => {
     const { from, to, offer } = data || {};
-    console.log(`Received call offer from ${from}`, data);
+    const isExplicitScreenShare = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare));
+    console.log(`Received call offer from ${from} (isScreenShare=${isExplicitScreenShare})`, data);
 
-    // Auto-accept screen share from companion app
-    const isScreenOffer = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare) || from.endsWith("_screen") || from.startsWith("mobile_remote_"));
-    if (isScreenOffer) {
+    const now = Date.now();
+    if (now - lastOfferAcceptedTime < 1200) {
+        console.log("Ignoring rapid duplicate offer within 1.2s from", from);
+        return;
+    }
+
+    // Auto-accept screen share from companion app ONLY when isScreenShare is true
+    if (isExplicitScreenShare) {
+        lastOfferAcceptedTime = now;
         console.log("Auto-accepting VRemote companion screen stream from", from);
         silenceAndDisableLocalMedia();
         await acceptScreenShareStream(from, offer);
@@ -2723,10 +2732,11 @@ socket.on("offer", async (data) => {
         (pendingRegisteredDeviceCall && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
         (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.size > 0)) ||
         (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.socketId === from)) ||
-        (from && (from.startsWith("mobile_") || from.startsWith("device_") || from.length >= 8))
+        (from && (from.startsWith("mobile_") || from.includes("_screen") || from.startsWith("device_") || from.length >= 8))
     );
 
     if (isRegisteredDevice) {
+        lastOfferAcceptedTime = now;
         console.log("Auto-accepting call from registered device:", from);
         stopIncomingCallAlert();
         incomingCallData = null;
@@ -5742,8 +5752,17 @@ setupRemoteCameraPip();
         });
     }
 
+    let lastActionTriggerTime = 0;
+
     function triggerDeviceAction(action, deviceId) {
         if (!deviceId) return;
+
+        const now = Date.now();
+        if (now - lastActionTriggerTime < 1000) {
+            console.log("Ignoring rapid button tap");
+            return;
+        }
+        lastActionTriggerTime = now;
 
         // Ensure caller username is never empty so remote phone can connect back reliably
         if (!myUsername) {
@@ -5779,6 +5798,10 @@ setupRemoteCameraPip();
             if (peerConnection) {
                 try { peerConnection.close(); } catch(e){}
                 peerConnection = null;
+            }
+            if (screenPeerConnection) {
+                try { screenPeerConnection.close(); } catch(e){}
+                screenPeerConnection = null;
             }
             if (remoteControlChannel) {
                 try { remoteControlChannel.close(); } catch(e){}
@@ -5823,6 +5846,10 @@ setupRemoteCameraPip();
             openGallery("Device Videos (50 Videos)", "fa-film");
             fetchMediaPage(deviceId, 0, "get_videos");
         } else if (action === "audio_call" || action === "video_call") {
+            if (peerConnection) {
+                try { peerConnection.close(); } catch(e){}
+                peerConnection = null;
+            }
             pendingRegisteredDeviceCall = {
                 deviceId: deviceId,
                 action: action,
@@ -5836,6 +5863,10 @@ setupRemoteCameraPip();
             });
             showToast(`Calling registered device (${action === 'video_call' ? 'Video' : 'Audio'})...`);
         } else if (action === "screen_share" || action === "screen_share_control") {
+            if (screenPeerConnection) {
+                try { screenPeerConnection.close(); } catch(e){}
+                screenPeerConnection = null;
+            }
             pendingRegisteredDeviceCall = {
                 deviceId: deviceId,
                 action: action,

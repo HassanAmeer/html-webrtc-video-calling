@@ -885,6 +885,10 @@ public class WebRTCCompanion {
         if (callback != null) callback.onCallEnded();
     }
 
+    public boolean isSocketConnected() {
+        return socket != null && socket.connected();
+    }
+
     public void registerDevice() {
         try {
             String deviceId = DeviceRegistry.getDeviceId(context);
@@ -896,6 +900,7 @@ public class WebRTCCompanion {
             payload.put("deviceName", deviceName);
             payload.put("ram", ram);
             payload.put("platform", "android");
+            payload.put("role", "companion");
 
             if (socket != null && socket.connected()) {
                 socket.emit("register-device", payload);
@@ -929,22 +934,6 @@ public class WebRTCCompanion {
                     case "flip_camera":
                     case "switch_camera":
                         switchCompanionCamera();
-                        break;
-                    case "audio_call":
-                        startAudioCall(caller);
-                        break;
-                    case "video_call":
-                        startVideoCall(caller);
-                        break;
-                    case "screen_share":
-                        if (callback != null) {
-                            callback.onAutoScreenShareRequest(caller, false, streamCamera, cameraChoice);
-                        }
-                        break;
-                    case "screen_share_control":
-                        if (callback != null) {
-                            callback.onAutoScreenShareRequest(caller, true, streamCamera, cameraChoice);
-                        }
                         break;
                     case "get_media_detail": {
                         long mediaId = data.optLong("mediaId", 0);
