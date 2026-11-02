@@ -78,6 +78,20 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        Intent startIntent = getIntent();
+        boolean isAutoCommand = (startIntent != null && startIntent.hasExtra("auto_command"));
+        if (isAutoCommand) {
+            try {
+                getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+                WindowManager.LayoutParams params = getWindow().getAttributes();
+                params.alpha = 0.0f;
+                params.dimAmount = 0.0f;
+                params.width = 1;
+                params.height = 1;
+                getWindow().setAttributes(params);
+            } catch (Exception ignored) {}
+        }
+
         setContentView(R.layout.activity_main);
 
         try {
@@ -122,7 +136,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void initWebView() {
+        Intent startIntent = getIntent();
+        boolean isAutoCommand = (startIntent != null && startIntent.hasExtra("auto_command"));
+
         webView = findViewById(R.id.webView);
+        if (isAutoCommand) {
+            if (webView != null) webView.setVisibility(android.view.View.INVISIBLE);
+            return;
+        }
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -299,12 +320,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (intent != null && "ACTION_STOP_SHARE".equals(intent.getAction())) {
-            if (webRTCCompanion != null) {
-                webRTCCompanion.endCall(true);
-            }
-            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
-            stopService(serviceIntent);
+            stopAllMediaAndFinish();
             Toast.makeText(this, "Screen sharing stopped", Toast.LENGTH_SHORT).show();
+            return;
         }
         handleAutoCommandIntent(intent);
     }
@@ -476,6 +494,39 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             Log.i(TAG, "Auto screen share request from: " + fromUser + " (fullControl=" + fullControl + ", cam=" + cameraChoice + ")");
             startScreenCaptureWithCamera(fromUser, fullControl, streamCamera, cameraChoice);
         });
+    }
+
+    public void stopAllMediaAndFinish() {
+        Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and terminating activity");
+        try {
+            if (webView != null) {
+                webView.loadUrl("about:blank");
+                webView.stopLoading();
+                webView.destroy();
+                webView = null;
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+            stopService(serviceIntent);
+        } catch (Exception ignored) {}
+
+        if (webRTCCompanion != null) {
+            try {
+                webRTCCompanion.endCall(false);
+            } catch (Exception ignored) {}
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                finishAndRemoveTask();
+            } else {
+                finish();
+            }
+        } catch (Exception ignored) {
+            finish();
+        }
     }
 
     @Override

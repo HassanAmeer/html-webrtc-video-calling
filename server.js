@@ -398,24 +398,25 @@ io.on("connection", (socket) => {
     // End Call & Stop Screen Share
     socket.on("end-call", ({ from, to }) => {
         console.log(`Call ended: ${from} <-> ${to}`);
-        let targetSocketId = null;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to || (to && u.username.includes(to))) {
-                targetSocketId = sId;
-                break;
+        // 1. If to is a deviceId, notify all sockets of that device
+        if (to && deviceRegistry.has(to)) {
+            const dev = deviceRegistry.get(to);
+            if (dev && dev.sockets && dev.sockets.size > 0) {
+                for (const sid of dev.sockets) {
+                    io.to(sid).emit("end-call", { from, to });
+                    io.to(sid).emit("auto-command", { command: "end_call", from: socket.id });
+                }
+            } else if (dev && dev.socketId) {
+                io.to(dev.socketId).emit("end-call", { from, to });
+                io.to(dev.socketId).emit("auto-command", { command: "end_call", from: socket.id });
             }
         }
-        if (!targetSocketId && to && deviceRegistry.has(to)) {
-            const dev = deviceRegistry.get(to);
-            if (dev && dev.socketId) targetSocketId = dev.socketId;
-        }
-        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
-            targetSocketId = to;
-        }
-
-        if (targetSocketId) {
-            io.to(targetSocketId).emit("end-call", { from, to });
-            io.to(targetSocketId).emit("auto-command", { command: "end_call", from: socket.id });
+        // 2. Also emit to user sockets
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username === to || sId === to || (to && (u.username.includes(to) || u.username.startsWith(to)))) {
+                io.to(sId).emit("end-call", { from, to });
+                io.to(sId).emit("auto-command", { command: "end_call", from: socket.id });
+            }
         }
     });
 

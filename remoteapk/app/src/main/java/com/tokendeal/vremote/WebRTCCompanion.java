@@ -916,7 +916,7 @@ public class WebRTCCompanion {
                         endCall(false);
                         if (MainActivity.getInstance() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().moveTaskToBack(true);
+                                MainActivity.getInstance().stopAllMediaAndFinish();
                             });
                         }
                         break;

