@@ -40,7 +40,6 @@
             android:supportsPictureInPicture="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:showForAllUsers="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:screenOrientation="portrait">
             
