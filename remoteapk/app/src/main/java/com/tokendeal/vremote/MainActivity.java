@@ -511,15 +511,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     public void stopAllMediaAndFinish() {
-        Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and terminating activity");
-        try {
-            if (webView != null) {
-                webView.loadUrl("about:blank");
-                webView.stopLoading();
-                webView.destroy();
-                webView = null;
-            }
-        } catch (Exception ignored) {}
+        Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
+        captureIntentData = null;
+        pendingAutoCommand = null;
+        lastAutoCmdTime = 0;
 
         try {
             Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
@@ -532,15 +527,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             } catch (Exception ignored) {}
         }
 
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                finishAndRemoveTask();
-            } else {
-                finish();
-            }
-        } catch (Exception ignored) {
-            finish();
-        }
+        runOnUiThread(() -> {
+            try {
+                moveTaskToBack(true);
+            } catch (Exception ignored) {}
+        });
     }
 
     @Override
@@ -562,12 +553,13 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             try { wakeLock.release(); } catch (Exception ignored) {}
             wakeLock = null;
         }
-        if (webRTCCompanion != null && !RemoteAccessibilityService.isServiceRunning()) {
+        if (webRTCCompanion != null) {
             webRTCCompanion.destroy();
             webRTCCompanion = null;
         }
         if (webView != null) {
             webView.destroy();
+            webView = null;
         }
     }
 }

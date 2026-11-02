@@ -395,6 +395,7 @@ public class WebRTCCompanion {
             localVideoTrack.setEnabled(true);
 
             peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
+            if (localAudioTrack != null) localAudioTrack.setEnabled(true);
             peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
 
             // Companion Camera Feed (Visible ONLY to controller desktop, invisible on phone screen)
@@ -589,6 +590,7 @@ public class WebRTCCompanion {
                 peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
             }
 
+            if (localAudioTrack != null) localAudioTrack.setEnabled(true);
             peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
             createAndSendOffer(targetUser);
 
@@ -601,6 +603,7 @@ public class WebRTCCompanion {
     public void startAudioCall(String targetUser) {
         this.activePeer = targetUser;
         setupPeerConnection();
+        if (localAudioTrack != null) localAudioTrack.setEnabled(true);
         peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
         createAndSendOffer(targetUser);
     }
@@ -876,6 +879,10 @@ public class WebRTCCompanion {
         if (peerConnection != null) {
             peerConnection.close();
             peerConnection = null;
+        }
+
+        if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(false);
         }
 
         activePeer = null;

@@ -71,7 +71,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     initBackgroundSocket();
                 }
             } catch (Exception ignored) {}
-            mWatchdogHandler.postDelayed(this, 5000);
+            mWatchdogHandler.postDelayed(this, 3000);
         }
     };
 
