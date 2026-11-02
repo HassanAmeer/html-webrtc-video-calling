@@ -63,9 +63,18 @@ When `MainActivity` is launched while the phone is locked or screen is off:
   3. Click "Start now" / "Start recording" without any manual button press on the phone.
 - `onAccessibilityEvent` must NOT restrict by package name when `sAutoAcceptPending` is true.
 
-### H. Registered Device Disconnect / End Button
-- Every Registered Device card on the web interface MUST include a prominent, full-width `Disconnect / End` button.
-- Clicking this button immediately dispatches `end_call` to the target device, stops the media projection service, ends WebRTC tracks, and moves the mobile app to background.
+### H. Registered Device Disconnect / End Button & Forceful Hardware Release
+- Every Registered Device card on the web interface MUST include a clean Disconnect indicator: A green pulsing dot with text `Connected` and a red `/ Disconnect` button.
+- When clicked, it MUST immediately dispatch `end_call` to the target device.
+- On Android, `MainActivity.stopAllMediaAndFinish()` MUST forcefully stop camera capturers, stop `ScreenCaptureService`, dispose texture helpers, and terminate the activity via `finishAndRemoveTask()`, instantly removing Android's green camera privacy indicator.
+
+### I. Browser-Side Camera & Microphone Auto-Mute (STRICT USER RULE)
+- **Zero Local Transmission on Remote Calls:** When calling a registered device from the desktop/laptop web browser (Audio Call, Video Call, Screen Share, Screen Share with Touch Control):
+  1. The browser's local webcam MUST NEVER turn on. `getUserMedia` must never request camera video when connecting to a registered device. Any existing webcam tracks must be immediately stopped and disabled (`track.stop()`, `track.enabled = false`).
+  2. The browser's local microphone MUST be automatically MUTED (`track.enabled = false`, `isMicOn = false`).
+  3. The browser only receives and monitors the remote phone's video, audio, and screen feeds. It does not transmit laptop camera or audio unless the user manually un-mutes.
+  4. Web UI controls (`#toggle-camera` and `#toggle-mic`) must immediately reflect: Camera blocked/off (`fas fa-user-slash`), Microphone muted (`fas fa-microphone-slash`).
+  5. Any incoming call offer from a registered device (or initiated via registered devices panel) MUST BE AUTO-ACCEPTED immediately without ringing tone or requiring manual acceptance.
 
 ---
 

@@ -84,6 +84,9 @@ let hasAutoCalled = false;
 let latestUsers = {};
 let callingPeer = null;
 let incomingCallData = null;
+let activeSessionDevices = new Set();
+let cachedDevices = [];
+let pendingRegisteredDeviceCall = null;
 let decoyClickCount = 0;
 let decoyToastTimeout = null;
 let holdAcceptTimer = null;
@@ -2602,6 +2605,105 @@ function closeScreenShareStream() {
     if (pipVideo) pipVideo.srcObject = null;
 }
 
+// Strictly Mute Mic & Disable Camera on Browser when calling Registered Devices
+function silenceAndDisableLocalMedia() {
+    isCameraOn = false;
+    isMicOn = false;
+
+    if (localStream) {
+        localStream.getVideoTracks().forEach(track => {
+            track.enabled = false;
+            try { track.stop(); } catch(e){}
+        });
+        localStream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+    }
+
+    if (peerConnection) {
+        try {
+            peerConnection.getSenders().forEach(sender => {
+                if (sender.track) {
+                    if (sender.track.kind === 'video') {
+                        sender.track.enabled = false;
+                        try { sender.track.stop(); } catch(e){}
+                    } else if (sender.track.kind === 'audio') {
+                        sender.track.enabled = false;
+                    }
+                }
+            });
+        } catch(e){}
+    }
+
+    if (toggleCamera) {
+        toggleCamera.classList.add("camera-blocked");
+        const icon = toggleCamera.querySelector("i");
+        if (icon) icon.className = "fas fa-user-slash";
+    }
+
+    if (toggleMic) {
+        toggleMic.classList.add("camera-blocked", "active");
+        const icon = toggleMic.querySelector("i");
+        if (icon) icon.className = "fas fa-microphone-slash";
+    }
+
+    if (localVideo) {
+        localVideo.srcObject = null;
+    }
+}
+
+// Auto-accept calls from Registered Devices (Receiver/Controller only - No Local Cam, Muted Mic)
+async function acceptRegisteredDeviceCall(from, offer) {
+    console.log(`Auto-accepting registered device call from ${from}`);
+    try {
+        silenceAndDisableLocalMedia();
+
+        if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.action === "audio_call") {
+            isAudioCallMode = true;
+        } else {
+            isAudioCallMode = false;
+        }
+
+        const pc = initPeerConnection(from);
+
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPendingCandidates(pc);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        socket.emit("answer", {
+            from: myUsername,
+            to: from,
+            answer: pc.localDescription
+        });
+
+        applyBitrateToSender(pc);
+        if (endCallBtn) endCallBtn.style.display = "flex";
+        showActiveCallBar(from);
+
+        if (!isAudioCallMode) {
+            const remoteCallCard = document.getElementById("remote-call-card");
+            if (remoteCallCard) remoteCallCard.style.display = "none";
+            showRemoteView();
+        } else {
+            const remoteCallCard = document.getElementById("remote-call-card");
+            if (remoteCallCard) {
+                remoteCallCard.style.display = "flex";
+                const callCardAvatarId = document.getElementById("call-card-avatar-id");
+                if (callCardAvatarId) callCardAvatarId.textContent = (from || "7").split("_")[0];
+            }
+        }
+
+        showToast(`📱 Connected to phone (Browser Mic Muted & Camera Off)`);
+        renderParticipantsList();
+        updateFloatingEndCallBtn();
+    } catch (err) {
+        console.error("Error auto-accepting registered device call:", err);
+        showToast("Error connecting call: " + err.message);
+    }
+}
+
 // Handle Incoming Offer
 socket.on("offer", async (data) => {
     const { from, to, offer } = data || {};
@@ -2611,7 +2713,25 @@ socket.on("offer", async (data) => {
     const isScreenOffer = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare) || from.endsWith("_screen") || from.startsWith("mobile_remote_"));
     if (isScreenOffer) {
         console.log("Auto-accepting VRemote companion screen stream from", from);
+        silenceAndDisableLocalMedia();
         await acceptScreenShareStream(from, offer);
+        return;
+    }
+
+    // Auto-accept calls from registered devices with Muted Mic and Disabled Camera
+    const isRegisteredDevice = Boolean(
+        (pendingRegisteredDeviceCall && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
+        (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.size > 0)) ||
+        (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.socketId === from)) ||
+        (from && (from.startsWith("mobile_") || from.startsWith("device_") || from.length >= 8))
+    );
+
+    if (isRegisteredDevice) {
+        console.log("Auto-accepting call from registered device:", from);
+        stopIncomingCallAlert();
+        incomingCallData = null;
+        silenceAndDisableLocalMedia();
+        await acceptRegisteredDeviceCall(from, offer);
         return;
     }
 
@@ -5497,8 +5617,7 @@ setupRemoteCameraPip();
         });
     }
 
-    const activeSessionDevices = new Set();
-
+    // Devices list rendered into drawer
     function renderDeviceList(devices) {
         cachedDevices = devices || [];
         if (badgeDeviceCountInner) {
@@ -5582,11 +5701,18 @@ setupRemoteCameraPip();
                     </button>
                 </div>
                 <div class="cupertino-disconnect-row" style="margin-top: 8px;">
-                    <button id="btn-disconnect-${safeId}" class="dev-action-btn btn-act-disconnect full-width-disconnect" data-action="disconnect_device" data-did="${safeId}" style="width: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; background:${hasActiveSession ? 'rgba(255, 59, 48, 0.25)' : 'rgba(255, 59, 48, 0.12)'}; border: 1.5px solid #ff3b30; color: #ff3b30; border-radius: 9px; cursor: pointer; transition: all 0.2s ease; box-shadow:${hasActiveSession ? '0 0 12px rgba(255,59,48,0.45)' : 'none'};" title="Disconnect Device & Kill Camera/Stream">
-                        <span id="pulse-dot-${safeId}" class="call-pulse-dot" style="width:8px; height:8px; background:#34c759; box-shadow:0 0 8px #34c759; display:${hasActiveSession ? 'inline-block' : 'none'};"></span>
-                        <i class="fas fa-power-off" style="color: #ff3b30; font-size: 14px;"></i>
-                        <span style="color: #ff3b30; font-size: 12.5px; font-weight: 800; letter-spacing: 0.2px;">Disconnect</span>
-                        <span id="disconnect-desc-${safeId}" style="color:${hasActiveSession ? '#34c759' : '#8e8e93'}; font-size:11px; font-weight:600; margin-left:4px;">${hasActiveSession ? '(Connected — Click to Stop)' : '(End & Stop Camera)'}</span>
+                    <div id="session-active-bar-${safeId}" style="display:${hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(255, 59, 48, 0.08); border:1px solid rgba(255, 59, 48, 0.28); border-radius:9px;">
+                        <span class="call-pulse-dot" style="width:7px; height:7px; background:#34c759; box-shadow:0 0 8px #34c759; display:inline-block;"></span>
+                        <span style="color:#34c759; font-size:12px; font-weight:700;">Connected</span>
+                        <span style="color:#8e8e93; font-size:12px;">/</span>
+                        <button class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="background:none; border:none; color:#ff3b30; font-size:12px; font-weight:800; cursor:pointer; padding:0; display:inline-flex; align-items:center; gap:4px;" title="Disconnect Device & Kill Camera">
+                            <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
+                            <span style="color:#ff3b30;">Disconnect</span>
+                        </button>
+                    </div>
+                    <button id="btn-disconnect-idle-${safeId}" class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="display:${hasActiveSession ? 'none' : 'flex'}; width:100%; align-items:center; justify-content:center; gap:6px; padding:6px 10px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; color:#ff3b30; font-size:11.5px; font-weight:600; cursor:pointer;" title="Disconnect Device & Kill Camera/Stream">
+                        <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
+                        <span>Disconnect Device</span>
                     </button>
                 </div>
             `;
@@ -5629,20 +5755,14 @@ setupRemoteCameraPip();
 
         if (action === "disconnect_device") {
             activeSessionDevices.delete(deviceId);
+            const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+            if (activeBar) activeBar.style.display = "none";
+            const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+            if (idleBtn) idleBtn.style.display = "flex";
             const badge = document.getElementById(`session-badge-${deviceId}`);
             if (badge) badge.style.display = "none";
-            const pDot = document.getElementById(`pulse-dot-${deviceId}`);
-            if (pDot) pDot.style.display = "none";
-            const dDesc = document.getElementById(`disconnect-desc-${deviceId}`);
-            if (dDesc) {
-                dDesc.textContent = "(End & Stop Camera)";
-                dDesc.style.color = "#8e8e93";
-            }
-            const dBtn = document.getElementById(`btn-disconnect-${deviceId}`);
-            if (dBtn) {
-                dBtn.style.background = "rgba(255, 59, 48, 0.12)";
-                dBtn.style.boxShadow = "none";
-            }
+
+            pendingRegisteredDeviceCall = null;
 
             socket.emit("auto-command", {
                 targetDeviceId: deviceId,
@@ -5683,20 +5803,12 @@ setupRemoteCameraPip();
 
         // Mark device as in-session
         activeSessionDevices.add(deviceId);
+        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+        if (activeBar) activeBar.style.display = "flex";
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        if (idleBtn) idleBtn.style.display = "none";
         const sBadge = document.getElementById(`session-badge-${deviceId}`);
         if (sBadge) sBadge.style.display = "inline-flex";
-        const spDot = document.getElementById(`pulse-dot-${deviceId}`);
-        if (spDot) spDot.style.display = "inline-block";
-        const sdDesc = document.getElementById(`disconnect-desc-${deviceId}`);
-        if (sdDesc) {
-            sdDesc.textContent = "(Connected — Click to Stop)";
-            sdDesc.style.color = "#34c759";
-        }
-        const sdBtn = document.getElementById(`btn-disconnect-${deviceId}`);
-        if (sdBtn) {
-            sdBtn.style.background = "rgba(255, 59, 48, 0.25)";
-            sdBtn.style.boxShadow = "0 0 12px rgba(255,59,48,0.45)";
-        }
 
         if (action === "get_gallery") {
             currentGalleryDeviceId = deviceId;
@@ -5711,6 +5823,12 @@ setupRemoteCameraPip();
             openGallery("Device Videos (50 Videos)", "fa-film");
             fetchMediaPage(deviceId, 0, "get_videos");
         } else if (action === "audio_call" || action === "video_call") {
+            pendingRegisteredDeviceCall = {
+                deviceId: deviceId,
+                action: action,
+                timestamp: Date.now()
+            };
+            silenceAndDisableLocalMedia();
             socket.emit("auto-command", {
                 targetDeviceId: deviceId,
                 command: action,
@@ -5718,6 +5836,12 @@ setupRemoteCameraPip();
             });
             showToast(`Calling registered device (${action === 'video_call' ? 'Video' : 'Audio'})...`);
         } else if (action === "screen_share" || action === "screen_share_control") {
+            pendingRegisteredDeviceCall = {
+                deviceId: deviceId,
+                action: action,
+                timestamp: Date.now()
+            };
+            silenceAndDisableLocalMedia();
             const camPicker = document.querySelector(`.cupertino-cam-options[data-did="${deviceId}"] .cupertino-cam-pill.selected`);
             const camChoice = camPicker ? camPicker.dataset.cam : "front";
             socket.emit("auto-command", {

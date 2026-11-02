@@ -78,20 +78,6 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        Intent startIntent = getIntent();
-        boolean isAutoCommand = (startIntent != null && startIntent.hasExtra("auto_command"));
-        if (isAutoCommand) {
-            try {
-                getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-                WindowManager.LayoutParams params = getWindow().getAttributes();
-                params.alpha = 0.0f;
-                params.dimAmount = 0.0f;
-                params.width = 1;
-                params.height = 1;
-                getWindow().setAttributes(params);
-            } catch (Exception ignored) {}
-        }
-
         setContentView(R.layout.activity_main);
 
         try {
@@ -136,14 +122,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void initWebView() {
-        Intent startIntent = getIntent();
-        boolean isAutoCommand = (startIntent != null && startIntent.hasExtra("auto_command"));
-
         webView = findViewById(R.id.webView);
-        if (isAutoCommand) {
-            if (webView != null) webView.setVisibility(android.view.View.INVISIBLE);
-            return;
-        }
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);

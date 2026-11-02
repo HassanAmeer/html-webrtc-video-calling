@@ -576,7 +576,13 @@ public class WebRTCCompanion {
                 surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", rootEglBase.getEglBaseContext());
                 videoSource = peerConnectionFactory.createVideoSource(cameraCapturer.isScreencast());
                 cameraCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
-                cameraCapturer.startCapture(1280, 720, 30);
+                try {
+                    cameraCapturer.startCapture(1280, 720, 30);
+                } catch (Exception e1) {
+                    try {
+                        cameraCapturer.startCapture(640, 480, 30);
+                    } catch (Exception ignored) {}
+                }
 
                 localVideoTrack = peerConnectionFactory.createVideoTrack("ARDAMSv0", videoSource);
                 localVideoTrack.setEnabled(true);
