@@ -33,7 +33,7 @@ Every Android device running VRemote maintains TWO sockets:
 ### C. Lock Screen & Screen-Off Activity Launch (Android 10 - 14)
 When `MainActivity` is launched while the phone is locked or screen is off:
 1. **`AndroidManifest.xml`:**
-   - `.MainActivity` MUST have `android:showWhenLocked="true"`, `android:turnScreenOn="true"`, `android:showForAllUsers="true"`.
+   - `.MainActivity` MUST have `android:showWhenLocked="true"` and `android:turnScreenOn="true"` (do NOT add `showForAllUsers` as it is a system-only attribute that causes `INSTALL_PARSE_FAILED_MANIFEST_MALFORMED`).
    - Manifest MUST declare `android.permission.WAKE_LOCK` and `android.permission.DISABLE_KEYGUARD`.
 2. **`MainActivity.onCreate()` & `MainActivity.onNewIntent()`:**
    - Must call `setShowWhenLocked(true)` and `setTurnScreenOn(true)` (API >= 27).
