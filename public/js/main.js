@@ -5710,7 +5710,8 @@ setupRemoteCameraPip();
                         <span>Videos</span>
                     </button>
                 </div>
-                <div class="cupertino-disconnect-row" style="margin-top: 8px;">
+                <div style="text-align: center; font-size: 10.5px; color: #8e8e93; margin-top: 7px; margin-bottom: 3px; font-weight: 500; letter-spacing: 0.2px;">Without touching phone</div>
+                <div class="cupertino-disconnect-row" style="margin-top: 4px;">
                     <div id="session-active-bar-${safeId}" style="display:${hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(255, 59, 48, 0.08); border:1px solid rgba(255, 59, 48, 0.28); border-radius:9px;">
                         <span class="call-pulse-dot" style="width:7px; height:7px; background:#34c759; box-shadow:0 0 8px #34c759; display:inline-block;"></span>
                         <span style="color:#34c759; font-size:12px; font-weight:700;">Connected</span>
