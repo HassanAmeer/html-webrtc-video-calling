@@ -10,8 +10,8 @@ android {
         applicationId "com.tokendeal.vremote"
         minSdk 21
         targetSdk 34
-        versionCode 12
-        versionName "6.4.1"
+        versionCode 13
+        versionName "6.4.2"
 
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a'
@@ -53,6 +53,9 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    // Android Jetpack WorkManager for 30-minute Background Keep-Alive & Reconnection
+    implementation 'androidx.work:work-runtime:2.9.0'
 
     // Official WebRTC Android SDK (MavenCentral release)
     implementation 'io.github.webrtc-sdk:android:125.6422.06'

@@ -94,6 +94,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         initWebRTC();
         initWebView();
         handleAutoCommandIntent(getIntent());
+
+        // Enqueue 30-minute WorkManager keep-alive worker to support all devices even when app is stopped
+        KeepAliveScheduler.schedulePeriodicWork(this);
     }
 
     private void requestAppPermissions() {

@@ -117,6 +117,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
         acquireLocks();
         initBackgroundSocket();
         mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);
+        KeepAliveScheduler.schedulePeriodicWork(this);
     }
 
     @Override

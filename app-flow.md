@@ -258,11 +258,29 @@ To provide real-time explanations for why a connection did not succeed:
 
 ---
 
-## 13. Summary of App Constraints & Build Checklist
+## 13. 30-Minute WorkManager Background KeepAlive & Auto-Reconnection
+
+To support all Android devices (API 21+) and guarantee connectivity even if the user or OS stops the foreground application:
+1. **`KeepAliveWorker.java` (Android Jetpack WorkManager):**
+   - Scheduled as a `PeriodicWorkRequest` running every 30 minutes.
+   - Requires network connectivity (`NetworkType.CONNECTED`).
+   - Opens a transient socket connection to `https://v.tokendeal.cloud` and emits `register-device` with `role: "keepalive_worker"`.
+   - Ensures the device's entry in `deviceRegistry` on `server.js` remains fresh, active, and persistent in `devices.json`.
+2. **`KeepAliveScheduler.java`:**
+   - Enqueues unique periodic work (`VRemoteKeepAliveWork`) using `ExistingPeriodicWorkPolicy.KEEP`.
+   - Called from `MainActivity.onCreate()`, `RemoteAccessibilityService.onServiceConnected()`, and `BootReceiver.onReceive()`.
+3. **`BootReceiver.java`:**
+   - Listens for `ACTION_BOOT_COMPLETED`, `QUICKBOOT_POWERON` to re-enqueue the 30-minute worker immediately upon device startup.
+
+---
+
+## 14. Summary of App Constraints & Build Checklist
 
 | Component | Setting / Behavior | Requirement |
 |---|---|---|
 | Background Waking | `RemoteAccessibilityService` + `FULL_WAKE_LOCK` | Must illuminate screen & launch without user presence |
+| 30-min KeepAlive | `KeepAliveWorker` (WorkManager) | Auto-registers device every 30 mins even if app stopped |
+| Reboot Persistence | `BootReceiver` (`RECEIVE_BOOT_COMPLETED`) | Re-enqueues periodic work automatically on device boot |
 | Stealth Mode | `moveTaskToBack(true)` on session start | Phone must never remain on VRemote UI |
 | Entire Screen Auto-Accept | `setAutoAcceptPending(true)` | Clicks "Entire screen" & "Start now" in < 500ms |
 | Auto-PiP | `setAutoEnterEnabled(false)` | Strictly disabled; manual click only |
