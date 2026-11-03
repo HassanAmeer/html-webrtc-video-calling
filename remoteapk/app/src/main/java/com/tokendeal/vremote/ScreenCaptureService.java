@@ -58,15 +58,22 @@ public class ScreenCaptureService extends Service {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            int serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
-                serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                int serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
+                    serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+                }
+                startForeground(NOTIFICATION_ID, notification, serviceType);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
             }
-            startForeground(NOTIFICATION_ID, notification, serviceType);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        } catch (Exception ex) {
+            android.util.Log.w("ScreenCaptureService", "startForeground typed failed, falling back to basic foreground", ex);
+            try {
+                startForeground(NOTIFICATION_ID, notification);
+            } catch (Exception ignored) {}
         }
 
         sIsRunning = true;

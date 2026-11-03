@@ -202,3 +202,14 @@ After any change affecting the Android APK or backend:
 - **Point 13: Re-entrancy Loop Guard & Instant Remote Crash Reporting:**
   - **StackOverflow Prevention (`isStoppingMedia` Guard):** Calling `stopAllMediaAndFinish()` must never trigger an infinite recursive loop with `webRTCCompanion.endCall(false)` and `onCallEnded()`. Both `stopAllMediaAndFinish()` and `onCallEnded()` are protected by a strict re-entrancy boolean guard (`isStoppingMedia`). In `WebRTCCompanion.endCall()`, `callback.onCallEnded()` is only invoked if a call was actively in progress (`wasInCall`).
   - **Live Remote Crash Tracing (`/api/crash-log`):** `CrashReporter` captures all unhandled exceptions, thread IDs, device hardware models, and full stack traces, sending them via synchronous HTTP POST to `https://v.tokendeal.cloud/api/crash-log`. All crash reports are logged in real-time in PM2 logs and appended to `/root/v-webrtc/crash.log` for immediate forensic analysis.
+
+- **Point 14: Strict Idle Hardware Off Rule (Camera & Microphone 100% OFF when NO Call is Active):**
+  - **Zero Idle Hardware Retention:** Whenever no call is active (`!isInCall()` and `!isCallOrStreamActive()`), Android camera and microphone hardware MUST be completely off and released across foreground, background, and closed states.
+  - In `WebRTCCompanion.java`, `audioSource` and `localAudioTrack` are NEVER initialized at startup. They are dynamically created via `ensureAudioTrack()` strictly when a call connects or starts, and are forcefully disposed (`dispose()`) and nulled in `endCall()`.
+  - In `MainActivity.java`, on `onPause()` or `stopAllMediaAndFinish()`, WebView evaluates `shutdownIdleMediaHardware()`.
+  - In `main.js`, `shutdownIdleMediaHardware()` terminates all active media tracks if no call is active (`!isCallOrStreamActive()`). In the native companion app, camera and microphone hardware are NEVER initialized in the WebView on startup, saving battery and extinguishing all green privacy indicators.
+  - When a call IS actively connected, media streams remain 100% live and uninterrupted in the background across foreground and background states.
+
+- **Point 15: Crash-Proof Remote Control Touch Injection & Main Thread Dispatch:**
+  - In `WebRTCCompanion.java`, `handleRemoteControlMessage` receives gesture commands from WebRTC DataChannels or socket threads. It MUST ALWAYS dispatch gestures via `new Handler(Looper.getMainLooper()).post(...)`.
+  - In `RemoteAccessibilityService.java`, `performTap()` and `performSwipe()` must validate against `NaN` and `Infinite` coordinates, clamp between 0.0f and 1.0f, pass `new Handler(Looper.getMainLooper())` as the third parameter to `dispatchGesture()`, and wrap all dispatching and global actions (`performBack()`, `performHome()`, `performRecentApps()`) in `try { ... } catch (Throwable t) { ... }` so gesture injection can never throw unhandled exceptions or crash the process.

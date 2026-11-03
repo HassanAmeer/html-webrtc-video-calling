@@ -330,6 +330,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
 
         @JavascriptInterface
+        public boolean isInCall() {
+            return isCallActive || (webRTCCompanion != null && webRTCCompanion.isInCall());
+        }
+
+        @JavascriptInterface
         public String getDeviceInfo() {
             try {
                 org.json.JSONObject info = new org.json.JSONObject();
@@ -569,6 +574,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         // Keep WebView execution active when backgrounded for screen capture
         if (webView != null) {
             webView.resumeTimers();
+            // If no call is currently active, shut down idle camera/microphone in WebView to save battery
+            if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
+                webView.evaluateJavascript("if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
+            }
         }
     }
 
@@ -612,9 +621,18 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         isStoppingMedia = true;
         try {
             Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
+            isCallActive = false;
             captureIntentData = null;
             pendingAutoCommand = null;
             lastAutoCmdTime = 0;
+
+            if (webView != null) {
+                runOnUiThread(() -> {
+                    try {
+                        webView.evaluateJavascript("if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
+                    } catch (Exception ignored) {}
+                });
+            }
 
             try {
                 Intent serviceIntent = new Intent(this, ScreenCaptureService.class);

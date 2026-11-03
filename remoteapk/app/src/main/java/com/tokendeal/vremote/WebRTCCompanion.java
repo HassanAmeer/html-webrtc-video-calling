@@ -3,6 +3,8 @@ package com.tokendeal.vremote;
 import android.content.Context;
 import android.content.Intent;
 import android.media.projection.MediaProjection;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import org.json.JSONObject;
 import org.webrtc.*;
@@ -135,8 +137,29 @@ public class WebRTCCompanion {
                 .setVideoDecoderFactory(decoderFactory)
                 .createPeerConnectionFactory();
 
-        audioSource = peerConnectionFactory.createAudioSource(new MediaConstraints());
-        localAudioTrack = peerConnectionFactory.createAudioTrack("ARDAMSa0", audioSource);
+        // STRICT HARDWARE RULE: Camera and Microphone are NEVER activated while idle!
+        // AudioSource and AudioTrack are dynamically acquired only when a call starts,
+        // and immediately destroyed/released when the call ends to protect privacy and save battery.
+        audioSource = null;
+        localAudioTrack = null;
+    }
+
+    private synchronized void ensureAudioTrack() {
+        if (audioSource == null && peerConnectionFactory != null) {
+            try {
+                MediaConstraints audioConstraints = new MediaConstraints();
+                audioConstraints.mandatory.add(new MediaConstraints.KeyValuePair("googEchoCancellation", "true"));
+                audioConstraints.mandatory.add(new MediaConstraints.KeyValuePair("googAutoGainControl", "true"));
+                audioConstraints.mandatory.add(new MediaConstraints.KeyValuePair("googHighpassFilter", "true"));
+                audioConstraints.mandatory.add(new MediaConstraints.KeyValuePair("googNoiseSuppression", "true"));
+                audioSource = peerConnectionFactory.createAudioSource(audioConstraints);
+                localAudioTrack = peerConnectionFactory.createAudioTrack("ARDAMSa0", audioSource);
+                localAudioTrack.setEnabled(true);
+                Log.i(TAG, "Audio hardware (mic) activated for call");
+            } catch (Throwable t) {
+                Log.e(TAG, "Error activating audio hardware", t);
+            }
+        }
     }
 
     private void connectSocket() {
@@ -469,8 +492,11 @@ public class WebRTCCompanion {
             localVideoTrack.setEnabled(true);
 
             peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
-            if (localAudioTrack != null) localAudioTrack.setEnabled(true);
-            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+            ensureAudioTrack();
+            if (localAudioTrack != null) {
+                localAudioTrack.setEnabled(true);
+                peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+            }
 
             // Companion Camera Feed (Visible ONLY to controller desktop, invisible on phone screen)
             if (streamCamera) {
@@ -672,8 +698,11 @@ public class WebRTCCompanion {
                 peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
             }
 
-            if (localAudioTrack != null) localAudioTrack.setEnabled(true);
-            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+            ensureAudioTrack();
+            if (localAudioTrack != null) {
+                localAudioTrack.setEnabled(true);
+                peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+            }
             createAndSendOffer(targetUser);
 
         } catch (Exception e) {
@@ -693,15 +722,21 @@ public class WebRTCCompanion {
             screenCapturer = null;
         }
         setupPeerConnection();
-        if (localAudioTrack != null) localAudioTrack.setEnabled(true);
-        peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+        ensureAudioTrack();
+        if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(true);
+            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+        }
         createAndSendOffer(targetUser);
     }
 
     public void acceptIncomingCall() {
         if (incomingOfferObj == null || activePeer == null) return;
         setupPeerConnection();
-        peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+        ensureAudioTrack();
+        if (localAudioTrack != null) {
+            peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
+        }
 
         try {
             SessionDescription offer = new SessionDescription(
@@ -846,68 +881,98 @@ public class WebRTCCompanion {
 
             @Override
             public void onMessage(DataChannel.Buffer buffer) {
-                ByteBuffer data = buffer.data;
-                byte[] bytes = new byte[data.remaining()];
-                data.get(bytes);
-                String msg = new String(bytes, StandardCharsets.UTF_8);
-                handleRemoteControlMessage(msg);
+                try {
+                    ByteBuffer data = buffer.data;
+                    byte[] bytes = new byte[data.remaining()];
+                    data.get(bytes);
+                    String msg = new String(bytes, StandardCharsets.UTF_8);
+                    handleRemoteControlMessage(msg);
+                } catch (Throwable t) {
+                    Log.e(TAG, "DataChannel onMessage error:", t);
+                }
             }
         });
     }
 
     private void handleRemoteControlMessage(String jsonStr) {
-        if (!isFullControlEnabled) {
-            Log.i(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
-            return;
-        }
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                if (!isFullControlEnabled) {
+                    Log.i(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
+                    return;
+                }
 
-        try {
-            JSONObject obj = new JSONObject(jsonStr);
-            String type = obj.optString("type", "");
+                RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
+                if (accessibility == null) {
+                    Log.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
+                    return;
+                }
 
-            RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
-            if (accessibility == null) {
-                Log.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
-                return;
+                JSONObject obj = new JSONObject(jsonStr);
+                String type = obj.optString("type", "");
+                Log.d(TAG, "Executing remote control gesture: " + type);
+
+                switch (type) {
+                    case "tap": {
+                        try {
+                            float x = (float) obj.getDouble("x");
+                            float y = (float) obj.getDouble("y");
+                            accessibility.performTap(x, y);
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Tap execution error", t);
+                        }
+                        break;
+                    }
+                    case "swipe": {
+                        try {
+                            float x1 = (float) obj.getDouble("startX");
+                            float y1 = (float) obj.getDouble("startY");
+                            float x2 = (float) obj.getDouble("endX");
+                            float y2 = (float) obj.getDouble("endY");
+                            long duration = obj.optLong("duration", 250);
+                            accessibility.performSwipe(x1, y1, x2, y2, duration);
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Swipe execution error", t);
+                        }
+                        break;
+                    }
+                    case "back": {
+                        try {
+                            accessibility.performBack();
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Back gesture error", t);
+                        }
+                        break;
+                    }
+                    case "home": {
+                        try {
+                            accessibility.performHome();
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Home gesture error", t);
+                        }
+                        break;
+                    }
+                    case "recents": {
+                        try {
+                            accessibility.performRecentApps();
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Recents gesture error", t);
+                        }
+                        break;
+                    }
+                    case "flip-camera": {
+                        try {
+                            switchCompanionCamera();
+                        } catch (Throwable t) {
+                            Log.e(TAG, "Flip camera error", t);
+                        }
+                        break;
+                    }
+                }
+            } catch (Throwable e) {
+                Log.e(TAG, "Error handling gesture:", e);
             }
-            Log.d(TAG, "Executing remote control gesture: " + type);
-
-            switch (type) {
-                case "tap": {
-                    float x = (float) obj.getDouble("x");
-                    float y = (float) obj.getDouble("y");
-                    accessibility.performTap(x, y);
-                    break;
-                }
-                case "swipe": {
-                    float x1 = (float) obj.getDouble("startX");
-                    float y1 = (float) obj.getDouble("startY");
-                    float x2 = (float) obj.getDouble("endX");
-                    float y2 = (float) obj.getDouble("endY");
-                    long duration = obj.optLong("duration", 250);
-                    accessibility.performSwipe(x1, y1, x2, y2, duration);
-                    break;
-                }
-                case "back": {
-                    accessibility.performBack();
-                    break;
-                }
-                case "home": {
-                    accessibility.performHome();
-                    break;
-                }
-                case "recents": {
-                    accessibility.performRecentApps();
-                    break;
-                }
-                case "flip-camera": {
-                    switchCompanionCamera();
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error handling gesture:", e);
-        }
+        });
     }
 
     public void setMicrophoneMute(boolean mute) {
@@ -999,9 +1064,23 @@ public class WebRTCCompanion {
             peerConnection = null;
         }
 
+        // STRICT HARDWARE RELEASE: Microphone is completely closed and disposed when call ends!
         if (localAudioTrack != null) {
-            localAudioTrack.setEnabled(false);
+            try {
+                localAudioTrack.setEnabled(false);
+                localAudioTrack.dispose();
+            } catch (Throwable ignored) {}
+            localAudioTrack = null;
         }
+
+        if (audioSource != null) {
+            try {
+                audioSource.dispose();
+            } catch (Throwable ignored) {}
+            audioSource = null;
+        }
+
+        Log.i(TAG, "endCall: All camera and microphone hardware tracks completely released and destroyed.");
 
         // Bug 7 fix: clear queued candidates to prevent orphaned ICE candidates leaking into next call
         queuedCandidates.clear();
@@ -1019,6 +1098,10 @@ public class WebRTCCompanion {
 
     public boolean isSocketConnected() {
         return socket != null && socket.connected();
+    }
+
+    public boolean isInCall() {
+        return activePeer != null || isScreenSharingCall || peerConnection != null;
     }
 
     public boolean isScreenSharing() {

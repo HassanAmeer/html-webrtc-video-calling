@@ -125,6 +125,11 @@ let outgoingWaveInterval = null;
 
 // Comprehensive Call & Stream Active Status Check
 function isCallOrStreamActive() {
+    if (window.VRemoteNative && typeof window.VRemoteNative.isInCall === "function") {
+        try {
+            if (window.VRemoteNative.isInCall()) return true;
+        } catch (_) {}
+    }
     const hasPeer = Boolean(activePeer || callingPeer || incomingCallData);
     const hasPc = Boolean(peerConnection && peerConnection.connectionState !== "closed" && peerConnection.signalingState !== "closed");
     const hasScreen = Boolean(isScreenSharing || (typeof screenPeerConnection !== "undefined" && screenPeerConnection));
@@ -1434,9 +1439,9 @@ if (settingCameraSelect) {
 async function ensureLocalStream(requireVideo = true) {
     if (isFrozen) return null;
 
-    // Browser-side rule: If tab is hidden in background and no call is active, DO NOT turn on camera/mic!
-    if (!isNativeAndroidApp() && document.visibilityState === "hidden" && !isCallOrStreamActive()) {
-        console.log("Tab is currently hidden in background & no call active -> Skipping camera/mic acquisition");
+    // Strict Privacy & Battery Rule: If tab is hidden in background and no call is active, DO NOT turn on camera/mic!
+    if (document.visibilityState === "hidden" && !isCallOrStreamActive()) {
+        console.log("Tab/app is currently hidden in background & no call active -> Skipping camera/mic acquisition");
         return null;
     }
 
@@ -1693,30 +1698,37 @@ async function activateFullAppSession() {
     // 1. Process URL Parameters (?ui=xxx, ?id=xxx, ?to=xxx, ?chat=1)
     handleUrlQueryParams();
 
-    // 2. Start Camera & Microphone Streams (Guaranteed Live Activation)
-    try {
-        console.log("Activating camera and microphone session...");
-        await ensureLocalStream(true);
-        if (localVideo && localStream) {
-            localVideo.srcObject = localStream;
-            localVideo.muted = true;
-            localVideo.defaultMuted = true;
-            localVideo.setAttribute("muted", "");
-            localVideo.setAttribute("playsinline", "");
-            localVideo.setAttribute("webkit-playsinline", "");
-            try {
-                await localVideo.play();
-            } catch (playErr) {
-                console.warn("Auto-play local video delayed by browser:", playErr);
+    // 2. Start Camera & Microphone Streams (Guaranteed Live Activation for Web; Standby OFF for Native App)
+    if (!isNativeAndroidApp()) {
+        try {
+            console.log("Activating camera and microphone session...");
+            await ensureLocalStream(true);
+            if (localVideo && localStream) {
+                localVideo.srcObject = localStream;
+                localVideo.muted = true;
+                localVideo.defaultMuted = true;
+                localVideo.setAttribute("muted", "");
+                localVideo.setAttribute("playsinline", "");
+                localVideo.setAttribute("webkit-playsinline", "");
+                try {
+                    await localVideo.play();
+                } catch (playErr) {
+                    console.warn("Auto-play local video delayed by browser:", playErr);
+                }
+                applyMirrorState();
             }
-            applyMirrorState();
+            if (localVideoContainer && !isAudioCallMode) {
+                localVideoContainer.classList.remove("hidden-preview");
+                localVideoContainer.style.display = "block";
+            }
+        } catch (e) {
+            console.warn("activateFullAppSession stream error:", e);
         }
-        if (localVideoContainer && !isAudioCallMode) {
-            localVideoContainer.classList.remove("hidden-preview");
-            localVideoContainer.style.display = "block";
-        }
-    } catch (e) {
-        console.warn("activateFullAppSession stream error:", e);
+    } else {
+        console.log("Native Android App mode: Camera and Mic hardware kept OFF while idle until call connects");
+        isCameraOn = false;
+        isMicOn = false;
+        updateCameraBtnVisuals();
     }
 
     // 3. Update Participant List, Floating Buttons & Chat
@@ -6181,7 +6193,6 @@ if (attachDocInput) {
 //     The call, screen sharing, and audio/video streaming continue 100% uninterrupted in the background!
 //   - Picture-in-Picture MUST NEVER open automatically. It only opens on manual user click.
 function shutdownIdleMediaHardware() {
-    if (isNativeAndroidApp()) return; // Native app stays running in background
     if (isCallOrStreamActive()) {
         console.log("Tab/window lost focus but CALL is ACTIVE -> Keeping camera and microphone 100% LIVE in background!");
         return;

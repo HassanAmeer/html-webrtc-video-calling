@@ -470,33 +470,43 @@ public class RemoteAccessibilityService extends AccessibilityService {
      */
     public boolean performTap(float normX, float normY) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
-
-        DisplayMetrics metrics = getRealScreenMetrics();
-        float x = Math.max(0, Math.min(metrics.widthPixels, normX * metrics.widthPixels));
-        float y = Math.max(0, Math.min(metrics.heightPixels, normY * metrics.heightPixels));
-
-        Path path = new Path();
-        path.moveTo(x, y);
-        // Important: lineTo 1-pixel offset ensures the Path is non-empty so Android GestureDescription dispatches it reliably
-        path.lineTo(x, y + 1f);
-
-        GestureDescription.StrokeDescription stroke =
-                new GestureDescription.StrokeDescription(path, 0, 60);
-
-        GestureDescription.Builder builder = new GestureDescription.Builder();
-        builder.addStroke(stroke);
-
-        return dispatchGesture(builder.build(), new GestureResultCallback() {
-            @Override
-            public void onCompleted(GestureDescription gestureDescription) {
-                Log.d(TAG, "Tap completed at: (" + x + ", " + y + ")");
+        try {
+            if (Float.isNaN(normX) || Float.isInfinite(normX) || Float.isNaN(normY) || Float.isInfinite(normY)) {
+                return false;
             }
+            float safeX = Math.max(0.0f, Math.min(1.0f, normX));
+            float safeY = Math.max(0.0f, Math.min(1.0f, normY));
 
-            @Override
-            public void onCancelled(GestureDescription gestureDescription) {
-                Log.w(TAG, "Tap cancelled at: (" + x + ", " + y + ")");
-            }
-        }, null);
+            DisplayMetrics metrics = getRealScreenMetrics();
+            float x = safeX * metrics.widthPixels;
+            float y = safeY * metrics.heightPixels;
+
+            Path path = new Path();
+            path.moveTo(x, y);
+            path.lineTo(x, y + 1f);
+
+            GestureDescription.StrokeDescription stroke =
+                    new GestureDescription.StrokeDescription(path, 0, 60);
+
+            GestureDescription.Builder builder = new GestureDescription.Builder();
+            builder.addStroke(stroke);
+
+            Handler mainHandler = new Handler(Looper.getMainLooper());
+            return dispatchGesture(builder.build(), new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription gestureDescription) {
+                    Log.d(TAG, "Tap completed at: (" + x + ", " + y + ")");
+                }
+
+                @Override
+                public void onCancelled(GestureDescription gestureDescription) {
+                    Log.w(TAG, "Tap cancelled at: (" + x + ", " + y + ")");
+                }
+            }, mainHandler);
+        } catch (Throwable t) {
+            Log.e(TAG, "performTap error", t);
+            return false;
+        }
     }
 
     /**
@@ -504,36 +514,67 @@ public class RemoteAccessibilityService extends AccessibilityService {
      */
     public boolean performSwipe(float startNormX, float startNormY, float endNormX, float endNormY, long durationMs) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
+        try {
+            if (Float.isNaN(startNormX) || Float.isInfinite(startNormX) ||
+                Float.isNaN(startNormY) || Float.isInfinite(startNormY) ||
+                Float.isNaN(endNormX) || Float.isInfinite(endNormX) ||
+                Float.isNaN(endNormY) || Float.isInfinite(endNormY)) {
+                return false;
+            }
+            float safeStartX = Math.max(0.0f, Math.min(1.0f, startNormX));
+            float safeStartY = Math.max(0.0f, Math.min(1.0f, startNormY));
+            float safeEndX = Math.max(0.0f, Math.min(1.0f, endNormX));
+            float safeEndY = Math.max(0.0f, Math.min(1.0f, endNormY));
 
-        DisplayMetrics metrics = getRealScreenMetrics();
-        float x1 = Math.max(0, Math.min(metrics.widthPixels, startNormX * metrics.widthPixels));
-        float y1 = Math.max(0, Math.min(metrics.heightPixels, startNormY * metrics.heightPixels));
-        float x2 = Math.max(0, Math.min(metrics.widthPixels, endNormX * metrics.widthPixels));
-        float y2 = Math.max(0, Math.min(metrics.heightPixels, endNormY * metrics.heightPixels));
+            DisplayMetrics metrics = getRealScreenMetrics();
+            float x1 = safeStartX * metrics.widthPixels;
+            float y1 = safeStartY * metrics.heightPixels;
+            float x2 = safeEndX * metrics.widthPixels;
+            float y2 = safeEndY * metrics.heightPixels;
 
-        Path path = new Path();
-        path.moveTo(x1, y1);
-        path.lineTo(x2, y2);
+            Path path = new Path();
+            path.moveTo(x1, y1);
+            path.lineTo(x2, y2);
 
-        long duration = durationMs > 0 ? durationMs : 250;
-        GestureDescription.StrokeDescription stroke =
-                new GestureDescription.StrokeDescription(path, 0, duration);
+            long duration = durationMs > 0 ? durationMs : 250;
+            GestureDescription.StrokeDescription stroke =
+                    new GestureDescription.StrokeDescription(path, 0, duration);
 
-        GestureDescription.Builder builder = new GestureDescription.Builder();
-        builder.addStroke(stroke);
+            GestureDescription.Builder builder = new GestureDescription.Builder();
+            builder.addStroke(stroke);
 
-        return dispatchGesture(builder.build(), null, null);
+            Handler mainHandler = new Handler(Looper.getMainLooper());
+            return dispatchGesture(builder.build(), null, mainHandler);
+        } catch (Throwable t) {
+            Log.e(TAG, "performSwipe error", t);
+            return false;
+        }
     }
 
     public boolean performBack() {
-        return performGlobalAction(GLOBAL_ACTION_BACK);
+        try {
+            return performGlobalAction(GLOBAL_ACTION_BACK);
+        } catch (Throwable t) {
+            Log.e(TAG, "performBack error", t);
+            return false;
+        }
     }
 
     public boolean performHome() {
-        return performGlobalAction(GLOBAL_ACTION_HOME);
+        try {
+            return performGlobalAction(GLOBAL_ACTION_HOME);
+        } catch (Throwable t) {
+            Log.e(TAG, "performHome error", t);
+            return false;
+        }
     }
 
     public boolean performRecentApps() {
-        return performGlobalAction(GLOBAL_ACTION_RECENTS);
+        try {
+            return performGlobalAction(GLOBAL_ACTION_RECENTS);
+        } catch (Throwable t) {
+            Log.e(TAG, "performRecentApps error", t);
+            return false;
+        }
     }
 }
