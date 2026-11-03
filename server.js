@@ -434,7 +434,9 @@ io.on("connection", (socket) => {
 
     // End Call & Stop Screen Share
     socket.on("end-call", ({ from, to }) => {
-        console.log(`Call ended: ${from} <-> ${to}`);
+        console.log(`Call ended event: from="${from}" to="${to}" (caller=${socket.id})`);
+        const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
+
         // 1. If to is a deviceId, notify all sockets of that device
         if (to && deviceRegistry.has(to)) {
             const dev = deviceRegistry.get(to);
@@ -448,12 +450,32 @@ io.on("connection", (socket) => {
                 io.to(dev.socketId).emit("auto-command", { command: "end_call", from: socket.id });
             }
         }
-        // 2. Also emit to user sockets
+
+        // 2. Also emit to user sockets (exact, case-insensitive, or base-UID prefix match)
+        let deliveredCount = 0;
         for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to || (to && (u.username.includes(to) || u.username.startsWith(to)))) {
+            if (sId === socket.id) continue; // Don't loopback to sender
+            const uName = u.username ? String(u.username) : "";
+            const uClean = uName.toLowerCase().split("_")[0];
+            const toLower = to ? String(to).toLowerCase() : "";
+
+            const isMatch = (
+                uName === to ||
+                sId === to ||
+                uName.toLowerCase() === toLower ||
+                (cleanTo && (uClean === cleanTo || uName.toLowerCase().startsWith(cleanTo) || toLower.startsWith(uClean)))
+            );
+
+            if (isMatch) {
+                console.log(`Routing end-call to socket ${sId} (${uName})`);
                 io.to(sId).emit("end-call", { from, to });
                 io.to(sId).emit("auto-command", { command: "end_call", from: socket.id });
+                deliveredCount++;
             }
+        }
+
+        if (deliveredCount === 0 && (!to || to === "all")) {
+            socket.broadcast.emit("end-call", { from, to });
         }
     });
 
@@ -505,43 +527,51 @@ io.on("connection", (socket) => {
     });
 
     // Call Mode Change (Audio-Only Call vs Video Call Mode)
-    socket.on("call-mode-change", ({ from, to, mode }) => {
-        console.log(`Call mode change by "${from}" to "${mode}" (target: ${to || 'all'})`);
-        if (to && to !== "all") {
-            let targetSocketId = null;
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (u.username === to || sId === to) {
-                    targetSocketId = sId;
-                    break;
+    socket.on("call-mode-change", ({ from, to, mode, initiator }) => {
+        console.log(`Call mode change by "${from}" to "${mode}" (target: ${to || 'all'}, initiator: ${initiator || from})`);
+        const targetSocketId = findTargetSocketId(to);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("call-mode-change", { from, to, mode, initiator: initiator || from });
+        } else {
+            let routed = false;
+            const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
+            if (cleanTo) {
+                for (const [sId, u] of usersBySocket.entries()) {
+                    if (sId === socket.id) continue;
+                    const uClean = (u.username || "").toLowerCase().split("_")[0];
+                    if (uClean === cleanTo) {
+                        io.to(sId).emit("call-mode-change", { from, to, mode, initiator: initiator || from });
+                        routed = true;
+                    }
                 }
             }
-            if (targetSocketId) {
-                io.to(targetSocketId).emit("call-mode-change", { from, mode });
-            } else {
-                socket.broadcast.emit("call-mode-change", { from, mode });
+            if (!routed) {
+                socket.broadcast.emit("call-mode-change", { from, to, mode, initiator: initiator || from });
             }
-        } else {
-            socket.broadcast.emit("call-mode-change", { from, mode });
         }
     });
 
     // Peer Camera Blocked / Unblocked State
     socket.on("peer-video-state", ({ from, to, videoEnabled }) => {
-        if (to && to !== "all") {
-            let targetSocketId = null;
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (u.username === to || sId === to) {
-                    targetSocketId = sId;
-                    break;
+        const targetSocketId = findTargetSocketId(to);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("peer-video-state", { from, to, videoEnabled });
+        } else {
+            let routed = false;
+            const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
+            if (cleanTo) {
+                for (const [sId, u] of usersBySocket.entries()) {
+                    if (sId === socket.id) continue;
+                    const uClean = (u.username || "").toLowerCase().split("_")[0];
+                    if (uClean === cleanTo) {
+                        io.to(sId).emit("peer-video-state", { from, to, videoEnabled });
+                        routed = true;
+                    }
                 }
             }
-            if (targetSocketId) {
-                io.to(targetSocketId).emit("peer-video-state", { from, videoEnabled });
-            } else {
-                socket.broadcast.emit("peer-video-state", { from, videoEnabled });
+            if (!routed) {
+                socket.broadcast.emit("peer-video-state", { from, to, videoEnabled });
             }
-        } else {
-            socket.broadcast.emit("peer-video-state", { from, videoEnabled });
         }
     });
 

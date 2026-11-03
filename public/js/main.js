@@ -3174,14 +3174,10 @@ function endCall(notifyServer = true) {
     stopOutgoingWaveTone();
     stopIncomingCallAlert();
 
-    if (notifyServer && activePeer) {
-        socket.emit("end-call", { from: myUsername, to: activePeer });
-    }
-    if (notifyServer && callingPeer) {
-        socket.emit("end-call", { from: myUsername, to: callingPeer });
-    }
-    if (notifyServer && incomingCallData) {
-        socket.emit("end-call", { from: myUsername, to: incomingCallData.from });
+    const targetPeer = activePeer || callingPeer || (incomingCallData && incomingCallData.from);
+
+    if (notifyServer && targetPeer) {
+        socket.emit("end-call", { from: myUsername, to: targetPeer });
     }
 
     if (peerConnection) {
@@ -3255,14 +3251,9 @@ if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
 }
 
 socket.on("end-call", ({ from, to }) => {
-    console.log(`Call ended event from ${from}`);
-    const isScreenShareActive = Boolean(screenPeerConnection);
+    console.log(`Call ended event received: from=${from}, to=${to}`);
     closeScreenShareStream();
-    if (isScreenShareActive) {
-        showToast("📱 Mobile screen sharing ended");
-        return;
-    }
-    if (incomingCallData && incomingCallData.from === from) {
+    if (incomingCallData) {
         stopIncomingCallAlert();
         incomingCallData = null;
     }
@@ -3708,10 +3699,11 @@ if (toggleCamera) {
             updateCameraBtnVisuals();
             
             // Broadcast camera blocked state to peer so peer's screen shows blocked card
-            if (activePeer) {
+            const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
+            if (targetPeer) {
                 socket.emit("peer-video-state", {
                     from: myUsername,
-                    to: activePeer,
+                    to: targetPeer,
                     videoEnabled: isCameraOn
                 });
             }
@@ -3752,6 +3744,7 @@ if (toggleCallMode) {
         isAudioCallMode = !isAudioCallMode;
         
         const videoTrack = localStream.getVideoTracks()[0];
+        const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
         
         if (isAudioCallMode) {
             // Audio-Only Call Mode
@@ -3772,30 +3765,39 @@ if (toggleCallMode) {
                 }
             }
 
-            // Notify peer
-            if (activePeer) {
+            // Notify peer of switch to Audio mode
+            if (targetPeer) {
                 socket.emit("call-mode-change", {
                     from: myUsername,
-                    to: activePeer,
-                    mode: "audio"
+                    to: targetPeer,
+                    mode: "audio",
+                    initiator: myUsername
                 });
             }
             showToast("Switched to Audio Call Mode (Voice Only)");
         } else {
-            // Video Call Mode
-            if (videoTrack) videoTrack.enabled = isCameraOn;
+            // Video Call Mode (User 1 is initiator -> turns on their camera)
+            isCameraOn = true;
+            if (videoTrack) videoTrack.enabled = true;
+            updateCameraBtnVisuals();
             updateCallModeBtnVisuals();
             
             if (remoteCallCard) {
                 remoteCallCard.style.display = "none";
             }
 
-            // Notify peer
-            if (activePeer) {
+            // Notify peer of switch to Video mode
+            if (targetPeer) {
                 socket.emit("call-mode-change", {
                     from: myUsername,
-                    to: activePeer,
-                    mode: "video"
+                    to: targetPeer,
+                    mode: "video",
+                    initiator: myUsername
+                });
+                socket.emit("peer-video-state", {
+                    from: myUsername,
+                    to: targetPeer,
+                    videoEnabled: true
                 });
             }
             showToast("Switched to Video Call Mode");
@@ -3807,18 +3809,67 @@ if (toggleCallMode) {
 const remoteCallCard = document.getElementById("remote-call-card");
 const callCardAvatarId = document.getElementById("call-card-avatar-id");
 
-socket.on("call-mode-change", ({ from, mode }) => {
-    if (remoteCallCard) {
-        if (mode === "audio") {
+socket.on("call-mode-change", ({ from, mode, initiator }) => {
+    console.log(`Received call-mode-change from ${from}: mode=${mode}, initiator=${initiator}`);
+    const isInitiator = Boolean(initiator && initiator === myUsername);
+
+    if (mode === "audio") {
+        // Both sides switch to Audio Call mode
+        isAudioCallMode = true;
+        updateCallModeBtnVisuals();
+
+        // Mute video track on both sides
+        if (localStream) {
+            localStream.getVideoTracks().forEach(t => { t.enabled = false; });
+        }
+
+        // Show remote call card with Avatar & voice waves
+        if (remoteCallCard) {
             remoteCallCard.style.display = "flex";
             if (callCardAvatarId) {
                 const cleanId = (from || activePeer || "7").split("_")[0];
                 callCardAvatarId.textContent = cleanId;
             }
-            showToast(`${from} switched to Audio Call mode`);
-        } else {
+        }
+        if (typeof setupLocalAudioAnalyser === "function" && localStream) {
+            setupLocalAudioAnalyser(localStream);
+        }
+        if (typeof startSoundMeterLoop === "function") {
+            startSoundMeterLoop();
+        }
+        showToast(`${from || "Peer"} switched to Audio Call mode`);
+    } else if (mode === "video") {
+        // Both sides switch to Video Call mode
+        isAudioCallMode = false;
+        updateCallModeBtnVisuals();
+
+        // Hide Avatar call card so video screen is shown
+        if (remoteCallCard) {
             remoteCallCard.style.display = "none";
-            showToast(`${from} switched back to Video Call mode`);
+        }
+
+        if (isInitiator) {
+            showToast("Switched to Video Call Mode");
+        } else {
+            // USER 2 PRIVACY GUARD:
+            // Agle bande (receiver) ka camera automatically face show nahi karega!
+            // Local camera disabled / slashed ('fas fa-user-slash') rahega
+            isCameraOn = false;
+            if (localStream) {
+                localStream.getVideoTracks().forEach(t => { t.enabled = false; });
+            }
+            updateCameraBtnVisuals();
+
+            // Inform initiator that receiver's camera is initially off
+            const targetPeer = from || activePeer;
+            if (targetPeer) {
+                socket.emit("peer-video-state", {
+                    from: myUsername,
+                    to: targetPeer,
+                    videoEnabled: false
+                });
+            }
+            showToast("Video mode active. Your camera is OFF (Tap person icon to show face)");
         }
     }
 });
@@ -3830,13 +3881,15 @@ socket.on("peer-video-state", ({ from, videoEnabled }) => {
     }
     if (remoteCallCard) {
         if (!videoEnabled) {
-            remoteCallCard.style.display = "none";
-            showToast(`${from} has paused/blocked camera`);
+            if (isAudioCallMode) {
+                remoteCallCard.style.display = "flex";
+            }
+            showToast(`${from || "Peer"} has paused/blocked camera`);
         } else {
             if (!isAudioCallMode) {
                 remoteCallCard.style.display = "none";
             }
-            showToast(`${from} unblocked camera`);
+            showToast(`${from || "Peer"} enabled camera (Video Live)`);
         }
     }
 });

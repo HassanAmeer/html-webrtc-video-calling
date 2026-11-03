@@ -118,3 +118,14 @@ After any change affecting the Android APK or backend:
     - Returning to the tab / restoring the browser window (`document.visibilityState === 'visible'`) MUST automatically re-acquire the camera and microphone and resume live preview without manual user intervention.
   - **When a call IS connected (`activePeer && peerConnection`):**
     - Switching tabs, minimizing the browser, or switching windows MUST NOT stop, mute, or interrupt the camera or microphone. The live call and audio/video streaming MUST continue uninterrupted in the background.
+
+- **Point 4: Guaranteed Dual-Side Call End Synchronization & Dynamic In-Call Audio/Video Mode Switching with Receiver Privacy Guard:**
+  - **Guaranteed Dual-Side Call End:**
+    - Whenever either party (User 1 or User 2, from web or mobile app) ends or declines a call, the `end-call` signaling packet MUST be guaranteed to route to the other peer via exact username, socket ID, case-insensitive, or base-UID prefix matching in `server.js`.
+    - Both peers MUST immediately terminate peer connections, stop remote audio/video tracks, clear incoming/ringing timers, hide active call bars and floating buttons, and cleanly return to the idle state. No side may remain hung, frozen, or in an orphaned call state.
+  - **Dynamic In-Call Audio ↔ Video Mode Switching:**
+    - Switching to **Audio Mode** (`mode: "audio"`): Both sides immediately disable camera video tracks, hide video viewports, and activate the call card with avatar rings and reactive voice wave animations.
+    - Switching to **Video Mode** (`mode: "video"`):
+      - **Initiator (User 1):** Enables their camera immediately, transmits their live video stream to User 2, and displays Video Mode UI.
+      - **Receiver (User 2) Privacy Guard:** Under NO circumstances may User 2's camera turn on automatically upon receiving a video switch request. User 2's local camera MUST remain MUTED/DISABLED, and their dock button MUST be set to the **slashed state (`fas fa-user-slash`)** with watermark active.
+      - User 2's camera is only enabled when User 2 explicitly clicks the slashed button (un-slashes to `fas fa-user`), granting explicit consent to transmit their face video.
