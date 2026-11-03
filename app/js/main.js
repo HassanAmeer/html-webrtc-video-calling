@@ -1189,9 +1189,7 @@ async function ensureLocalStream(requireVideo = true) {
         }
 
         if (toggleCamera) {
-            toggleCamera.classList.toggle("camera-blocked", !isCameraOn);
-            const icon = toggleCamera.querySelector("i");
-            if (icon) icon.className = isCameraOn ? "fas fa-user" : "fas fa-user-slash";
+            updateCameraBtnVisuals();
         }
         if (toggleMic) {
             toggleMic.classList.toggle("camera-blocked", !isMicOn);
@@ -2697,9 +2695,7 @@ function silenceAndDisableLocalMedia() {
     }
 
     if (toggleCamera) {
-        toggleCamera.classList.add("camera-blocked");
-        const icon = toggleCamera.querySelector("i");
-        if (icon) icon.className = "fas fa-user-slash";
+        updateCameraBtnVisuals();
     }
 
     if (toggleMic) {
@@ -3352,6 +3348,26 @@ const remoteVideoToggleIcon = document.getElementById("remote-video-toggle-icon"
 const localVideoDiv = document.querySelector(".local-video");
 const remoteVideoContainer = document.querySelector(".remote-video");
 
+// Helper to keep camera/person icon strictly in sync:
+// Inactive/Blocked = Grey with slash (fas fa-user-slash)
+// Active = Pure White without slash (fas fa-user)
+function updateCameraBtnVisuals() {
+    if (!toggleCamera) return;
+    const icon = toggleCamera.querySelector("i");
+    if (isCameraOn) {
+        toggleCamera.classList.remove("camera-blocked");
+        toggleCamera.classList.add("camera-active");
+        if (icon) icon.className = "fas fa-user";
+        toggleCamera.title = "Camera: ON (Click to Hide/Block Face)";
+    } else {
+        toggleCamera.classList.add("camera-blocked");
+        toggleCamera.classList.remove("camera-active");
+        if (icon) icon.className = "fas fa-user-slash";
+        toggleCamera.title = "Camera: Blocked / OFF (Click to Turn ON)";
+    }
+}
+updateCameraBtnVisuals();
+
 // Media state variables are globally initialized at the top of main.js
 
 if (toggleCamera) {
@@ -3372,9 +3388,7 @@ if (toggleCamera) {
         if (videoTrack) {
             isCameraOn = !isCameraOn;
             videoTrack.enabled = isCameraOn;
-            toggleCamera.classList.toggle("camera-blocked", !isCameraOn);
-            const icon = toggleCamera.querySelector("i");
-            if (icon) icon.className = isCameraOn ? "fas fa-user" : "fas fa-user-slash";
+            updateCameraBtnVisuals();
             
             // Broadcast camera blocked state to peer so peer's screen shows blocked card
             if (activePeer) {
@@ -5430,9 +5444,7 @@ document.addEventListener("visibilitychange", async () => {
                 localVideo.srcObject = null;
             }
             if (toggleCamera) {
-                toggleCamera.classList.add("camera-blocked");
-                const icon = toggleCamera.querySelector("i");
-                if (icon) icon.className = "fas fa-user-slash";
+                updateCameraBtnVisuals();
             }
             if (toggleMic) {
                 toggleMic.classList.add("camera-blocked", "active");
@@ -5463,9 +5475,7 @@ document.addEventListener("visibilitychange", async () => {
                         localVideoContainer.style.display = "block";
                     }
                     if (toggleCamera) {
-                        toggleCamera.classList.remove("camera-blocked");
-                        const icon = toggleCamera.querySelector("i");
-                        if (icon) icon.className = "fas fa-user";
+                        updateCameraBtnVisuals();
                     }
                     if (toggleMic) {
                         toggleMic.classList.remove("camera-blocked", "active");

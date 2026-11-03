@@ -625,6 +625,44 @@ video::-webkit-media-controls-enclosure {
     box-shadow: none !important;
 }
 
+/* Camera (Person Icon) Button: Inactive/Blocked = Grey fas fa-user-slash; Active = Pure White fas fa-user */
+#toggle-camera {
+    color: #9ca3af !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    transition: all 0.2s ease;
+}
+
+#toggle-camera i {
+    color: #9ca3af !important;
+    font-size: 1.15rem;
+    transition: color 0.2s ease;
+}
+
+#toggle-camera.camera-blocked {
+    color: #9ca3af !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    box-shadow: none !important;
+}
+
+#toggle-camera.camera-blocked i {
+    color: #9ca3af !important;
+}
+
+#toggle-camera:not(.camera-blocked),
+#toggle-camera.camera-active {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.22) !important;
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2) !important;
+    opacity: 1 !important;
+}
+
+#toggle-camera:not(.camera-blocked) i,
+#toggle-camera.camera-active i {
+    color: #ffffff !important;
+}
+
 /* Screen Share Control Button: Slashed Grey when Inactive / Stopped; Pure White when Active */
 #toggle-screen {
     color: #9ca3af !important;
