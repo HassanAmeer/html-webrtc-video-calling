@@ -6,7 +6,7 @@ const participantCount = document.getElementById("participant-count");
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const remoteAudio = document.getElementById("remoteAudio");
-const endCallBtn = document.getElementById("end-call-btn");
+const endCallBtn = document.getElementById("floating-end-call-btn");
 const toggleFreezeBtn = document.getElementById("toggle-freeze");
 const unfreezeBtn = document.getElementById("unfreeze-btn");
 const freezeOverlay = document.getElementById("freeze-overlay");
@@ -2837,9 +2837,9 @@ async function startCall(targetUser) {
             offer: pc.localDescription
         });
 
-        updateFloatingEndCallBtn();
-        showActiveCallBar(targetUser);
-        showToast(`Calling ${targetUser}...`);
+        try { updateFloatingEndCallBtn(); } catch (_) {}
+        try { showActiveCallBar(targetUser); } catch (_) {}
+        try { showToast(`Calling ${targetUser}...`); } catch (_) {}
     } catch (err) {
         callingPeer = null;
         stopOutgoingWaveTone();
