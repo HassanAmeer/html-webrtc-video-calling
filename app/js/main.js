@@ -3659,6 +3659,9 @@ function stopIncomingCallAlert() {
         clearTimeout(holdAcceptTimer);
         holdAcceptTimer = null;
     }
+    isHoldingAccept = false;
+    holdTriggered = false;
+    holdStartTime = 0;
 
     stopSynthesizedRingtone();
     if (typeof updateFloatingEndCallBtn === "function") {
@@ -3703,34 +3706,89 @@ async function acceptIncomingCall() {
     }
 }
 
-// Setup Instant-Accept Incoming Call Handlers
+// Setup Hold-to-Accept Incoming Call Handlers (450ms Hold Required)
+const HOLD_ACCEPT_MS = 450;
+let holdTriggered = false;
+let isHoldingAccept = false;
+
 function setupIncomingCallHandlers() {
     const btnIncomingAccept = document.getElementById("btn-incoming-accept");
     const btnIncomingDecline = document.getElementById("btn-incoming-decline");
 
     if (!btnIncomingAccept) return;
 
+    const startHolding = (e) => {
+        if (!incomingCallData || isHoldingAccept) return;
+        if (e.cancelable && e.type !== "mousedown") {
+            e.preventDefault();
+        }
+        isHoldingAccept = true;
+        holdTriggered = false;
+        holdStartTime = Date.now();
+        btnIncomingAccept.classList.add("holding");
+        btnIncomingAccept.classList.remove("shake-error");
+
+        if (navigator.vibrate) {
+            try { navigator.vibrate(30); } catch (_) {}
+        }
+
+        if (holdAcceptTimer) {
+            clearTimeout(holdAcceptTimer);
+            holdAcceptTimer = null;
+        }
+
+        holdAcceptTimer = setTimeout(() => {
+            isHoldingAccept = false;
+            holdTriggered = true;
+            btnIncomingAccept.classList.remove("holding");
+            if (navigator.vibrate) {
+                try { navigator.vibrate([40, 60, 40]); } catch (_) {}
+            }
+            if (incomingCallData) {
+                acceptIncomingCall();
+            }
+        }, HOLD_ACCEPT_MS);
+    };
+
+    const cancelHolding = (e) => {
+        if (!isHoldingAccept) return;
+        isHoldingAccept = false;
+        const duration = Date.now() - holdStartTime;
+        holdStartTime = 0;
+        btnIncomingAccept.classList.remove("holding");
+
+        if (holdAcceptTimer) {
+            clearTimeout(holdAcceptTimer);
+            holdAcceptTimer = null;
+        }
+
+        // Released before hold duration -> Trigger shake error and hint
+        if (!holdTriggered && duration < HOLD_ACCEPT_MS && incomingCallData) {
+            btnIncomingAccept.classList.remove("shake-error");
+            void btnIncomingAccept.offsetWidth; // Force DOM reflow to re-run CSS shake animation
+            btnIncomingAccept.classList.add("shake-error");
+            if (navigator.vibrate) {
+                try { navigator.vibrate(50); } catch (_) {}
+            }
+            showToast("Hold icon to accept call");
+        }
+    };
+
+    // Pointer events (Desktop mouse + Touch devices)
+    btnIncomingAccept.addEventListener("pointerdown", startHolding);
+    btnIncomingAccept.addEventListener("pointerup", cancelHolding);
+    btnIncomingAccept.addEventListener("pointercancel", cancelHolding);
+    btnIncomingAccept.addEventListener("pointerleave", cancelHolding);
+
+    // Touch events for older mobile WebViews
+    btnIncomingAccept.addEventListener("touchstart", startHolding, { passive: false });
+    btnIncomingAccept.addEventListener("touchend", cancelHolding);
+    btnIncomingAccept.addEventListener("touchcancel", cancelHolding);
+
+    // Prevent immediate click from accepting
     btnIncomingAccept.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (incomingCallData) {
-            if (navigator.vibrate) {
-                navigator.vibrate([40, 60, 40]);
-            }
-            acceptIncomingCall();
-        }
-    });
-
-    // Touch events for rapid response on mobile screens
-    btnIncomingAccept.addEventListener("touchend", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (incomingCallData) {
-            if (navigator.vibrate) {
-                navigator.vibrate([40, 60, 40]);
-            }
-            acceptIncomingCall();
-        }
     });
 
     if (btnIncomingDecline) {
@@ -4692,11 +4750,11 @@ function handleQuickEndOrDeclineCall() {
 }
 
 function updateFloatingEndCallBtn() {
-    // Show End Call button when an actual call is ringing, incoming, or actively connected
+    // Show End Call button when an outgoing call is ringing or actively connected
+    // (Incoming call has its own dedicated minimal alert bar with accept/decline icons and should not be overlapped)
     const isCallActive = Boolean(
         activePeer || 
         callingPeer || 
-        incomingCallData || 
         (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.iceConnectionState === "connected"))
     );
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
