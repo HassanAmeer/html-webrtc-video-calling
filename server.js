@@ -213,6 +213,11 @@ function parseDeviceFromUserAgent(ua, isAndroidCompanion) {
 function getAllUsersPayload() {
     const payload = {};
     for (const [id, user] of usersBySocket.entries()) {
+        const s = io.sockets.sockets.get(id);
+        if (!s || !s.connected) {
+            usersBySocket.delete(id);
+            continue;
+        }
         // Exclude internal companion screen share sockets from public participants list
         if (user.username.endsWith("_screen") || user.username.startsWith("mobile_remote_")) {
             continue;
@@ -296,7 +301,20 @@ io.on("connection", (socket) => {
         const cleanName = requestedName.replace(/[^\w\s-]/gi, "").trim().substring(0, 30);
         if (!cleanName) return;
 
-        // Ensure unique name (Companion screen sockets replace previous instance without suffix)
+        // 1. Clean up any stale or disconnected sockets
+        for (const [sId] of usersBySocket.entries()) {
+            const s = io.sockets.sockets.get(sId);
+            if (!s || !s.connected) {
+                usersBySocket.delete(sId);
+            }
+        }
+
+        // 2. Remove any prior registration of THIS socket so it never collides with itself
+        if (usersBySocket.has(socket.id)) {
+            usersBySocket.delete(socket.id);
+        }
+
+        // 3. Ensure unique name (Companion screen sockets replace previous instance without suffix)
         let finalName = cleanName;
         if (cleanName.endsWith("_screen") || cleanName.startsWith("mobile_remote_")) {
             for (const [sId, u] of usersBySocket.entries()) {
@@ -306,14 +324,27 @@ io.on("connection", (socket) => {
             }
             finalName = cleanName;
         } else {
-            // Bug 5 fix: use while loop to guarantee unique suffix (not just a single linear pass)
-            let suffix = 1;
-            let candidate = cleanName;
-            const allUsernames = new Set([...usersBySocket.values()].map(u => u.username.toLowerCase()));
-            while (allUsernames.has(candidate.toLowerCase())) {
-                candidate = `${cleanName}_${suffix++}`;
+            // Check if cleanName is already taken by another active peer
+            const otherActiveUsernames = new Set();
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (sId !== socket.id && u.username) {
+                    otherActiveUsernames.add(u.username.toLowerCase());
+                }
             }
-            finalName = candidate;
+
+            if (!otherActiveUsernames.has(cleanName.toLowerCase())) {
+                // Name is available! Keep exact requested name without suffix
+                finalName = cleanName;
+            } else {
+                // Name is genuinely already in use by someone else. Append _1, _2, etc.
+                let suffix = 1;
+                let candidate = `${cleanName}_${suffix}`;
+                while (otherActiveUsernames.has(candidate.toLowerCase())) {
+                    suffix++;
+                    candidate = `${cleanName}_${suffix}`;
+                }
+                finalName = candidate;
+            }
         }
 
         const ua = socket.handshake.headers["user-agent"] || "";

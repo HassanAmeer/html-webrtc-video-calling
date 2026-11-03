@@ -1766,14 +1766,9 @@ function handleUrlQueryParams() {
                 if (createUserBtn) {
                     createUserBtn.textContent = "Update";
                 }
-                const emitJoin = () => {
+                if (socket.connected) {
                     socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
                     showToast(`Connected ID: ${myUsername}`);
-                };
-                if (socket.connected) {
-                    emitJoin();
-                } else {
-                    socket.once("connect", emitJoin);
                 }
             }
         }
