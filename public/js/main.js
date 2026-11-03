@@ -3242,8 +3242,13 @@ function endCall(notifyServer = true) {
 }
 
 if (endCallBtn) {
-    endCallBtn.addEventListener("click", () => {
-        endCall(true);
+    endCallBtn.addEventListener("click", (e) => {
+        if (e) e.stopPropagation();
+        if (typeof handleQuickEndOrDeclineCall === "function") {
+            handleQuickEndOrDeclineCall();
+        } else {
+            endCall(true);
+        }
     });
 }
 
@@ -3538,6 +3543,9 @@ function startIncomingCallAlert(callerName) {
 
     decoyClickCount = 0;
     startSynthesizedRingtone();
+    if (typeof updateFloatingEndCallBtn === "function") {
+        updateFloatingEndCallBtn();
+    }
 }
 
 // Stop Incoming Call Alert
@@ -3557,6 +3565,9 @@ function stopIncomingCallAlert() {
     }
 
     stopSynthesizedRingtone();
+    if (typeof updateFloatingEndCallBtn === "function") {
+        updateFloatingEndCallBtn();
+    }
 }
 
 // Accept Incoming Call (Triggered ONLY on Full Long-Press Hold)
@@ -4500,13 +4511,33 @@ const floatingEndCallBtn = document.getElementById("floating-end-call-btn");
 const btnBarEndCall = document.getElementById("btn-bar-end-call");
 const floatingEndStreamBtn = document.getElementById("floating-end-stream-btn");
 
+function handleQuickEndOrDeclineCall() {
+    if (incomingCallData) {
+        try {
+            socket.emit("end-call", { from: myUsername, to: incomingCallData.from });
+        } catch (_) {}
+        incomingCallData = null;
+        stopIncomingCallAlert();
+        renderParticipantsList();
+        showToast("Call declined");
+        updateFloatingEndCallBtn();
+        return;
+    }
+    endCall(true);
+    showToast("Call ended");
+    updateFloatingEndCallBtn();
+}
+
 function updateFloatingEndCallBtn() {
-    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    const isCallActive = Boolean(activePeer || callingPeer || peerConnection || incomingCallData);
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
     const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
     if (floatingEndCallBtn) {
         floatingEndCallBtn.style.display = (isCallActive && isDockCollapsed && !isScreenShareActive) ? "inline-flex" : "none";
+    }
+    if (endCallBtn) {
+        endCallBtn.style.display = isCallActive ? "inline-flex" : "none";
     }
     if (floatingEndStreamBtn) {
         // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
@@ -4517,15 +4548,21 @@ function updateFloatingEndCallBtn() {
 if (floatingEndCallBtn) {
     floatingEndCallBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        endCall(true);
+        handleQuickEndOrDeclineCall();
+    });
+}
+
+if (endCallBtn) {
+    endCallBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handleQuickEndOrDeclineCall();
     });
 }
 
 if (btnBarEndCall) {
     btnBarEndCall.addEventListener("click", (e) => {
         e.stopPropagation();
-        endCall(true);
-        showToast("Ending call / stream...");
+        handleQuickEndOrDeclineCall();
     });
 }
 

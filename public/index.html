@@ -730,9 +730,10 @@
                         <i class="fas fa-snowflake"></i>
                     </button>
 
-                    <!-- End Call Button (Primary action during active call) -->
-                    <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
+                    <!-- Quick End Call Button - 10px rounded, outlined red with 15% opacity -->
+                    <button id="end-call-btn" class="control-btn end-call-btn" title="End / Cancel Call" style="display: none;">
                         <i class="fas fa-phone-slash"></i>
+                        <span class="end-btn-text">End</span>
                     </button>
 
                     <!-- Video Camera ON / OFF (Camera Block / Face Hide) -->
@@ -839,9 +840,10 @@
                 </div>
             </div>
 
-            <!-- Floating Stealth Outline End-Call Button (Visible only when in call & controls dock is collapsed) -->
-            <button id="floating-end-call-btn" class="floating-end-call-btn" title="End Call" aria-label="End Call">
+            <!-- Floating Stealth Outline End-Call Button (10px rounded, outlined red with End text) -->
+            <button id="floating-end-call-btn" class="floating-end-call-btn" title="End / Cancel Call" aria-label="End Call" style="display: none;">
                 <i class="fas fa-phone-slash"></i>
+                <span class="end-btn-text">End</span>
             </button>
 
             <!-- Stealth Arrow-Up Button (5% Opacity, Hold to expand controls) -->
