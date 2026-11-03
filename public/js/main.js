@@ -147,13 +147,16 @@ const rtcConfig = {
         {
             urls: [
                 "turn:openrelay.metered.ca:80",
-                "turn:openrelay.metered.ca:443"
+                "turn:openrelay.metered.ca:443",
+                "turn:openrelay.metered.ca:443?transport=tcp"
             ],
             username: "openrelayproject",
             credential: "openrelayproject"
         }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require"
 };
 
 // Toast Notifications
@@ -2439,6 +2442,9 @@ function initPeerConnection(targetUser) {
     // Remote track listener (handles streams and standalone tracks)
     pc.ontrack = (event) => {
         console.log("Remote track received:", event.track.kind);
+        if (typeof window.notifyDeviceConnectionSuccess === "function" && pendingRegisteredDeviceCall) {
+            window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+        }
         const stream = (event.streams && event.streams[0]) ? event.streams[0] : null;
 
         if (stream) {
@@ -3014,6 +3020,9 @@ async function acceptScreenShareStream(from, offer) {
 
                 // First Track: Mobile Screen Share Stream
                 if (remoteVideoTrackCount === 1) {
+                    if (typeof window.notifyDeviceConnectionSuccess === "function") {
+                        window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
+                    }
                     if (remoteVideo.srcObject && remoteVideo.srcObject !== stream) {
                         savedCameraStream = remoteVideo.srcObject;
                         const pipEl = document.getElementById("remote-camera-pip");
@@ -3057,9 +3066,6 @@ async function acceptScreenShareStream(from, offer) {
         });
 
         console.log(`Sent answer for screen share to ${from}`);
-        if (typeof window.notifyDeviceConnectionSuccess === "function") {
-            window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
-        }
     } catch (err) {
         console.error("Error accepting screen share stream:", err);
         if (typeof window.notifyDeviceConnectionFailure === "function") {
@@ -3174,12 +3180,9 @@ async function acceptRegisteredDeviceCall(from, offer) {
             }
         }
 
-        showToast(`📱 Connected to phone (Browser Mic Muted & Camera Off)`);
+        showToast(`📱 Negotiating phone media stream...`);
         renderParticipantsList();
         updateFloatingEndCallBtn();
-        if (typeof window.notifyDeviceConnectionSuccess === "function") {
-            window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
-        }
     } catch (err) {
         console.error("Error auto-accepting registered device call:", err);
         if (typeof window.notifyDeviceConnectionFailure === "function") {

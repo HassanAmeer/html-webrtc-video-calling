@@ -299,12 +299,43 @@ public class WebRTCCompanion {
         queuedCandidates.clear();
 
         List<PeerConnection.IceServer> iceServers = new ArrayList<>();
+        // STUN servers
         iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
         iceServers.add(PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer());
         iceServers.add(PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer());
+        iceServers.add(PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer());
+
+        // Primary VPS TURN Relay (UDP & TCP) - allows traversal across mobile 4G/5G/LTE NAT
+        iceServers.add(PeerConnection.IceServer.builder("turn:201.18.218.29:3478?transport=udp")
+                .setUsername("webrtc")
+                .setPassword("webrtcpass123")
+                .createIceServer());
+        iceServers.add(PeerConnection.IceServer.builder("turn:201.18.218.29:3478?transport=tcp")
+                .setUsername("webrtc")
+                .setPassword("webrtcpass123")
+                .createIceServer());
+
+        // Fallback OpenRelay TURN (Ports 80 & 443 for strict firewalls)
+        iceServers.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:80")
+                .setUsername("openrelayproject")
+                .setPassword("openrelayproject")
+                .createIceServer());
+        iceServers.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443")
+                .setUsername("openrelayproject")
+                .setPassword("openrelayproject")
+                .createIceServer());
+        iceServers.add(PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
+                .setUsername("openrelayproject")
+                .setPassword("openrelayproject")
+                .createIceServer());
 
         PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
+        rtcConfig.iceTransportsType = PeerConnection.IceTransportsType.ALL;
+        rtcConfig.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED;
+        rtcConfig.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+        rtcConfig.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
 
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override
