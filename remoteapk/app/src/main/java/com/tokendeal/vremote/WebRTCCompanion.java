@@ -241,10 +241,6 @@ public class WebRTCCompanion {
             socket.on("end-call", args -> {
                 Log.i(TAG, "Call ended by peer");
                 endCall(false);
-                // Only notify callback if this call was actively running, avoiding recursive loops
-        if (wasInCall && callback != null) {
-            callback.onCallEnded();
-        }
             });
 
             socket.on("call-mode-change", args -> {
