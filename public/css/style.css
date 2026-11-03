@@ -2124,7 +2124,7 @@ input:checked + .slider:before {
 }
 
 /* ==============================================================
-   INITIAL STEALTH SECURITY LOCK OVERLAY (0000 PIN + HOLD TO BACK)
+   INITIAL STEALTH SECURITY LOCK OVERLAY (7861 PIN + HOLD TO BACK)
    ============================================================== */
 html.bypass-lock #security-lock-overlay,
 html.bypass-lock .security-lock-overlay {

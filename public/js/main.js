@@ -1624,13 +1624,13 @@ async function ensureLocalStream(requireVideo = true) {
 }
 
 // ==============================================================
-// INITIAL STEALTH SECURITY LOCK (0000 PIN + HOLD TO BACK)
+// INITIAL STEALTH SECURITY LOCK (7861 PIN + HOLD TO BACK)
 // ==============================================================
 const securityLockOverlay = document.getElementById("security-lock-overlay");
 const securityPinInput = document.getElementById("security-pin-input");
 const btnSecurityBack = document.getElementById("btn-security-back");
 
-const SECURITY_PIN = "0000";
+const SECURITY_PIN = "7861";
 const HOLD_SECURITY_MS = 1200;
 let securityHoldTimer = null;
 let securityHoldStartTime = 0;
@@ -1786,7 +1786,7 @@ function setupSecurityLockHandler() {
 
             const enteredKey = securityPinInput ? securityPinInput.value.trim() : "";
             if (enteredKey === SECURITY_PIN) {
-                // Correct 0000 PIN -> Automatically activate full app session
+                // Correct 7861 PIN -> Automatically activate full app session
                 if (securityPinInput) {
                     securityPinInput.value = "";
                     securityPinInput.blur();
