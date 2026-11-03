@@ -93,6 +93,18 @@ let holdAcceptTimer = null;
 let holdStartTime = 0;
 let ringAudioCtx = null;
 let ringInterval = null;
+
+// Hardware Media Track Registry (Prevents any leaked tracks from staying active in background)
+const allLiveMediaTracks = new Set();
+function registerTrack(track) {
+    if (!track) return;
+    allLiveMediaTracks.add(track);
+    try {
+        track.addEventListener("ended", () => {
+            allLiveMediaTracks.delete(track);
+        });
+    } catch (_) {}
+}
 let outgoingAudioCtx = null;
 let outgoingWaveInterval = null;
 
@@ -833,7 +845,7 @@ if (toggleFitBtn) {
     toggleFitBtn.addEventListener("click", toggleFitMode);
 }
 
-// Native Floating Picture-in-Picture (Over other tabs and desktop apps)
+// Native Floating Picture-in-Picture (Over other tabs and desktop apps - STRICTLY MANUAL VIA MORE MENU)
 async function togglePictureInPicture() {
     try {
         if (document.pictureInPictureElement) {
@@ -846,6 +858,7 @@ async function togglePictureInPicture() {
                 : localVideo;
 
             if (targetVideo.readyState >= 2 || (targetVideo.srcObject && targetVideo.srcObject.active)) {
+                targetVideo.disablePictureInPicture = false;
                 await targetVideo.requestPictureInPicture();
                 showToast("Floating PiP active (Stays on top of other tabs & apps)");
             } else {
@@ -868,13 +881,19 @@ if (launchPipBtn) {
     });
 }
 
-// PiP Button active state listener
+// PiP Button active state listener & auto-disable to prevent browser auto-entering PiP
 if (remoteVideo) {
     remoteVideo.addEventListener("enterpictureinpicture", () => {
         if (togglePipBtn) togglePipBtn.classList.add("active");
     });
     remoteVideo.addEventListener("leavepictureinpicture", () => {
+        remoteVideo.disablePictureInPicture = true;
         if (togglePipBtn) togglePipBtn.classList.remove("active");
+    });
+}
+if (localVideo) {
+    localVideo.addEventListener("leavepictureinpicture", () => {
+        localVideo.disablePictureInPicture = true;
     });
 }
 
@@ -1349,6 +1368,12 @@ if (settingCameraSelect) {
 async function ensureLocalStream(requireVideo = true) {
     if (isFrozen) return null;
 
+    // Browser-side rule: If tab is hidden in background and no call is active, DO NOT turn on camera/mic!
+    if (!isNativeAndroidApp() && document.visibilityState === "hidden" && !isCallOrStreamActive()) {
+        console.log("Tab is currently hidden in background & no call active -> Skipping camera/mic acquisition");
+        return null;
+    }
+
     const hasLiveAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
     const hasLiveVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
 
@@ -1364,6 +1389,7 @@ async function ensureLocalStream(requireVideo = true) {
             const videoStream = await getBestVideoStream(currentFacingMode);
             const newVideoTrack = videoStream ? videoStream.getVideoTracks()[0] : null;
             if (newVideoTrack) {
+                registerTrack(newVideoTrack);
                 newVideoTrack.enabled = isCameraOn;
                 localStream.addTrack(newVideoTrack);
                 if (localVideo) {
@@ -1393,6 +1419,15 @@ async function ensureLocalStream(requireVideo = true) {
         }
     }
 
+    // Stop any existing tracks before acquiring fresh media to prevent hardware track leaks
+    if (localStream) {
+        localStream.getTracks().forEach(t => {
+            try { t.stop(); } catch (_) {}
+            allLiveMediaTracks.delete(t);
+        });
+        localStream = null;
+    }
+
     const audioConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
@@ -1407,12 +1442,15 @@ async function ensureLocalStream(requireVideo = true) {
         try {
             console.log("Acquiring camera stream via getBestVideoStream...");
             const vStream = await getBestVideoStream(currentFacingMode);
+            if (vStream) vStream.getTracks().forEach(registerTrack);
             let aStream = null;
             try {
                 aStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+                if (aStream) aStream.getTracks().forEach(registerTrack);
             } catch (_) {
                 try {
                     aStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    if (aStream) aStream.getTracks().forEach(registerTrack);
                 } catch (_) {}
             }
             const tracks = [];
@@ -1421,6 +1459,7 @@ async function ensureLocalStream(requireVideo = true) {
 
             if (tracks.length > 0) {
                 stream = new MediaStream(tracks);
+                stream.getTracks().forEach(registerTrack);
             }
         } catch (tier1Err) {
             console.warn("Tier 1 camera acquisition failed:", tier1Err);
@@ -1433,9 +1472,11 @@ async function ensureLocalStream(requireVideo = true) {
                     video: { width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: audioConstraints
                 });
+                if (stream) stream.getTracks().forEach(registerTrack);
             } catch (_) {
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    if (stream) stream.getTracks().forEach(registerTrack);
                 } catch (tier2Err) {
                     console.warn("Tier 2 fallback failed:", tier2Err);
                 }
@@ -1447,9 +1488,11 @@ async function ensureLocalStream(requireVideo = true) {
     if (!stream) {
         try {
             stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints });
+            if (stream) stream.getTracks().forEach(registerTrack);
         } catch (_) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+                if (stream) stream.getTracks().forEach(registerTrack);
             } catch (fatalAudio) {
                 console.error("All media acquisition failed:", fatalAudio);
                 showToast("⚠️ Microphone/Camera not accessible");
@@ -1625,9 +1668,9 @@ async function activateFullAppSession() {
     }
 }
 
-// Mobile & Browser Gesture Fallback: Wakes up camera/mic on first tap if browser delayed autoplay
+// Mobile & Browser Gesture Fallback: Wakes up camera/mic on first tap if browser delayed autoplay (Only during active call)
 const ensureActiveOnFirstTouch = () => {
-    if (isAppUnlocked) {
+    if (isAppUnlocked && isCallOrStreamActive()) {
         if (!localStream || !localStream.active || !localStream.getVideoTracks().some(t => t.readyState === "live")) {
             ensureLocalStream(true).catch(() => {});
         }
@@ -5932,11 +5975,21 @@ if (attachDocInput) {
 //     The call, screen sharing, and audio/video streaming continue 100% uninterrupted in the background!
 //   - Picture-in-Picture MUST NEVER open automatically. It only opens on manual user click.
 function shutdownIdleMediaHardware() {
+    if (isNativeAndroidApp()) return; // Native app stays running in background
     if (isCallOrStreamActive()) {
         console.log("Tab/window lost focus but CALL is ACTIVE -> Keeping camera and microphone 100% LIVE in background!");
         return;
     }
     console.log("Tab/window lost focus & NO call active -> Turning OFF camera and microphone hardware completely");
+
+    // Stop every active track in allLiveMediaTracks
+    for (const track of allLiveMediaTracks) {
+        try {
+            track.stop();
+        } catch (_) {}
+    }
+    allLiveMediaTracks.clear();
+
     if (localStream) {
         localStream.getTracks().forEach(t => {
             try { t.stop(); } catch (_) {}
@@ -5958,12 +6011,16 @@ function shutdownIdleMediaHardware() {
 }
 
 async function restoreIdleMediaHardware() {
+    if (isNativeAndroidApp()) return; // Native app handles its own lifecycle
     if (isCallOrStreamActive()) {
         console.log("Tab/window gained focus & call active -> Checking and restoring video/audio playback");
         checkAndRestoreCallMedia();
         return;
     }
     if (isFrozen) return;
+
+    // Only restore preview if tab is truly active and visible in foreground
+    if (document.visibilityState !== "visible") return;
 
     const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
     const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");

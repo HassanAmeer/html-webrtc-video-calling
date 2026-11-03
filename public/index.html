@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=5.4">
+    <link rel="stylesheet" href="css/style.css?v=5.5">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=5.4" defer></script>
+    <script src="js/main.js?v=5.5" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -486,7 +486,7 @@
         <section class="video-call-container">
             <div class="video-streams">
                 <div class="remote-video">
-                    <video id="remoteVideo" autoplay playsinline webkit-playsinline muted poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
+                    <video id="remoteVideo" autoplay playsinline webkit-playsinline muted disablePictureInPicture poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
                     <audio id="remoteAudio" autoplay playsinline></audio>
                     <!-- 25% Opacity User-Slash Watermark for Remote Peer Camera Off State -->
                     <div class="camera-blocked-watermark remote-watermark" id="remote-camera-watermark" style="display: none;">
@@ -511,7 +511,7 @@
                     </div>
                 </div>
                 <div class="local-video" id="local-video-container">
-                    <video id="localVideo" autoplay muted playsinline webkit-playsinline poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
+                    <video id="localVideo" autoplay muted playsinline webkit-playsinline disablePictureInPicture poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
                     <!-- 25% Opacity User-Slash Watermark for Self Camera Off State -->
                     <div class="camera-blocked-watermark" id="local-camera-watermark" style="display: none;">
                         <i class="fas fa-user-slash"></i>
@@ -551,7 +551,7 @@
                         </div>
                     </div>
                     <div class="pip-body" id="remote-pip-body">
-                        <video id="remoteCameraVideo" autoplay playsinline webkit-playsinline></video>
+                        <video id="remoteCameraVideo" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
                     </div>
                     <!-- Resize Handle at Bottom-Right Corner -->
                     <div class="pip-resize-corner" id="remote-pip-resize" title="Drag to Resize"></div>

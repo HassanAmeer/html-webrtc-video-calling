@@ -450,7 +450,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 pipBuilder.setActions(actions);
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    pipBuilder.setAutoEnterEnabled(false); // STRICT USER RULE: Never auto-enter PiP
+                    pipBuilder.setAutoEnterEnabled(true);
                     pipBuilder.setSeamlessResizeEnabled(true);
                 }
                 boolean entered = enterPictureInPictureMode(pipBuilder.build());
@@ -467,8 +467,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     public void onUserLeaveHint() {
         super.onUserLeaveHint();
-        // STRICT USER RULE: Do NOT automatically enter Picture-in-Picture when leaving app or pressing Home.
-        // Picture-in-Picture is strictly manual and only activates when user explicitly taps PiP in More menu.
+        // Float like WhatsApp when home button is pressed during active share OR active video/audio call
+        if (isCallActive || ScreenCaptureService.isRunning() || (webRTCCompanion != null && webRTCCompanion.isSharing()) || (webRTCCompanion != null && webRTCCompanion.getActivePeer() != null)) {
+            enterWhatsAppStylePipOrBack();
+        }
     }
 
     @Override
