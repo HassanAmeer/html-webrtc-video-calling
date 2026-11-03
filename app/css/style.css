@@ -730,6 +730,98 @@ video::-webkit-media-controls-enclosure {
     display: none !important;
 }
 
+/* Dock More Options Popover Menu (Compact Cupertino Grey Theme) */
+.dock-more-popover {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    right: 48px;
+    background: rgba(24, 26, 30, 0.94);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 5px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 170px;
+    box-sizing: border-box;
+}
+
+.dock-more-item {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #9ca3af; /* Grey as requested */
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    text-align: left;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+}
+
+.dock-more-item i {
+    font-size: 13px;
+    width: 16px;
+    text-align: center;
+    color: #9ca3af; /* Grey icon */
+    transition: color 0.15s ease;
+}
+
+.dock-more-item span {
+    color: #9ca3af;
+    font-size: 11.5px;
+    transition: color 0.15s ease;
+}
+
+.dock-more-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.dock-more-item:hover i,
+.dock-more-item:hover span {
+    color: #ffffff;
+}
+
+.more-q-badge {
+    font-size: 9.5px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    margin-left: auto;
+}
+
+.more-q-badge.hd {
+    background: rgba(255, 255, 255, 0.10);
+    color: #9ca3af;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.more-q-badge.sd {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.dock-more-item:hover .more-q-badge.hd {
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+#btn-dock-more.active {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+}
+
 .eye-btn-with-badge {
     position: relative;
 }

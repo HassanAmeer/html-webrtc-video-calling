@@ -536,6 +536,12 @@ function initPreferences() {
             toggleFitBtn.title = "View: Fit Screen (Complete View) - Click to Fill";
         }
     }
+    const moreFullscreenIconInit = document.getElementById("more-fullscreen-icon");
+    const moreFullscreenTextInit = document.getElementById("more-fullscreen-text");
+    if (moreFullscreenIconInit && moreFullscreenTextInit) {
+        moreFullscreenIconInit.className = isFitCover ? "fas fa-compress-arrows-alt" : "fas fa-expand-arrows-alt";
+        moreFullscreenTextInit.textContent = isFitCover ? "Fit Screen" : "Full Screen";
+    }
     if (settingFitSelect) settingFitSelect.value = isFitCover ? "cover" : "contain";
 
     // Strict PiP
@@ -572,6 +578,13 @@ function updateQualityUI() {
             barQualityToggle.className = "call-bar-badge sd";
             barQualityToggle.title = "Network Quality: SD 480p (Stable on Slow Wi-Fi). Click to switch to HD.";
         }
+    }
+
+    // Dock More Menu Quality Badge
+    const moreQualityBadge = document.getElementById("more-quality-badge");
+    if (moreQualityBadge) {
+        moreQualityBadge.textContent = currentQuality;
+        moreQualityBadge.className = "more-q-badge " + currentQuality.toLowerCase();
     }
 
     if (settingQualitySelect) settingQualitySelect.value = currentQuality;
@@ -677,12 +690,16 @@ if (barQualityToggle) {
 function toggleFitMode() {
     isFitCover = !isFitCover;
     localStorage.setItem("webrtc_fit_mode", isFitCover ? "cover" : "contain");
+    const moreFullscreenIcon = document.getElementById("more-fullscreen-icon");
+    const moreFullscreenText = document.getElementById("more-fullscreen-text");
     if (isFitCover) {
         remoteVideo.classList.add("fit-cover");
         if (toggleFitBtn) {
             toggleFitBtn.innerHTML = '<i class="fas fa-compress-arrows-alt"></i>';
             toggleFitBtn.title = "View: Fill Screen (Zoomed) - Click to Fit";
         }
+        if (moreFullscreenIcon) moreFullscreenIcon.className = "fas fa-compress-arrows-alt";
+        if (moreFullscreenText) moreFullscreenText.textContent = "Fit Screen";
         showToast("View: Fill Screen (Zoomed to edge)");
     } else {
         remoteVideo.classList.remove("fit-cover");
@@ -690,6 +707,8 @@ function toggleFitMode() {
             toggleFitBtn.innerHTML = '<i class="fas fa-expand-arrows-alt"></i>';
             toggleFitBtn.title = "View: Fit Screen (Complete View) - Click to Fill";
         }
+        if (moreFullscreenIcon) moreFullscreenIcon.className = "fas fa-expand-arrows-alt";
+        if (moreFullscreenText) moreFullscreenText.textContent = "Full Screen";
         showToast("View: Fit Screen (Complete View - No Crop)");
     }
     if (settingFitSelect) settingFitSelect.value = isFitCover ? "cover" : "contain";
@@ -743,6 +762,80 @@ if (remoteVideo) {
         if (togglePipBtn) togglePipBtn.classList.remove("active");
     });
 }
+
+// ==============================================================
+// DOCK MORE OPTIONS MENU (PiP, Quality, Fullscreen)
+// ==============================================================
+const btnDockMore = document.getElementById("btn-dock-more");
+const dockMoreMenu = document.getElementById("dock-more-menu");
+const moreItemPip = document.getElementById("more-item-pip");
+const moreItemQuality = document.getElementById("more-item-quality");
+const moreItemFullscreen = document.getElementById("more-item-fullscreen");
+
+function toggleDockMoreMenu(e) {
+    if (e) e.stopPropagation();
+    if (!dockMoreMenu) return;
+    const isVisible = dockMoreMenu.style.display !== "none";
+    dockMoreMenu.style.display = isVisible ? "none" : "flex";
+    if (btnDockMore) btnDockMore.classList.toggle("active", !isVisible);
+}
+
+function closeDockMoreMenu() {
+    if (dockMoreMenu && dockMoreMenu.style.display !== "none") {
+        dockMoreMenu.style.display = "none";
+        if (btnDockMore) btnDockMore.classList.remove("active");
+    }
+}
+
+if (btnDockMore) {
+    btnDockMore.addEventListener("click", toggleDockMoreMenu);
+}
+
+// 1. PiP in More Menu
+if (moreItemPip) {
+    moreItemPip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeDockMoreMenu();
+        if (window.VRemoteNative && typeof window.VRemoteNative.enterPip === "function") {
+            window.VRemoteNative.enterPip();
+        } else if (typeof togglePictureInPicture === "function") {
+            togglePictureInPicture();
+        } else if (remoteVideo && remoteVideo.srcObject) {
+            remoteVideo.requestPictureInPicture().catch(() => {});
+        } else {
+            showToast("PiP can be activated during calls or screen share");
+        }
+    });
+}
+
+// 2. Quality in More Menu
+if (moreItemQuality) {
+    moreItemQuality.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (typeof toggleQuality === "function") {
+            toggleQuality();
+        }
+    });
+}
+
+// 3. Fullscreen in More Menu
+if (moreItemFullscreen) {
+    moreItemFullscreen.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (typeof toggleFitMode === "function") {
+            toggleFitMode();
+        }
+    });
+}
+
+// Close More Menu when clicking anywhere outside
+document.addEventListener("click", (e) => {
+    if (dockMoreMenu && dockMoreMenu.style.display !== "none") {
+        if (!dockMoreMenu.contains(e.target) && e.target !== btnDockMore && !btnDockMore.contains(e.target)) {
+            closeDockMoreMenu();
+        }
+    }
+});
 
 // Settings Modal Handlers
 if (toggleMoreMenuBtn) {
