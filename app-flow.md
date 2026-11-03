@@ -169,13 +169,18 @@ The bridge exposes native phone capabilities to the web interface:
 
 ---
 
-## 8. Strict Manual-Only Picture-in-Picture (No Auto-PiP)
+## 8. Strict Manual-Only Picture-in-Picture & Chat Media Isolation (No Auto-PiP)
 
 - **Rule:** The Android app must **NEVER** enter Picture-in-Picture automatically when the home button is pressed, when switching apps, or when minimized.
 - **Implementation in `MainActivity.java`:**
   - `pipBuilder.setAutoEnterEnabled(false)` (Android 12+).
   - `onUserLeaveHint()` does NOT trigger PiP.
   - PiP is entered **ONLY** when the user explicitly clicks the PiP option inside the More menu (`#more-item-pip` -> `window.VRemoteNative.enterPip()`).
+- **Chat Media PiP Prohibition (Videos & Photos):**
+  - Chat media (videos and photos sent/received in the Chat drawer) **MUST NEVER enter Picture-in-Picture**.
+  - All chat videos run with `disablePictureInPicture = true` and `controlslist="nodownload nopip"`.
+  - Android WebView does not allow PiP or custom fullscreen popups for chat videos; they must play **strictly inside the chat message bubble**.
+  - Chat videos feature an animated loading progress bar (`.chat-video-progress-bar`) during buffering, which fades out once the video is ready to play directly in-chat.
 
 ---
 

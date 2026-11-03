@@ -60,10 +60,17 @@ State: Active Call (peerConnection connected)
 
 ---
 
-## 4. Picture-in-Picture (PiP) Policy: Strictly Manual Only
+## 4. Picture-in-Picture (PiP) Policy: Strictly Manual Only (Live Calls Only)
 - **Rule:** Picture-in-Picture (PiP) **NEVER** opens automatically on tab switch, window minimize, or call connect.
 - **Trigger:** PiP can **ONLY** be entered when the user explicitly clicks the Picture-in-Picture button inside the More popover menu (`#btn-dock-more` -> `#more-item-pip`).
 - **Dynamic Stream Selection:** PiP dynamically targets `remoteVideo` (if remote live stream is playing in an active video call) or `localVideo` (if idle or self-view).
+- **STRICT PROHIBITION ON CHAT MEDIA (VIDEOS & IMAGES):**
+  - Media files (videos and photos) sent or received in the Chat Drawer/Screen **CANNOT and MUST NEVER enter Picture-in-Picture mode under any circumstances**.
+  - All chat videos MUST have `disablePictureInPicture = true`, `disableRemotePlayback`, and `controlslist="nodownload nopip"` applied.
+  - Native browser PiP controls (`::-webkit-media-controls-picture-in-picture-button`) are completely hidden via CSS.
+  - Context menu (`oncontextmenu`) is disabled on all chat videos and preview images to block browser context menu PiP triggers.
+  - Chat videos MUST play **directly inside the chat message bubble**.
+  - **Video Loading Progress Bar:** While a video is loading/buffering in chat, an animated loading card with a sliding gradient progress bar (`.chat-video-progress-bar`) is displayed underneath the header. Once buffering completes, the progress bar and loader fade out and the video player is displayed immediately for in-chat playback.
 
 ---
 

@@ -3112,6 +3112,86 @@ html.bypass-lock .security-lock-overlay {
     object-fit: contain;
 }
 
+/* Strictly hide Chrome/Chromium native Picture-in-Picture controls on chat video players */
+.chat-video-player::-webkit-media-controls-picture-in-picture-button {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+}
+
+.chat-video-player::-webkit-media-controls-remote-playback-button {
+    display: none !important;
+}
+
+/* Chat Video Loading Card & Animated Progress Bar */
+.chat-video-loader-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 20px;
+    min-width: 210px;
+    background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(31, 41, 55, 0.95));
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.chat-video-loader-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #e5e7eb;
+}
+
+.chat-video-loader-header i {
+    color: #60a5fa;
+    font-size: 14px;
+    animation: videoPulseGlow 1.5s infinite ease-in-out;
+}
+
+@keyframes videoPulseGlow {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.15); filter: drop-shadow(0 0 6px #3b82f6); }
+}
+
+.chat-video-progress-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.chat-video-progress-bar {
+    width: 45%;
+    height: 100%;
+    background: linear-gradient(90deg, #2563eb, #38bdf8, #60a5fa, #2563eb);
+    background-size: 200% 100%;
+    border-radius: 999px;
+    animation: videoProgressBarSweep 1.4s infinite ease-in-out;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+@keyframes videoProgressBarSweep {
+    0% { transform: translateX(-100%); }
+    50% { width: 65%; }
+    100% { transform: translateX(250%); width: 45%; }
+}
+
+.chat-video-progress-subtext {
+    font-size: 10.5px;
+    color: #94a3b8;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+}
+
 .chat-doc-card {
     display: inline-flex;
     align-items: center;

@@ -5246,6 +5246,9 @@ function appendChatMessage(msg, isMine) {
                 e.stopPropagation();
                 openImageLightbox(msg.file.data, msg.file.name);
             });
+            img.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+            });
             wrap.appendChild(img);
             attachContainer.appendChild(wrap);
         } else if (msg.file.type && msg.file.type.startsWith("video/")) {
@@ -5253,10 +5256,16 @@ function appendChatMessage(msg, isMine) {
             wrap.className = "chat-media-wrapper chat-video-wrapper";
 
             const loader = document.createElement("div");
-            loader.className = "chat-media-loader";
+            loader.className = "chat-media-loader chat-video-loader-card";
             loader.innerHTML = `
-                <div class="circular-progress-spinner"></div>
-                <span class="loader-shimmer-text">${isMine ? "Sending video..." : "Loading video..."}</span>
+                <div class="chat-video-loader-header">
+                    <i class="fas fa-video"></i>
+                    <span class="loader-shimmer-text">${isMine ? "Sending video..." : "Loading video..."}</span>
+                </div>
+                <div class="chat-video-progress-track">
+                    <div class="chat-video-progress-bar"></div>
+                </div>
+                <span class="chat-video-progress-subtext">Buffering in chat...</span>
             `;
             wrap.appendChild(loader);
 
@@ -5265,11 +5274,28 @@ function appendChatMessage(msg, isMine) {
             video.playsInline = true;
             video.setAttribute("playsinline", "");
             video.setAttribute("webkit-playsinline", "");
+            video.setAttribute("disablepictureinpicture", "");
+            video.setAttribute("disablePictureInPicture", "true");
+            video.disablePictureInPicture = true;
+            video.setAttribute("controlslist", "nodownload nopip");
+            video.setAttribute("disableRemotePlayback", "");
             video.preload = "auto";
             video.className = "chat-video-player";
             video.style.display = "none";
 
-            // Click anywhere on video to toggle play / pause directly
+            // Strictly prohibit Picture-in-Picture on chat videos
+            video.addEventListener("enterpictureinpicture", (e) => {
+                e.preventDefault();
+                if (document.pictureInPictureElement) {
+                    document.exitPictureInPicture().catch(() => {});
+                }
+            });
+            // Disable right-click context menu so "Picture in picture" option cannot be chosen
+            video.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+            });
+
+            // Click anywhere on video to toggle play / pause directly inside chat
             video.addEventListener("click", (e) => {
                 e.stopPropagation();
                 if (video.paused) {
@@ -5319,8 +5345,8 @@ function appendChatMessage(msg, isMine) {
                 video.onloadedmetadata = revealVideo;
                 video.onplay = revealVideo;
 
-                // Safety reveal timeout: reveal video player after 600ms
-                setTimeout(revealVideo, 600);
+                // Safety reveal timeout: reveal video player after 2500ms if load events are delayed
+                setTimeout(revealVideo, 2500);
 
                 video.onerror = (e) => {
                     console.warn("Video element load error, checking direct fallback:", video.error, e);
@@ -5475,6 +5501,7 @@ function applyReactionToMessage(msgId, emoji, fromUser) {
 function openImageLightbox(dataUrl, filename) {
     if (!chatImageLightbox || !lightboxImg) return;
     lightboxImg.src = dataUrl;
+    lightboxImg.oncontextmenu = (e) => e.preventDefault();
     if (lightboxDownload) {
         lightboxDownload.href = dataUrl;
         lightboxDownload.download = filename || "photo.jpg";
