@@ -791,6 +791,20 @@ video::-webkit-media-controls-enclosure {
     color: #ffffff;
 }
 
+.dock-more-item.sharing-active {
+    background: rgba(52, 199, 89, 0.15);
+    border-radius: 8px;
+}
+
+.dock-more-item.sharing-active span,
+.dock-more-item.sharing-active i {
+    color: #34c759 !important;
+}
+
+.dock-more-item.sharing-active .screen-icon-wrapper::after {
+    display: none !important;
+}
+
 .more-q-badge {
     font-size: 9.5px;
     padding: 1px 5px;

@@ -786,13 +786,28 @@ if (remoteVideo) {
 }
 
 // ==============================================================
-// DOCK MORE OPTIONS MENU (PiP, Quality, Fullscreen)
+// DOCK MORE OPTIONS MENU (Screen Share, PiP, Quality, Fullscreen)
 // ==============================================================
 const btnDockMore = document.getElementById("btn-dock-more");
 const dockMoreMenu = document.getElementById("dock-more-menu");
+const moreItemScreenshare = document.getElementById("more-item-screenshare");
+const moreScreenText = document.getElementById("more-screen-text");
+const moreScreenIcon = document.getElementById("more-screen-icon");
 const moreItemPip = document.getElementById("more-item-pip");
 const moreItemQuality = document.getElementById("more-item-quality");
 const moreItemFullscreen = document.getElementById("more-item-fullscreen");
+
+function updateMoreScreenShareUI() {
+    if (moreScreenText) {
+        moreScreenText.textContent = isScreenSharing ? "Stop Screen Sharing" : "Share Screen";
+    }
+    if (moreItemScreenshare) {
+        moreItemScreenshare.classList.toggle("sharing-active", isScreenSharing);
+    }
+    if (moreScreenIcon) {
+        moreScreenIcon.className = "fas fa-desktop";
+    }
+}
 
 function toggleDockMoreMenu(e) {
     if (e) e.stopPropagation();
@@ -800,6 +815,9 @@ function toggleDockMoreMenu(e) {
     const isVisible = dockMoreMenu.style.display !== "none";
     dockMoreMenu.style.display = isVisible ? "none" : "flex";
     if (btnDockMore) btnDockMore.classList.toggle("active", !isVisible);
+    if (!isVisible) {
+        updateMoreScreenShareUI();
+    }
 }
 
 function closeDockMoreMenu() {
@@ -811,6 +829,17 @@ function closeDockMoreMenu() {
 
 if (btnDockMore) {
     btnDockMore.addEventListener("click", toggleDockMoreMenu);
+}
+
+// 0. Screen Share in More Menu
+if (moreItemScreenshare) {
+    moreItemScreenshare.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeDockMoreMenu();
+        if (toggleScreen) {
+            toggleScreen.click();
+        }
+    });
 }
 
 // 1. PiP in More Menu
@@ -3050,6 +3079,9 @@ function endCall(notifyServer = true) {
         if (icon) icon.className = "fas fa-desktop";
         toggleScreen.title = "Share Screen";
     }
+    if (typeof updateMoreScreenShareUI === "function") {
+        updateMoreScreenShareUI();
+    }
 
     renderParticipantsList();
     updateFloatingEndCallBtn();
@@ -3837,6 +3869,7 @@ if (toggleScreen) {
                 const icon = toggleScreen.querySelector("i");
                 if (icon) icon.className = "fas fa-desktop";
                 toggleScreen.title = "Stop Screen Sharing";
+                updateMoreScreenShareUI();
                 showToast("Screen Sharing: Active (Entire Screen / Tab Live)");
 
                 // Native browser "Stop sharing" floating bar listener
@@ -3869,6 +3902,7 @@ if (toggleScreen) {
                 const icon = toggleScreen.querySelector("i");
                 if (icon) icon.className = "fas fa-desktop";
                 toggleScreen.title = "Share Screen";
+                updateMoreScreenShareUI();
                 showToast("Screen Sharing: Stopped");
                 return;
             }
@@ -3885,6 +3919,7 @@ async function revertToCameraTrack() {
     const icon = toggleScreen.querySelector("i");
     if (icon) icon.className = "fas fa-desktop";
     toggleScreen.title = "Share Screen";
+    updateMoreScreenShareUI();
 
     // Stop active screen capture
     if (currentScreenStream) {

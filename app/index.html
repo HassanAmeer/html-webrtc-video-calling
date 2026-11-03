@@ -731,8 +731,8 @@
                         <i class="fas fa-volume-up" id="speaker-icon"></i>
                     </button>
 
-                    <!-- 6. Screen Share ON / OFF -->
-                    <button class="control-btn" id="toggle-screen" title="Share Screen">
+                    <!-- Hidden legacy screen toggle for programmatic triggering -->
+                    <button class="control-btn" id="toggle-screen" style="display: none;" title="Share Screen">
                         <span class="screen-icon-wrapper">
                             <i class="fas fa-desktop"></i>
                         </span>
@@ -767,14 +767,24 @@
                         <i class="fas fa-cog"></i>
                     </button>
 
-                    <!-- More Options (Quality, Fullscreen) - Placed after Settings, 2nd from right -->
-                    <button class="control-btn" id="btn-dock-more" title="More Options (Quality, Fullscreen)">
+                    <!-- More Options (Screen Share, PiP, Quality, Fullscreen) - Placed after Settings, 2nd from right -->
+                    <button class="control-btn" id="btn-dock-more" title="More Options (Screen Share, PiP, Quality, Fullscreen)">
                         <i class="fas fa-ellipsis-v"></i>
                     </button>
                 </div>
 
-                <!-- Dock More Popover Menu (Quality, Fullscreen) -->
+                <!-- Dock More Popover Menu (Screen Share, PiP, Quality, Fullscreen) -->
                 <div id="dock-more-menu" class="dock-more-popover" style="display: none;">
+                    <button type="button" class="dock-more-item" id="more-item-screenshare" title="Share Screen / Desktop">
+                        <span class="screen-icon-wrapper" style="width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-desktop" id="more-screen-icon"></i>
+                        </span>
+                        <span id="more-screen-text">Share Screen</span>
+                    </button>
+                    <button type="button" class="dock-more-item" id="more-item-pip" title="Picture in Picture (Floating Window)">
+                        <i class="fas fa-clone"></i>
+                        <span>Picture in Picture</span>
+                    </button>
                     <button type="button" class="dock-more-item" id="more-item-quality" title="Toggle Video Quality (HD / SD)">
                         <i class="fas fa-bolt"></i>
                         <span>Quality</span>
