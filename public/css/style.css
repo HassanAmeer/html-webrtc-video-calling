@@ -874,7 +874,7 @@ video::-webkit-media-controls-enclosure {
     color: #6b7280 !important;
 }
 
-/* 70% Opacity User-Slash Watermark for Camera Off State */
+/* 80% Reduced Subtle User-Slash Watermark for Camera Off State (opacity: 0.20) */
 .camera-blocked-watermark {
     position: absolute;
     inset: 0;
@@ -887,15 +887,15 @@ video::-webkit-media-controls-enclosure {
 }
 
 .camera-blocked-watermark i {
-    font-size: 2.8rem;
+    font-size: 2.5rem;
     color: #9ca3af;
-    opacity: 0.70; /* 70% opacity as requested */
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+    opacity: 0.20; /* 80% opacity kam kar di gayi hai (subtle ghost watermark) */
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
 }
 
 .remote-watermark i {
-    font-size: 5.5rem;
-    opacity: 0.70;
+    font-size: 5rem;
+    opacity: 0.20;
 }
 
 .end-call-btn {
