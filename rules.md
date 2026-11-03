@@ -198,3 +198,7 @@ After any change affecting the Android APK or backend:
   - Every screen capture session must request a fresh token via `projectionManager.createScreenCaptureIntent()` (auto-accepted by `RemoteAccessibilityService`).
   - Any prior `screenCapturer` and `surfaceTextureHelper` must be safely stopped and disposed before creating a new capturer.
   - `Thread.setDefaultUncaughtExceptionHandler` protects background threads so unexpected runtime exceptions never crash the process.
+
+- **Point 13: Re-entrancy Loop Guard & Instant Remote Crash Reporting:**
+  - **StackOverflow Prevention (`isStoppingMedia` Guard):** Calling `stopAllMediaAndFinish()` must never trigger an infinite recursive loop with `webRTCCompanion.endCall(false)` and `onCallEnded()`. Both `stopAllMediaAndFinish()` and `onCallEnded()` are protected by a strict re-entrancy boolean guard (`isStoppingMedia`). In `WebRTCCompanion.endCall()`, `callback.onCallEnded()` is only invoked if a call was actively in progress (`wasInCall`).
+  - **Live Remote Crash Tracing (`/api/crash-log`):** `CrashReporter` captures all unhandled exceptions, thread IDs, device hardware models, and full stack traces, sending them via synchronous HTTP POST to `https://v.tokendeal.cloud/api/crash-log`. All crash reports are logged in real-time in PM2 logs and appended to `/root/v-webrtc/crash.log` for immediate forensic analysis.

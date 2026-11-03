@@ -17,6 +17,22 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use(express.json({ limit: "2mb" }));
+
+// Remote Crash Logging from Android Companion
+app.post("/api/crash-log", (req, res) => {
+    try {
+        const { deviceId, deviceName, error, stack, thread } = req.body || {};
+        const timestamp = new Date().toISOString();
+        const logLine = `\n================== ANDROID CRASH REPORT [${timestamp}] ==================\nDevice: ${deviceId || "unknown"} (${deviceName || "Android"})\nThread: ${thread || "main"}\nError: ${error}\nStack:\n${stack}\n========================================================================\n`;
+        console.error(logLine);
+        fs.appendFileSync(join(dirname(fileURLToPath(import.meta.url)), "crash.log"), logLine);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const server = createServer(app);
 
 const io = new Server(server, {

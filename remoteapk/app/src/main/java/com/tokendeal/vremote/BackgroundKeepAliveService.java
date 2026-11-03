@@ -115,16 +115,6 @@ public class BackgroundKeepAliveService extends Service {
             mBgSocket = null;
         }
         sInstance = null;
-
-        // Auto-restart if killed by OS
-        try {
-            Intent restartIntent = new Intent(getApplicationContext(), BackgroundKeepAliveService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                getApplicationContext().startForegroundService(restartIntent);
-            } else {
-                getApplicationContext().startService(restartIntent);
-            }
-        } catch (Exception ignored) {}
     }
 
     private void startInForeground() {
@@ -144,14 +134,21 @@ public class BackgroundKeepAliveService extends Service {
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .build();
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+                    } else {
+                        startForeground(NOTIFICATION_ID, notification, 0);
+                    }
                 } else {
-                    startForeground(NOTIFICATION_ID, notification, 0);
+                    startForeground(NOTIFICATION_ID, notification);
                 }
-            } else {
-                startForeground(NOTIFICATION_ID, notification);
+            } catch (Exception fgsEx) {
+                Log.w(TAG, "startForeground typed failed, falling back to basic foreground", fgsEx);
+                try {
+                    startForeground(NOTIFICATION_ID, notification);
+                } catch (Exception ignored) {}
             }
         } catch (Exception e) {
             Log.e(TAG, "Error starting foreground notification", e);

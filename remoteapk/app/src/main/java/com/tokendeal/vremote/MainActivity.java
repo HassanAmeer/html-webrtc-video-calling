@@ -59,23 +59,33 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private String companionCameraChoice = "front";
     private boolean isCallActive = false;
     private boolean hasPromptedAccessibility = false;
+    private boolean isStoppingMedia = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
 
+        // Initialize remote crash reporting to https://v.tokendeal.cloud/api/crash-log
+        CrashReporter.init(this);
+
         // Prevent crashes on background threads from killing the process
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             Log.e(TAG, "Uncaught exception on thread: " + thread.getName(), throwable);
+            try {
+                CrashReporter.reportCrashSync(this, thread, throwable);
+            } catch (Exception ignored) {}
             try {
                 if (webRTCCompanion != null) {
                     webRTCCompanion.emitDeviceError(throwable.getMessage() != null ? throwable.getMessage() : "Internal error");
                 }
             } catch (Exception ignored) {}
-            try {
-                runOnUiThread(this::stopAllMediaAndFinish);
-            } catch (Exception ignored) {}
+            // Only stop media if not a VM/Stack error to strictly prevent recursive crash loops
+            if (!(throwable instanceof StackOverflowError) && !(throwable instanceof VirtualMachineError)) {
+                try {
+                    runOnUiThread(this::stopAllMediaAndFinish);
+                } catch (Exception ignored) {}
+            }
         });
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -579,9 +589,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
     @Override public void onRemoteVideoTrack(VideoTrack track) {}
     @Override public void onCallEnded() {
-        runOnUiThread(() -> {
-            stopAllMediaAndFinish();
-        });
+        if (isStoppingMedia) return;
+        runOnUiThread(this::stopAllMediaAndFinish);
     }
     @Override public void onError(String error) {
         runOnUiThread(() -> {
@@ -599,27 +608,33 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     public void stopAllMediaAndFinish() {
-        Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
-        captureIntentData = null;
-        pendingAutoCommand = null;
-        lastAutoCmdTime = 0;
-
+        if (isStoppingMedia) return;
+        isStoppingMedia = true;
         try {
-            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
-            stopService(serviceIntent);
-        } catch (Exception ignored) {}
+            Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
+            captureIntentData = null;
+            pendingAutoCommand = null;
+            lastAutoCmdTime = 0;
 
-        if (webRTCCompanion != null) {
             try {
-                webRTCCompanion.endCall(false);
+                Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+                stopService(serviceIntent);
             } catch (Exception ignored) {}
+
+            if (webRTCCompanion != null) {
+                try {
+                    webRTCCompanion.endCall(false);
+                } catch (Exception ignored) {}
+            }
+
+            runOnUiThread(() -> {
+                try {
+                    moveTaskToBack(true);
+                } catch (Exception ignored) {}
+            });
+        } finally {
+            isStoppingMedia = false;
         }
-
-        runOnUiThread(() -> {
-            try {
-                moveTaskToBack(true);
-            } catch (Exception ignored) {}
-        });
     }
 
     @Override

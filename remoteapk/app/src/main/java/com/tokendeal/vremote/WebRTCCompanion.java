@@ -241,7 +241,10 @@ public class WebRTCCompanion {
             socket.on("end-call", args -> {
                 Log.i(TAG, "Call ended by peer");
                 endCall(false);
-                if (callback != null) callback.onCallEnded();
+                // Only notify callback if this call was actively running, avoiding recursive loops
+        if (wasInCall && callback != null) {
+            callback.onCallEnded();
+        }
             });
 
             socket.on("call-mode-change", args -> {
@@ -918,6 +921,7 @@ public class WebRTCCompanion {
     }
 
     public void endCall(boolean notifyServer) {
+        boolean wasInCall = (activePeer != null || isScreenSharingCall || peerConnection != null);
         if (notifyServer && activePeer != null && socket != null && socket.connected()) {
             try {
                 JSONObject payload = new JSONObject();
@@ -1011,7 +1015,10 @@ public class WebRTCCompanion {
         incomingOfferObj = null;
         pendingOfferPayload = null;
 
-        if (callback != null) callback.onCallEnded();
+        // Only notify callback if this call was actively running, avoiding recursive loops
+        if (wasInCall && callback != null) {
+            callback.onCallEnded();
+        }
     }
 
     public boolean isSocketConnected() {
