@@ -133,3 +133,14 @@ After any change affecting the Android APK or backend:
       - **Initiator (User 1):** Enables their camera immediately, transmits their live video stream to User 2, and displays Video Mode UI.
       - **Receiver (User 2) Privacy Guard:** Under NO circumstances may User 2's camera turn on automatically upon receiving a video switch request. User 2's local camera MUST remain MUTED/DISABLED, and their dock button MUST be set to the **slashed state (`fas fa-user-slash`)** with watermark active.
       - User 2's camera is only enabled when User 2 explicitly clicks the slashed button (un-slashes to `fas fa-user`), granting explicit consent to transmit their face video.
+
+- **Point 5: Incoming Call Hold-to-Accept & Alert Bar Integrity:**
+  - **Hold-to-Accept (`#btn-incoming-accept`):**
+    - An incoming call MUST NOT be accepted on a single tap or quick click.
+    - An incoming call is accepted ONLY when the user holds (presses & holds) the accept icon for **450ms**.
+    - If the user releases or taps quickly before 450ms, the icon MUST trigger a shake animation (`.shake-error`), subtle vibration, and display toast *"Hold icon to accept call"*.
+    - Reaching the full 450ms threshold vibrates with confirmation and accepts the call.
+  - **Floating End Call Button Exclusion During Incoming Call:**
+    - The floating red End Call button (`#floating-end-call-btn`) MUST NEVER appear while an incoming call alert is ringing (`incomingCallData`).
+    - The incoming call alert bar (`#incoming-call-bar`) has its own dedicated minimal Accept and Decline icons. Showing the floating End Call button simultaneously causes it to overlap the incoming alert bar.
+    - `#floating-end-call-btn` is ONLY shown during outgoing calls (`callingPeer`) or actively connected calls (`activePeer`).
