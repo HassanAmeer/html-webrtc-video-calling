@@ -3243,7 +3243,7 @@ function endCall(notifyServer = true) {
     updateFloatingEndCallBtn();
 }
 
-if (endCallBtn) {
+if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
     endCallBtn.addEventListener("click", (e) => {
         if (e) e.stopPropagation();
         if (typeof handleQuickEndOrDeclineCall === "function") {
@@ -4531,13 +4531,17 @@ function handleQuickEndOrDeclineCall() {
 }
 
 function updateFloatingEndCallBtn() {
-    // Only show End Call button when an actual call is ringing, incoming, or actively connected
-    const isCallActive = Boolean(activePeer || callingPeer || incomingCallData);
+    // Show End Call button when an actual call is ringing, incoming, or actively connected
+    const isCallActive = Boolean(
+        activePeer || 
+        callingPeer || 
+        incomingCallData || 
+        (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.iceConnectionState === "connected"))
+    );
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
-    const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
     if (floatingEndCallBtn) {
-        if (isCallActive && !isScreenShareActive) {
+        if (isCallActive) {
             floatingEndCallBtn.style.setProperty("display", "inline-flex", "important");
             floatingEndCallBtn.classList.toggle("dock-collapsed", isDockCollapsed);
         } else {
@@ -4549,6 +4553,7 @@ function updateFloatingEndCallBtn() {
         endCallBtn.style.display = "none";
     }
     if (floatingEndStreamBtn) {
+        const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
         // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
         floatingEndStreamBtn.style.display = isScreenShareActive ? "inline-flex" : "none";
     }
@@ -4568,7 +4573,7 @@ if (floatingEndCallBtn) {
     });
 }
 
-if (endCallBtn) {
+if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
     endCallBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         handleQuickEndOrDeclineCall();
