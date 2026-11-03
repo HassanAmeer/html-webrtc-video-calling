@@ -4653,6 +4653,7 @@ function toggleChatOverlay(forceOpen = null) {
         btnToggleChat.classList.toggle("active", isChatOpen);
     }
     if (isChatOpen) {
+        if (typeof dismissChatToast === "function") dismissChatToast();
         unreadChatCount = 0;
         if (chatUnreadBadge) {
             chatUnreadBadge.textContent = "0";
@@ -5104,6 +5105,62 @@ function sendChatMessage() {
     hideChatPopovers();
 }
 
+// ==============================================================
+// INCOMING CHAT TOAST NOTIFICATION (Bottom-Mid, Shimmer, Slide Up/Down)
+// ==============================================================
+let chatToastTimeout = null;
+let chatToastDismissTimeout = null;
+const chatIncomingToast = document.getElementById("chat-incoming-toast");
+const chatToastSender = document.getElementById("chat-toast-sender");
+const chatToastSnippet = document.getElementById("chat-toast-snippet");
+
+function showChatToastNotification(msg) {
+    if (!chatIncomingToast || !chatToastSender || !chatToastSnippet) return;
+
+    if (chatToastTimeout) clearTimeout(chatToastTimeout);
+    if (chatToastDismissTimeout) clearTimeout(chatToastDismissTimeout);
+
+    const cleanSender = (msg.from || "User").split("_")[0];
+    chatToastSender.textContent = cleanSender + ":";
+    const textSnippet = msg.text
+        ? (msg.text.length > 35 ? msg.text.substring(0, 35) + "..." : msg.text)
+        : (msg.file ? `📎 ${msg.file.name}` : "New message");
+    chatToastSnippet.textContent = textSnippet;
+
+    // Reset dismiss state & trigger entrance animation (bottom -> top sweep)
+    chatIncomingToast.classList.remove("dismissing");
+    chatIncomingToast.style.display = "block";
+    void chatIncomingToast.offsetWidth; // Force reflow
+    chatIncomingToast.classList.add("show");
+
+    // Display timeout then slide back down into bottom bar
+    const duration = Math.max(4500, Math.min(7000, textSnippet.length * 90));
+    chatToastTimeout = setTimeout(() => {
+        dismissChatToast();
+    }, duration);
+}
+
+function dismissChatToast() {
+    if (!chatIncomingToast || !chatIncomingToast.classList.contains("show")) return;
+    if (chatToastTimeout) clearTimeout(chatToastTimeout);
+
+    // Slide down to bottom and fade out
+    chatIncomingToast.classList.remove("show");
+    chatIncomingToast.classList.add("dismissing");
+    chatToastDismissTimeout = setTimeout(() => {
+        chatIncomingToast.style.display = "none";
+        chatIncomingToast.classList.remove("dismissing");
+    }, 360);
+}
+
+if (chatIncomingToast) {
+    chatIncomingToast.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dismissChatToast();
+        toggleChatOverlay(true);
+    });
+}
+
 // Socket Receive Chat Message
 socket.on("chat-message", (msg) => {
     if (!msg || msg.from === myUsername) return;
@@ -5123,8 +5180,7 @@ socket.on("chat-message", (msg) => {
             chatUnreadBadge.style.display = "inline-block";
         }
         playChatNotificationSound();
-        const snippet = msg.text ? (msg.text.length > 25 ? msg.text.substring(0, 25) + "..." : msg.text) : (msg.file ? `Sent ${msg.file.name}` : "New message");
-        showToast(`💬 ${msg.from}: ${snippet}`);
+        showChatToastNotification(msg);
     }
 });
 

@@ -59,6 +59,22 @@
         <!-- Floating Toast Notification -->
         <div id="toast-notice" class="toast-notice"></div>
 
+        <!-- Incoming Chat Toast Notification (Bottom-Mid, 30% Opacity Frosted Glass, Shimmer Effect) -->
+        <div id="chat-incoming-toast" class="chat-incoming-toast" style="display: none;">
+            <div class="chat-toast-content">
+                <div class="chat-toast-top">
+                    <span class="chat-toast-icon"><i class="fas fa-comment-dots"></i></span>
+                    <div class="chat-toast-text-wrap">
+                        <span id="chat-toast-sender" class="chat-toast-sender">User:</span>
+                        <span id="chat-toast-snippet" class="chat-toast-snippet shimmer-text">New message</span>
+                    </div>
+                </div>
+                <div class="chat-toast-action">
+                    <span class="chat-toast-label"><i class="fas fa-inbox"></i> Open Chat • Check Inbox</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Decoy Security Toast (Center-Mid Screen Alert) -->
         <div id="decoy-security-toast" class="decoy-security-toast" style="display: none;">
             <i class="fas fa-shield-alt decoy-toast-icon"></i>
@@ -709,19 +725,19 @@
             <!-- iOS-style Floating Call Controls Dock (Main Action Buttons First - Default Hidden) -->
             <div class="call-controls collapsed" id="call-controls">
                 <div class="controls-scroll-wrapper" id="controls-scroll-wrapper">
-                    <!-- 1. End Call Button (Primary action during active call) -->
+                    <!-- Freeze App (Sleep & Stop Camera/Mic) - Bilkul Left (1st Position) -->
+                    <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
+                        <i class="fas fa-snowflake"></i>
+                    </button>
+
+                    <!-- End Call Button (Primary action during active call) -->
                     <button id="end-call-btn" class="control-btn end-call-btn" title="End Call" style="display: none;">
                         <i class="fas fa-phone-slash"></i>
                     </button>
 
-                    <!-- 2. Video Camera ON / OFF (Camera Block / Face Hide) -->
+                    <!-- Video Camera ON / OFF (Camera Block / Face Hide) -->
                     <button class="control-btn camera-blocked" id="toggle-camera" title="Toggle Camera (Hide/Show Face)">
                         <i class="fas fa-user-slash"></i>
-                    </button>
-
-                    <!-- 3. Freeze App (Sleep & Stop Camera/Mic) - Moved to Left Side 2nd Position -->
-                    <button class="control-btn freeze-btn" id="toggle-freeze" title="Freeze App (Sleep & Stop Camera/Mic)">
-                        <i class="fas fa-snowflake"></i>
                     </button>
 
                     <!-- 4. Switch between Audio Call and Video Call Mode -->
