@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=5.5">
+    <link rel="stylesheet" href="css/style.css?v=5.6">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=5.5" defer></script>
+    <script src="js/main.js?v=5.6" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -778,16 +778,6 @@
                         <i class="fas fa-users"></i>
                         <span id="badge-participant-count" class="badge-mini">0</span>
                     </button>
-
-                    <!-- More Options (Screen Share, PiP, Quality, Fullscreen, Eyes) - Left of Settings -->
-                    <button class="control-btn" id="btn-dock-more" title="More Options (Screen Share, PiP, Quality, Fullscreen)">
-                        <i class="fas fa-ellipsis-v"></i>
-                    </button>
-
-                    <!-- 14. Settings & Options - Left of Dropdown Chevron -->
-                    <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
-                        <i class="fas fa-cog"></i>
-                    </button>
                 </div>
 
                 <!-- Dock More Popover Menu (Screen Share, PiP, Quality, Fullscreen, Eyes) -->
@@ -826,8 +816,17 @@
                         <span id="more-label-remote-eye">Hide User View</span>
                     </button>
                 </div>
-                <!-- Pinned Static Right Button to Hide/Collapse Dock -->
+                <!-- Pinned Static Right Action Group (Always on Right, More + Settings + Dropdown Chevron) -->
                 <div class="controls-static-action">
+                    <!-- More Options Button: Left of Settings -->
+                    <button class="control-btn" id="btn-dock-more" title="More Options (Screen Share, PiP, Quality, Fullscreen)">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                    <!-- Settings Button: Left of Dropdown Chevron -->
+                    <button class="control-btn" id="toggle-more-menu" title="Settings & Options">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <!-- Dropdown Chevron: Far Right to Collapse Dock -->
                     <button class="control-btn toggle-bar-btn" id="btn-collapse-bar" title="Hide Controls">
                         <i class="fas fa-chevron-down"></i>
                     </button>

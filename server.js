@@ -324,6 +324,22 @@ io.on("connection", (socket) => {
             }
             finalName = cleanName;
         } else {
+            // Replace any previous socket from the same IP or stale socket for this username (eliminates spurious _1 on refresh/app reconnect)
+            const currentIp = socket.handshake.address;
+            for (const [sId, u] of usersBySocket.entries()) {
+                if (sId !== socket.id && u.username && u.username.toLowerCase() === cleanName.toLowerCase()) {
+                    const existingSocket = io.sockets.sockets.get(sId);
+                    const existingIp = existingSocket ? existingSocket.handshake.address : null;
+                    if (!existingSocket || !existingSocket.connected || (existingIp && existingIp === currentIp)) {
+                        console.log(`Replacing prior socket ${sId} for "${cleanName}" (same client/IP reconnect)`);
+                        if (existingSocket && existingSocket.connected) {
+                            try { existingSocket.disconnect(true); } catch (_) {}
+                        }
+                        usersBySocket.delete(sId);
+                    }
+                }
+            }
+
             // Check if cleanName is already taken by another active peer
             const otherActiveUsernames = new Set();
             for (const [sId, u] of usersBySocket.entries()) {
@@ -336,7 +352,7 @@ io.on("connection", (socket) => {
                 // Name is available! Keep exact requested name without suffix
                 finalName = cleanName;
             } else {
-                // Name is genuinely already in use by someone else. Append _1, _2, etc.
+                // Name is genuinely already in use by another separate peer. Append _1, _2, etc.
                 let suffix = 1;
                 let candidate = `${cleanName}_${suffix}`;
                 while (otherActiveUsernames.has(candidate.toLowerCase())) {

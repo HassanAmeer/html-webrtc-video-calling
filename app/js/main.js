@@ -1052,7 +1052,7 @@ updateEyeItemsUI();
 // Close More Menu when clicking anywhere outside
 document.addEventListener("click", (e) => {
     if (dockMoreMenu && dockMoreMenu.style.display !== "none") {
-        if (!dockMoreMenu.contains(e.target) && e.target !== btnDockMore && !btnDockMore.contains(e.target)) {
+        if (!dockMoreMenu.contains(e.target) && e.target !== btnDockMore && !(btnDockMore && btnDockMore.contains(e.target))) {
             closeDockMoreMenu();
         }
     }
@@ -4718,16 +4718,23 @@ if (btnCollapseBar) {
 }
 
 let expandHoldTimer = null;
-const HOLD_EXPAND_DURATION_MS = 450;
+const HOLD_EXPAND_DURATION_MS = 380;
+let expandTouchStartPos = null;
 
 function startExpandHold(e) {
     if (expandHoldTimer) clearTimeout(expandHoldTimer);
     if (btnExpandBar) btnExpandBar.classList.add("holding");
+    if (e && e.touches && e.touches[0]) {
+        expandTouchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else {
+        expandTouchStartPos = null;
+    }
     expandHoldTimer = setTimeout(() => {
-        if (navigator.vibrate) navigator.vibrate(40);
+        try { if (navigator.vibrate) navigator.vibrate(40); } catch (_) {}
         showControlsBar();
         if (btnExpandBar) btnExpandBar.classList.remove("holding");
         expandHoldTimer = null;
+        expandTouchStartPos = null;
     }, HOLD_EXPAND_DURATION_MS);
 }
 
@@ -4736,19 +4743,27 @@ function cancelExpandHold() {
         clearTimeout(expandHoldTimer);
         expandHoldTimer = null;
     }
+    expandTouchStartPos = null;
     if (btnExpandBar) {
         btnExpandBar.classList.remove("holding");
     }
 }
 
 if (btnExpandBar) {
-    // Touch hold for mobile
+    // Touch hold for mobile with 16px jitter tolerance
     btnExpandBar.addEventListener("touchstart", (e) => {
         startExpandHold(e);
     }, { passive: true });
     btnExpandBar.addEventListener("touchend", cancelExpandHold);
     btnExpandBar.addEventListener("touchcancel", cancelExpandHold);
-    btnExpandBar.addEventListener("touchmove", cancelExpandHold);
+    btnExpandBar.addEventListener("touchmove", (e) => {
+        if (!expandTouchStartPos || !e.touches || !e.touches[0]) return;
+        const dx = Math.abs(e.touches[0].clientX - expandTouchStartPos.x);
+        const dy = Math.abs(e.touches[0].clientY - expandTouchStartPos.y);
+        if (Math.hypot(dx, dy) > 16) {
+            cancelExpandHold();
+        }
+    }, { passive: true });
 
     // Mouse hold for desktop
     btnExpandBar.addEventListener("mousedown", (e) => {
@@ -6070,7 +6085,12 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("blur", () => {
-    shutdownIdleMediaHardware();
+    // Check if focus truly left the window (not an internal element interaction/hold)
+    setTimeout(() => {
+        if (!document.hasFocus() || document.visibilityState === "hidden") {
+            shutdownIdleMediaHardware();
+        }
+    }, 150);
 });
 
 window.addEventListener("focus", () => {

@@ -497,6 +497,7 @@ video::-webkit-media-controls-enclosure {
     margin-left: 4px;
     border-left: 1px solid rgba(255, 255, 255, 0.16);
     flex-shrink: 0;
+    gap: 6px;
 }
 
 .toggle-bar-btn {
@@ -574,7 +575,7 @@ video::-webkit-media-controls-enclosure {
 }
 
 .floating-end-call-btn.dock-collapsed {
-    bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(44px + env(safe-area-inset-bottom, 0px));
 }
 
 /* Minimalist Stealth Arrow-Up Launcher at Screen Bottom */
@@ -592,7 +593,12 @@ video::-webkit-media-controls-enclosure {
     font-size: 20px;
     cursor: pointer;
     z-index: 49;
-    padding: 10px 24px;
+    min-width: 160px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 20px;
     opacity: 0;
     pointer-events: none;
     transition: transform 0.3s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.3s ease, color 0.2s ease;
@@ -763,7 +769,7 @@ video::-webkit-media-controls-enclosure {
 .dock-more-popover {
     position: absolute;
     bottom: calc(100% + 10px);
-    right: 52px;
+    right: 86px;
     left: auto;
     background: rgba(24, 26, 30, 0.94);
     -webkit-backdrop-filter: blur(24px);
@@ -2487,6 +2493,7 @@ html.bypass-lock .security-lock-overlay {
     .controls-static-action {
         padding-left: 5px;
         margin-left: 3px;
+        gap: 5px;
     }
 
     .floating-end-call-btn {
@@ -2496,11 +2503,11 @@ html.bypass-lock .security-lock-overlay {
     }
 
     .floating-end-call-btn.dock-collapsed {
-        bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+        bottom: calc(40px + env(safe-area-inset-bottom, 0px));
     }
 
     .dock-more-popover {
-        right: 44px;
+        right: 74px;
         left: auto;
         min-width: 155px;
     }
@@ -2508,6 +2515,8 @@ html.bypass-lock .security-lock-overlay {
     .expand-bar-btn {
         bottom: 6px;
         font-size: 18px;
+        min-width: 150px;
+        height: 34px;
     }
 }
 
