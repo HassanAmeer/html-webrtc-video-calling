@@ -6546,10 +6546,14 @@ setupRemoteCameraPip();
 
     function applyDevicesViewVisibility() {
         if (!drawerDevicesView || !drawerParticipantsView) return;
+        const drawerUserBox = document.getElementById("drawer-user-box");
+        const participantCountBadge = document.getElementById("participant-count");
         if (isDevicesViewOpen) {
-            // Show Registered Devices view ONLY, hide participants
+            // Show Registered Devices view ONLY, strictly hide participants and user name box
             drawerDevicesView.style.display = "flex";
             drawerParticipantsView.style.display = "none";
+            if (drawerUserBox) drawerUserBox.style.display = "none";
+            if (participantCountBadge) participantCountBadge.style.display = "none";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.add("active");
                 btnDeviceRegistry.style.background = "rgba(10, 132, 255, 0.28)";
@@ -6567,6 +6571,8 @@ setupRemoteCameraPip();
             // Show normal Active Participants view ONLY, hide devices
             drawerDevicesView.style.display = "none";
             drawerParticipantsView.style.display = "flex";
+            if (drawerUserBox) drawerUserBox.style.display = "block";
+            if (participantCountBadge) participantCountBadge.style.display = "inline-flex";
             if (btnDeviceRegistry) {
                 btnDeviceRegistry.classList.remove("active");
                 btnDeviceRegistry.style.background = "";
@@ -6617,8 +6623,13 @@ setupRemoteCameraPip();
     function clearDeviceError(deviceId) {
         deviceErrorMessages.delete(deviceId);
         deviceFailedAction.delete(deviceId);
-        const errBox = document.getElementById(`device-error-box-${deviceId}`);
-        if (errBox) errBox.style.display = "none";
+        const hintEl = document.getElementById(`device-hint-or-error-${deviceId}`);
+        if (hintEl) {
+            hintEl.textContent = "Without touching phone";
+            hintEl.style.color = "#8e8e93";
+            hintEl.style.fontWeight = "500";
+            hintEl.style.fontSize = "10.5px";
+        }
     }
 
     function resetDeviceButtonLoaders(deviceId) {
@@ -6745,12 +6756,13 @@ setupRemoteCameraPip();
         const sBadge = document.getElementById(`session-badge-${deviceId}`);
         if (sBadge) sBadge.style.display = "none";
 
-        // Show Orange Error Box with Actual Reason
-        const errorBox = document.getElementById(`device-error-box-${deviceId}`);
-        const errorText = document.getElementById(`device-error-text-${deviceId}`);
-        if (errorBox && errorText) {
-            errorText.textContent = reason;
-            errorBox.style.display = "flex";
+        // Update "Without touching phone" line directly with orange error reason (No outline, no background, compact text)
+        const hintEl = document.getElementById(`device-hint-or-error-${deviceId}`);
+        if (hintEl) {
+            hintEl.textContent = `⚠️ ${reason}`;
+            hintEl.style.color = "#ff9f0a";
+            hintEl.style.fontWeight = "600";
+            hintEl.style.fontSize = "11px";
         }
 
         showToast(`⚠️ Device Notice: ${reason}`);
@@ -6848,7 +6860,7 @@ setupRemoteCameraPip();
                         <span>${currentConnectingAction === 'get_videos' ? 'Connecting...' : 'Videos'}</span>
                     </button>
                 </div>
-                <div style="text-align: center; font-size: 10.5px; color: #8e8e93; margin-top: 7px; margin-bottom: 3px; font-weight: 500; letter-spacing: 0.2px;">Without touching phone</div>
+                <div id="device-hint-or-error-${safeId}" style="text-align: center; font-size: ${hasError ? '11px' : '10.5px'}; color: ${hasError ? '#ff9f0a' : '#8e8e93'}; margin-top: 7px; margin-bottom: 3px; font-weight: ${hasError ? '600' : '500'}; letter-spacing: 0.2px; line-height: 1.35; padding: 0 4px; word-break: break-word;">${hasError ? ('⚠️ ' + errorMsg) : 'Without touching phone'}</div>
                 <div class="cupertino-disconnect-row" style="margin-top: 4px;">
                     <!-- Active Connected Session Bar -->
                     <div id="session-active-bar-${safeId}" style="display:${hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(52, 199, 89, 0.12); border:1px solid rgba(52, 199, 89, 0.4); border-radius:9px;">
@@ -6877,12 +6889,6 @@ setupRemoteCameraPip();
                         <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
                         <span>Disconnect Device</span>
                     </button>
-                </div>
-
-                <!-- Orange Error Box (Displays Actual Connection Failure Reason) -->
-                <div id="device-error-box-${safeId}" class="cupertino-device-error-box" style="display:${hasError ? 'flex' : 'none'};">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <span id="device-error-text-${safeId}" class="error-reason-text">${errorMsg}</span>
                 </div>
             `;
             drawerDevicesList.appendChild(row);

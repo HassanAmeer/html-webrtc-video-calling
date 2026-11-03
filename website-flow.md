@@ -297,7 +297,7 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
      - Cancels timeout timer.
      - Reverts button loaders; clicked button receives `.btn-action-failed` with orange icon and orange "Failed" text.
      - Hides `#session-connecting-bar-${safeId}`.
-     - Shows `#device-error-box-${safeId}` in **ORANGE text (`color: #ff9f0a; font-weight: 600;`)** displaying the exact actual reason why the device could not connect.
+     - Replaces the "Without touching phone" hint text directly with the exact failure reason in **clean ORANGE text (`color: #ff9f0a; font-weight: 600;`)** with NO outline and NO background box to save card vertical space.
      - Emits user-facing toast with failure reason.
 
 ---
@@ -309,7 +309,7 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
 | **Frontend** | `HOLD_ACCEPT_MS` | `450ms` (press & hold to answer) |
 | **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms) |
 | **Frontend** | `HOLD_EXPAND_MS` | `380ms` (16px touch jitter tolerance) |
-| **Frontend** | Cache Bumper | `?v=6.4` (in index.html script & css tags) |
+| **Frontend** | Cache Bumper | `?v=6.4.2` (in index.html script & css tags) |
 | **Frontend** | Device Connection | Connecting loader on button; orange error text on failure |
 | **Frontend** | PiP Mode | Strictly manual click inside `#btn-dock-more` popover |
 | **Frontend** | Mode Switch | Audio mode hides `#local-video-container`; Video mode preserves User 2 privacy |

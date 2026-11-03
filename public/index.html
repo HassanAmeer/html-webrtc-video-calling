@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=6.4.1">
+    <link rel="stylesheet" href="css/style.css?v=6.4.2">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=6.4.1" defer></script>
+    <script src="js/main.js?v=6.4.2" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -375,15 +375,6 @@
                 </div>
             </div>
 
-            <!-- Join / Update Name Section inside Drawer -->
-            <div class="drawer-user-box" id="drawer-user-box">
-                <label class="drawer-label">Your Display Name</label>
-                <div class="drawer-input-row">
-                    <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
-                    <button id="create-user">Join</button>
-                </div>
-            </div>
-
             <!-- Inline Device Registry View (Strictly inside sheet, toggled by Info Icon) -->
             <div id="drawer-devices-view" class="drawer-devices-container" style="display: none;">
                 <div class="drawer-list-header">
@@ -408,6 +399,14 @@
 
             <!-- Online Participants List View -->
             <div id="drawer-participants-view" class="drawer-list-container">
+                <!-- Join / Update Name Section inside Drawer (Visible ONLY in Participants View) -->
+                <div class="drawer-user-box" id="drawer-user-box">
+                    <label class="drawer-label">Your Display Name</label>
+                    <div class="drawer-input-row">
+                        <input id="username" type="text" placeholder="Enter Name to Join" autocomplete="off">
+                        <button id="create-user">Join</button>
+                    </div>
+                </div>
                 <div class="drawer-list-header">
                     <span>Active Users</span>
                     <div style="display: flex; align-items: center; gap: 8px;">
