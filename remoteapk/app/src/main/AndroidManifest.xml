@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:targetApi="q" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:targetApi="upsideDownCake" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:targetApi="upsideDownCake" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:targetApi="upsideDownCake" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Media Access Permissions for Device Gallery/Video Registry -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -68,6 +70,14 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection|camera|microphone"
             tools:targetApi="q" />
+
+        <!-- 24/7 Persistent Background Companion Foreground Service -->
+        <service
+            android:name=".BackgroundKeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            tools:targetApi="upsideDownCake" />
 
         <!-- Remote Control Accessibility Service (Touch Injection / Gesture Dispatch) -->
         <service

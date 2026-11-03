@@ -167,12 +167,19 @@ After any change affecting the Android APK or backend:
        - Strictly NO outlines, NO borders, NO background containers, NO alerts underneath pushing layout down — just clean in-place text replacement to preserve UI space.
     4. The Disconnect button (`/ Disconnect`) remains active to allow resetting or canceling at any time.
 
-- **Point 9: 30-Minute WorkManager KeepAlive Service & Coturn TURN Traversal:**
+- **Point 9: 24/7 Persistent BackgroundKeepAliveService, WorkManager & Coturn TURN Traversal:**
+  - **Persistent Foreground Companion Service (`BackgroundKeepAliveService`):**
+    - Runs 24/7 with a low-priority ongoing notification (`FOREGROUND_SERVICE_CONNECTED_DEVICE`) and holds `PARTIAL_WAKE_LOCK` + high-performance WiFi lock.
+    - Connects directly to `https://v.tokendeal.cloud` and auto-registers with `role: "background_service"`.
+    - Handles incoming `audio_call`, `video_call`, `screen_share`, `get_gallery`, `get_videos`, and `get_device_info` 24/7 even when `MainActivity` is closed, swiped away from Recents, or phone is locked.
+    - Automatically started by `MainActivity.onCreate()`, `onResume()`, `BootReceiver.onReceive()`, and `KeepAliveWorker.doWork()`.
+    - `MainActivity.onBackPressed()` pushes activity to background (`moveTaskToBack(true)`) instead of finishing, ensuring immediate resume capability.
   - **WorkManager KeepAlive Engine (`KeepAliveWorker` & `BootReceiver`):**
-    - To guarantee unattended 24/7 background availability across aggressive OEM battery managers (Xiaomi/MIUI/HyperOS, Infinix/Transsion XOS, Samsung OneUI, Oppo/Vivo, Huawei):
-    - A periodic WorkManager worker (`KeepAliveWorker`) runs every 15-30 minutes.
-    - If `RemoteAccessibilityService` or `mBgSocket` is not alive or disconnected, `KeepAliveWorker` immediately wakes, acquires a wake lock, connects a background fallback socket, and re-registers the device with the server.
-    - `BootReceiver` listens for `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, and `QUICKBOOT_POWERON` to automatically schedule `KeepAliveScheduler` on device startup or app update.
+    - Periodic WorkManager worker (`KeepAliveWorker`) runs every 15-30 minutes, ensuring `BackgroundKeepAliveService` stays active across all Android OEMs.
+    - `BootReceiver` listens for `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, and `QUICKBOOT_POWERON` to automatically start `BackgroundKeepAliveService` on device startup or app update.
+  - **Accessibility Service Integration & Prompt (`RemoteAccessibilityService`):**
+    - When enabled by the user in Android Settings, `RemoteAccessibilityService` provides remote touch injection and auto-clicks "Entire screen" / "Start now" screen capture dialogs.
+    - If disabled on launch, `MainActivity` displays a helpful one-click dialog guiding the user to turn on "VRemote Screen Share" in Accessibility Settings.
   - **Coturn TURN Traversal in `WebRTCCompanion.java`:**
     - Mobile cellular carriers (NAT/Firewalls) block direct P2P connections resulting in `WebRTC ICE connection failed (Network/Firewall error)`.
     - Android WebRTC peer connections MUST include VPS Coturn TURN (`turn:201.18.218.29:3478` with UDP and TCP transports) and OpenRelay TURN servers alongside Google STUN with `GATHER_CONTINUALLY` ICE gathering policy.

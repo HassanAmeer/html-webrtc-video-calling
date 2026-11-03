@@ -295,7 +295,7 @@ To support all Android devices (API 21+) and guarantee connectivity even if the 
 | Reboot Persistence | `BootReceiver` (`RECEIVE_BOOT_COMPLETED`) | Re-enqueues periodic work automatically on device boot |
 | Coturn TURN | VPS Coturn `turn:201.18.218.29:3478` (UDP/TCP) | Bypasses cellular NAT/firewalls; prevents ICE failures |
 | Stealth Lock PIN | `SECURITY_PIN = "7861"` (hold 1200ms) | Decoy error toast on wrong PIN/tap; bypass on `?uid=` |
-| Release APK Version | `v6.4.3` (`versionCode 14`) | Reflected in build.gradle & screen share download modal |
+| Release APK Version | `v6.4.4` (`versionCode 15`) | Reflected in build.gradle & screen share download modal |
 | Stealth Mode | `moveTaskToBack(true)` on session start | Phone must never remain on VRemote UI |
 | Entire Screen Auto-Accept | `setAutoAcceptPending(true)` | Clicks "Entire screen" & "Start now" in < 500ms |
 | Auto-PiP | `setAutoEnterEnabled(false)` | Strictly disabled; manual click only |

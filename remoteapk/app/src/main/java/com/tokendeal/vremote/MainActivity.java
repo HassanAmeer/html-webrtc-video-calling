@@ -56,6 +56,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private boolean streamCompanionCamera = true;
     private String companionCameraChoice = "front";
     private boolean isCallActive = false;
+    private boolean hasPromptedAccessibility = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +90,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         } catch (Exception ignored) {}
 
         projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+
+        // Start 24/7 background companion service immediately
+        BackgroundKeepAliveService.startService(this);
 
         requestAppPermissions();
         initWebRTC();
@@ -499,6 +503,32 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             webView.onResume();
             webView.resumeTimers();
         }
+        BackgroundKeepAliveService.startService(this);
+        checkAccessibilityPrompt();
+    }
+
+    private void checkAccessibilityPrompt() {
+        if (hasPromptedAccessibility) return;
+        if (!RemoteAccessibilityService.isServiceRunning()) {
+            hasPromptedAccessibility = true;
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    if (isFinishing() || isDestroyed()) return;
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("Enable Background Remote Control")
+                            .setMessage("To enable remote touch control and auto screen share without touching this phone, please turn ON 'VRemote Screen Share' in Accessibility Settings.\n\n(If your phone shows 'Restricted setting', go to Settings > Apps > VRemote > tap 3 dots in top right > tap 'Allow restricted settings' first).")
+                            .setPositiveButton("Open Settings", (dialog, which) -> {
+                                try {
+                                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                                    startActivity(intent);
+                                } catch (Exception ignored) {}
+                            })
+                            .setNegativeButton("Later", null)
+                            .setCancelable(true)
+                            .show();
+                } catch (Exception ignored) {}
+            }, 1200);
+        }
     }
 
     @Override
@@ -575,7 +605,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
-            super.onBackPressed();
+            // Push activity to background instead of destroying, keeping session ready
+            try {
+                moveTaskToBack(true);
+            } catch (Exception e) {
+                super.onBackPressed();
+            }
         }
     }
 
