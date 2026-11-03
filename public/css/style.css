@@ -4450,6 +4450,67 @@ html.bypass-lock .security-lock-overlay {
     cursor: pointer !important;
 }
 
+/* Loading & Connecting State on Action Buttons */
+.dev-action-btn.btn-action-loading {
+    background: rgba(10, 132, 255, 0.22) !important;
+    border-color: #0a84ff !important;
+    pointer-events: none !important;
+    cursor: wait !important;
+    animation: btnLoadingPulse 1.2s infinite ease-in-out;
+}
+
+.dev-action-btn.btn-action-loading i {
+    color: #60a5fa !important;
+    animation: fa-spin 1s infinite linear;
+}
+
+.dev-action-btn.btn-action-loading span {
+    color: #93c5fd !important;
+    font-weight: 700 !important;
+}
+
+@keyframes btnLoadingPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(10, 132, 255, 0.3); }
+    50% { box-shadow: 0 0 12px rgba(10, 132, 255, 0.7); }
+}
+
+/* Failed / Orange Highlight State */
+.dev-action-btn.btn-action-failed {
+    border-color: #ff9f0a !important;
+    background: rgba(255, 159, 10, 0.18) !important;
+}
+
+.dev-action-btn.btn-action-failed i {
+    color: #ff9f0a !important;
+}
+
+/* Orange Error Box under device card */
+.cupertino-device-error-box {
+    margin-top: 6px;
+    padding: 7px 11px;
+    background: rgba(255, 159, 10, 0.12);
+    border: 1px solid rgba(255, 159, 10, 0.55);
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: btnClickShake 0.4s ease;
+}
+
+.cupertino-device-error-box i {
+    color: #ff9f0a;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.cupertino-device-error-box .error-reason-text {
+    color: #ff9f0a;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
 .cupertino-modal-footer {
     padding: 8px 16px;
     border-top: 0.5px solid rgba(255, 255, 255, 0.08);

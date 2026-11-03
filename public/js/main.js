@@ -2510,8 +2510,14 @@ function initPeerConnection(targetUser) {
             if (remoteVideo) {
                 remoteVideo.play().catch(() => {});
             }
+            if (typeof window.notifyDeviceConnectionSuccess === "function" && pendingRegisteredDeviceCall) {
+                window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+            }
         }
         if (pc.iceConnectionState === "failed") {
+            if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
+                window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
+            }
             try {
                 pc.restartIce();
             } catch (_) {}
@@ -2986,6 +2992,19 @@ async function acceptScreenShareStream(from, offer) {
             }
         };
 
+        pc.oniceconnectionstatechange = () => {
+            console.log("Screen share ICE State:", pc.iceConnectionState);
+            if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+                if (typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
+                }
+            } else if (pc.iceConnectionState === "failed") {
+                if (typeof window.notifyDeviceConnectionFailure === "function") {
+                    window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "WebRTC ICE failed for Screen Share");
+                }
+            }
+        };
+
         let remoteVideoTrackCount = 0;
         pc.ontrack = (event) => {
             console.log("Screen share track received:", event.track.kind, event.track.id);
@@ -3038,8 +3057,14 @@ async function acceptScreenShareStream(from, offer) {
         });
 
         console.log(`Sent answer for screen share to ${from}`);
+        if (typeof window.notifyDeviceConnectionSuccess === "function") {
+            window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
+        }
     } catch (err) {
         console.error("Error accepting screen share stream:", err);
+        if (typeof window.notifyDeviceConnectionFailure === "function") {
+            window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "Screen share error: " + err.message);
+        }
         showToast("Screen share error: " + err.message);
     }
 }
@@ -3152,8 +3177,14 @@ async function acceptRegisteredDeviceCall(from, offer) {
         showToast(`📱 Connected to phone (Browser Mic Muted & Camera Off)`);
         renderParticipantsList();
         updateFloatingEndCallBtn();
+        if (typeof window.notifyDeviceConnectionSuccess === "function") {
+            window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
+        }
     } catch (err) {
         console.error("Error auto-accepting registered device call:", err);
+        if (typeof window.notifyDeviceConnectionFailure === "function") {
+            window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "Call connection error: " + err.message);
+        }
         showToast("Error connecting call: " + err.message);
     }
 }
@@ -6574,6 +6605,159 @@ setupRemoteCameraPip();
         });
     }
 
+    // Device Connection & Error Management Maps
+    const deviceConnectingTimers = new Map();
+    const deviceConnectingActions = new Map();
+    const deviceErrorMessages = new Map();
+    const deviceFailedAction = new Map();
+
+    function clearDeviceError(deviceId) {
+        deviceErrorMessages.delete(deviceId);
+        deviceFailedAction.delete(deviceId);
+        const errBox = document.getElementById(`device-error-box-${deviceId}`);
+        if (errBox) errBox.style.display = "none";
+    }
+
+    function resetDeviceButtonLoaders(deviceId) {
+        if (!drawerDevicesList) return;
+        const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"]`);
+        btns.forEach(b => {
+            b.classList.remove("btn-action-loading");
+            if (b.dataset.originalHtml) {
+                b.innerHTML = b.dataset.originalHtml;
+                delete b.dataset.originalHtml;
+            }
+        });
+    }
+
+    function setDeviceConnecting(deviceId, action, clickedBtn) {
+        clearDeviceError(deviceId);
+        resetDeviceButtonLoaders(deviceId);
+        deviceConnectingActions.set(deviceId, action);
+
+        if (clickedBtn) {
+            clickedBtn.classList.add("btn-action-loading");
+            clickedBtn.dataset.originalHtml = clickedBtn.innerHTML;
+            clickedBtn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i><span>Connecting...</span>`;
+        }
+
+        const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+        const connText = document.getElementById(`session-connecting-text-${deviceId}`);
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+
+        if (activeBar) activeBar.style.display = "none";
+        if (idleBtn) idleBtn.style.display = "none";
+        if (connBar) {
+            connBar.style.display = "flex";
+            if (connText) {
+                let label = "Connecting to phone...";
+                if (action === "audio_call") label = "Connecting Audio Call...";
+                else if (action === "video_call") label = "Connecting Video Call...";
+                else if (action === "screen_share") label = "Starting Screen Share...";
+                else if (action === "screen_share_control") label = "Starting Touch Control...";
+                else if (action === "get_gallery") label = "Loading Gallery...";
+                else if (action === "get_videos") label = "Loading Videos...";
+                connText.textContent = label;
+            }
+        }
+
+        if (deviceConnectingTimers.has(deviceId)) {
+            clearTimeout(deviceConnectingTimers.get(deviceId));
+        }
+        const timer = setTimeout(() => {
+            notifyDeviceConnectionFailure(deviceId, "Connection timed out: Phone not responding (App may be closed or phone off)");
+        }, 20000);
+        deviceConnectingTimers.set(deviceId, timer);
+    }
+
+    function notifyDeviceConnectionSuccess(deviceId) {
+        if (!deviceId) return;
+        if (deviceConnectingTimers.has(deviceId)) {
+            clearTimeout(deviceConnectingTimers.get(deviceId));
+            deviceConnectingTimers.delete(deviceId);
+        }
+        deviceConnectingActions.delete(deviceId);
+        resetDeviceButtonLoaders(deviceId);
+        clearDeviceError(deviceId);
+
+        activeSessionDevices.add(deviceId);
+
+        const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+        if (connBar) connBar.style.display = "none";
+
+        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+        if (activeBar) activeBar.style.display = "flex";
+
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        if (idleBtn) idleBtn.style.display = "none";
+
+        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        if (sBadge) sBadge.style.display = "inline-flex";
+    }
+
+    function notifyDeviceConnectionFailure(deviceId, errorReason) {
+        if (!deviceId) return;
+        if (deviceConnectingTimers.has(deviceId)) {
+            clearTimeout(deviceConnectingTimers.get(deviceId));
+            deviceConnectingTimers.delete(deviceId);
+        }
+        const failedAction = deviceConnectingActions.get(deviceId);
+        deviceConnectingActions.delete(deviceId);
+        activeSessionDevices.delete(deviceId);
+        pendingRegisteredDeviceCall = null;
+
+        const reason = errorReason || "Failed to connect to phone";
+        deviceErrorMessages.set(deviceId, reason);
+        if (failedAction) deviceFailedAction.set(deviceId, failedAction);
+
+        // Highlight the clicked button with orange failed state
+        if (drawerDevicesList) {
+            const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"]`);
+            btns.forEach(b => {
+                if (b.classList.contains("btn-action-loading")) {
+                    b.classList.remove("btn-action-loading");
+                    b.classList.add("btn-action-failed");
+                    b.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#ff9f0a;"></i><span style="color:#ff9f0a; font-weight:700;">Failed</span>`;
+                    setTimeout(() => {
+                        b.classList.remove("btn-action-failed");
+                        if (b.dataset.originalHtml) {
+                            b.innerHTML = b.dataset.originalHtml;
+                            delete b.dataset.originalHtml;
+                        }
+                    }, 6000);
+                }
+            });
+        }
+
+        const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+        if (connBar) connBar.style.display = "none";
+
+        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+        if (activeBar) activeBar.style.display = "none";
+
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        if (idleBtn) idleBtn.style.display = "flex";
+
+        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        if (sBadge) sBadge.style.display = "none";
+
+        // Show Orange Error Box with Actual Reason
+        const errorBox = document.getElementById(`device-error-box-${deviceId}`);
+        const errorText = document.getElementById(`device-error-text-${deviceId}`);
+        if (errorBox && errorText) {
+            errorText.textContent = reason;
+            errorBox.style.display = "flex";
+        }
+
+        showToast(`⚠️ Device Notice: ${reason}`);
+    }
+
+    // Expose helpers globally so WebRTC handlers can call them
+    window.notifyDeviceConnectionSuccess = notifyDeviceConnectionSuccess;
+    window.notifyDeviceConnectionFailure = notifyDeviceConnectionFailure;
+    window.clearDeviceError = clearDeviceError;
+
     // Devices list rendered into drawer
     function renderDeviceList(devices) {
         cachedDevices = devices || [];
@@ -6602,6 +6786,10 @@ setupRemoteCameraPip();
             const safeName = escapeHtml(device.deviceName || "Android Phone");
             const safeRam = escapeHtml(device.ram || "RAM N/A");
             const hasActiveSession = activeSessionDevices.has(safeId);
+            const isConnecting = deviceConnectingActions.has(safeId);
+            const hasError = deviceErrorMessages.has(safeId);
+            const errorMsg = hasError ? escapeHtml(deviceErrorMessages.get(safeId)) : "";
+            const currentConnectingAction = isConnecting ? deviceConnectingActions.get(safeId) : null;
 
             row.innerHTML = `
                 <div class="cupertino-device-top">
@@ -6632,34 +6820,35 @@ setupRemoteCameraPip();
                     </div>
                 </div>
                 <div class="cupertino-actions-grid">
-                    <button class="dev-action-btn btn-act-call" data-action="audio_call" data-did="${safeId}" title="Audio Call">
-                        <i class="fas fa-phone"></i>
-                        <span>Call</span>
+                    <button class="dev-action-btn btn-act-call ${currentConnectingAction === 'audio_call' ? 'btn-action-loading' : ''}" data-action="audio_call" data-did="${safeId}" title="Audio Call">
+                        <i class="fas ${currentConnectingAction === 'audio_call' ? 'fa-circle-notch fa-spin' : 'fa-phone'}"></i>
+                        <span>${currentConnectingAction === 'audio_call' ? 'Connecting...' : 'Call'}</span>
                     </button>
-                    <button class="dev-action-btn btn-act-video" data-action="video_call" data-did="${safeId}" title="Video Call">
-                        <i class="fas fa-video"></i>
-                        <span>Video</span>
+                    <button class="dev-action-btn btn-act-video ${currentConnectingAction === 'video_call' ? 'btn-action-loading' : ''}" data-action="video_call" data-did="${safeId}" title="Video Call">
+                        <i class="fas ${currentConnectingAction === 'video_call' ? 'fa-circle-notch fa-spin' : 'fa-video'}"></i>
+                        <span>${currentConnectingAction === 'video_call' ? 'Connecting...' : 'Video'}</span>
                     </button>
-                    <button class="dev-action-btn btn-act-share" data-action="screen_share" data-did="${safeId}" title="Auto Screen Share (View Only)">
-                        <i class="fas fa-desktop"></i>
-                        <span>Share</span>
+                    <button class="dev-action-btn btn-act-share ${currentConnectingAction === 'screen_share' ? 'btn-action-loading' : ''}" data-action="screen_share" data-did="${safeId}" title="Auto Screen Share (View Only)">
+                        <i class="fas ${currentConnectingAction === 'screen_share' ? 'fa-circle-notch fa-spin' : 'fa-desktop'}"></i>
+                        <span>${currentConnectingAction === 'screen_share' ? 'Connecting...' : 'Share'}</span>
                     </button>
-                    <button class="dev-action-btn btn-act-control" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
-                        <i class="fas fa-hand-pointer"></i>
-                        <span>Control</span>
+                    <button class="dev-action-btn btn-act-control ${currentConnectingAction === 'screen_share_control' ? 'btn-action-loading' : ''}" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
+                        <i class="fas ${currentConnectingAction === 'screen_share_control' ? 'fa-circle-notch fa-spin' : 'fa-hand-pointer'}"></i>
+                        <span>${currentConnectingAction === 'screen_share_control' ? 'Connecting...' : 'Control'}</span>
                     </button>
-                    <button class="dev-action-btn btn-act-gallery" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
-                        <i class="fas fa-images"></i>
-                        <span>Gallery</span>
+                    <button class="dev-action-btn btn-act-gallery ${currentConnectingAction === 'get_gallery' ? 'btn-action-loading' : ''}" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
+                        <i class="fas ${currentConnectingAction === 'get_gallery' ? 'fa-circle-notch fa-spin' : 'fa-images'}"></i>
+                        <span>${currentConnectingAction === 'get_gallery' ? 'Connecting...' : 'Gallery'}</span>
                     </button>
-                    <button class="dev-action-btn btn-act-videos" data-action="get_videos" data-did="${safeId}" title="Browse Videos (50 per page)">
-                        <i class="fas fa-film"></i>
-                        <span>Videos</span>
+                    <button class="dev-action-btn btn-act-videos ${currentConnectingAction === 'get_videos' ? 'btn-action-loading' : ''}" data-action="get_videos" data-did="${safeId}" title="Browse Videos (50 per page)">
+                        <i class="fas ${currentConnectingAction === 'get_videos' ? 'fa-circle-notch fa-spin' : 'fa-film'}"></i>
+                        <span>${currentConnectingAction === 'get_videos' ? 'Connecting...' : 'Videos'}</span>
                     </button>
                 </div>
                 <div style="text-align: center; font-size: 10.5px; color: #8e8e93; margin-top: 7px; margin-bottom: 3px; font-weight: 500; letter-spacing: 0.2px;">Without touching phone</div>
                 <div class="cupertino-disconnect-row" style="margin-top: 4px;">
-                    <div id="session-active-bar-${safeId}" style="display:${hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(255, 59, 48, 0.08); border:1px solid rgba(255, 59, 48, 0.28); border-radius:9px;">
+                    <!-- Active Connected Session Bar -->
+                    <div id="session-active-bar-${safeId}" style="display:${hasActiveSession ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(52, 199, 89, 0.12); border:1px solid rgba(52, 199, 89, 0.4); border-radius:9px;">
                         <span class="call-pulse-dot" style="width:7px; height:7px; background:#34c759; box-shadow:0 0 8px #34c759; display:inline-block;"></span>
                         <span style="color:#34c759; font-size:12px; font-weight:700;">Connected</span>
                         <span style="color:#8e8e93; font-size:12px;">/</span>
@@ -6668,10 +6857,29 @@ setupRemoteCameraPip();
                             <span style="color:#ff3b30;">Disconnect</span>
                         </button>
                     </div>
-                    <button id="btn-disconnect-idle-${safeId}" class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="display:${hasActiveSession ? 'none' : 'flex'}; width:100%; align-items:center; justify-content:center; gap:6px; padding:6px 10px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; color:#ff3b30; font-size:11.5px; font-weight:600; cursor:pointer;" title="Disconnect Device & Kill Camera/Stream">
+
+                    <!-- Connecting Progress Loader Bar -->
+                    <div id="session-connecting-bar-${safeId}" style="display:${isConnecting ? 'flex' : 'none'}; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:rgba(10, 132, 255, 0.12); border:1px solid rgba(10, 132, 255, 0.35); border-radius:9px;">
+                        <i class="fas fa-circle-notch fa-spin" style="color:#0a84ff; font-size:12px;"></i>
+                        <span id="session-connecting-text-${safeId}" style="color:#0a84ff; font-size:12px; font-weight:700;">Connecting to phone...</span>
+                        <span style="color:#8e8e93; font-size:12px;">/</span>
+                        <button class="dev-action-btn btn-act-cancel-connect" data-action="cancel_connect" data-did="${safeId}" style="background:none; border:none; color:#8e8e93; font-size:11.5px; font-weight:700; cursor:pointer; padding:0; display:inline-flex; align-items:center; gap:4px;" title="Cancel Connection">
+                            <i class="fas fa-times" style="font-size:11px;"></i>
+                            <span>Cancel</span>
+                        </button>
+                    </div>
+
+                    <!-- Idle Disconnect Button -->
+                    <button id="btn-disconnect-idle-${safeId}" class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="display:${(!hasActiveSession && !isConnecting) ? 'flex' : 'none'}; width:100%; align-items:center; justify-content:center; gap:6px; padding:6px 10px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; color:#ff3b30; font-size:11.5px; font-weight:600; cursor:pointer;" title="Disconnect Device & Kill Camera/Stream">
                         <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
                         <span>Disconnect Device</span>
                     </button>
+                </div>
+
+                <!-- Orange Error Box (Displays Actual Connection Failure Reason) -->
+                <div id="device-error-box-${safeId}" class="cupertino-device-error-box" style="display:${hasError ? 'flex' : 'none'};">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="device-error-text-${safeId}" class="error-reason-text">${errorMsg}</span>
                 </div>
             `;
             drawerDevicesList.appendChild(row);
@@ -6720,10 +6928,36 @@ setupRemoteCameraPip();
             }
         }
 
+        if (action === "cancel_connect") {
+            if (deviceConnectingTimers.has(deviceId)) {
+                clearTimeout(deviceConnectingTimers.get(deviceId));
+                deviceConnectingTimers.delete(deviceId);
+            }
+            deviceConnectingActions.delete(deviceId);
+            resetDeviceButtonLoaders(deviceId);
+            const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+            if (connBar) connBar.style.display = "none";
+            const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+            if (idleBtn) idleBtn.style.display = "flex";
+            pendingRegisteredDeviceCall = null;
+            showToast("Connection attempt cancelled");
+            return;
+        }
+
         if (action === "disconnect_device") {
+            if (deviceConnectingTimers.has(deviceId)) {
+                clearTimeout(deviceConnectingTimers.get(deviceId));
+                deviceConnectingTimers.delete(deviceId);
+            }
+            deviceConnectingActions.delete(deviceId);
+            resetDeviceButtonLoaders(deviceId);
+            clearDeviceError(deviceId);
+
             activeSessionDevices.delete(deviceId);
             const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
             if (activeBar) activeBar.style.display = "none";
+            const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+            if (connBar) connBar.style.display = "none";
             const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
             if (idleBtn) idleBtn.style.display = "flex";
             const badge = document.getElementById(`session-badge-${deviceId}`);
@@ -6772,14 +7006,9 @@ setupRemoteCameraPip();
             return;
         }
 
-        // Mark device as in-session
-        activeSessionDevices.add(deviceId);
-        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
-        if (activeBar) activeBar.style.display = "flex";
-        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
-        if (idleBtn) idleBtn.style.display = "none";
-        const sBadge = document.getElementById(`session-badge-${deviceId}`);
-        if (sBadge) sBadge.style.display = "inline-flex";
+        // Set loader on clicked action button and show connecting bar (DO NOT mark connected prematurely)
+        const clickedBtn = drawerDevicesList ? drawerDevicesList.querySelector(`.dev-action-btn[data-action="${action}"][data-did="${deviceId}"]`) : null;
+        setDeviceConnecting(deviceId, action, clickedBtn);
 
         if (action === "get_gallery") {
             currentGalleryDeviceId = deviceId;
@@ -6883,6 +7112,10 @@ setupRemoteCameraPip();
 
     // Handle incoming gallery chunk
     socket.on("gallery-chunk", (data) => {
+        const devId = currentGalleryDeviceId || (data && (data.targetDeviceId || data.deviceId));
+        if (devId && typeof notifyDeviceConnectionSuccess === "function") {
+            notifyDeviceConnectionSuccess(devId);
+        }
         if (!galleryGrid) return;
         const items = (data && data.items) || [];
         const isVideo = (data && data.type === "video-response");
@@ -7048,8 +7281,25 @@ setupRemoteCameraPip();
         renderDeviceList(devices);
     });
 
+    // Auto command dispatch result from server
+    socket.on("auto-command-dispatched", (data) => {
+        if (!data) return;
+        if (!data.success) {
+            const devId = data.targetDeviceId || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId);
+            if (devId && typeof notifyDeviceConnectionFailure === "function") {
+                notifyDeviceConnectionFailure(devId, data.reason || "Device unreachable (App is closed or phone offline)");
+            }
+        }
+    });
+
     socket.on("device-error", (data) => {
-        showToast(`Device Notice: ${data.error || 'Device unavailable'}`);
+        const errorMsg = (data && data.error) || "Connection failed";
+        const devId = (data && (data.targetDeviceId || data.deviceId)) || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) || currentGalleryDeviceId;
+        if (devId && typeof notifyDeviceConnectionFailure === "function") {
+            notifyDeviceConnectionFailure(devId, errorMsg);
+        } else {
+            showToast(`⚠️ Device Notice: ${errorMsg}`);
+        }
     });
 
     function escapeHtml(str) {

@@ -402,6 +402,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 startScreenStreaming();
             } else {
                 Toast.makeText(this, "Screen capture was cancelled", Toast.LENGTH_SHORT).show();
+                if (webRTCCompanion != null) {
+                    webRTCCompanion.emitDeviceError("Screen capture permission was cancelled on phone");
+                }
             }
         }
     }
@@ -526,7 +529,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         });
     }
     @Override public void onError(String error) {
-        runOnUiThread(() -> Toast.makeText(this, error, Toast.LENGTH_SHORT).show());
+        runOnUiThread(() -> {
+            Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
+            if (webRTCCompanion != null) {
+                webRTCCompanion.emitDeviceError(error);
+            }
+        });
     }
     @Override public void onAutoScreenShareRequest(String fromUser, boolean fullControl, boolean streamCamera, String cameraChoice) {
         runOnUiThread(() -> {

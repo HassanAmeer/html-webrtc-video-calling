@@ -320,6 +320,9 @@ public class WebRTCCompanion {
                 if (iceConnectionState == PeerConnection.IceConnectionState.DISCONNECTED ||
                     iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
                     if (callback != null) callback.onStatusChanged("Call Disconnected", false);
+                    if (iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
+                        emitDeviceError("WebRTC ICE connection failed (Network/Firewall error)");
+                    }
                 }
             }
 
@@ -733,7 +736,34 @@ public class WebRTCCompanion {
                     Log.e(TAG, "Error sending offer", e);
                 }
             }
+
+            @Override
+            public void onCreateFailure(String error) {
+                Log.e(TAG, "Create offer failed: " + error);
+                emitDeviceError("Phone WebRTC Offer failed: " + error);
+                if (callback != null) callback.onError("WebRTC Offer failed: " + error);
+            }
+
+            @Override
+            public void onSetFailure(String error) {
+                Log.e(TAG, "Set local SDP failed: " + error);
+                emitDeviceError("Phone WebRTC Local SDP failed: " + error);
+                if (callback != null) callback.onError("WebRTC SDP failed: " + error);
+            }
         }, constraints);
+    }
+
+    public void emitDeviceError(String errorMsg) {
+        try {
+            if (socket != null && socket.connected()) {
+                JSONObject payload = new JSONObject();
+                payload.put("targetDeviceId", myDeviceId);
+                payload.put("error", errorMsg);
+                payload.put("from", myId);
+                socket.emit("device-error", payload);
+                Log.w(TAG, "Device error emitted to server: " + errorMsg);
+            }
+        } catch (Exception ignored) {}
     }
 
     private void handleRemoteAnswer(JSONObject answerObj) throws Exception {

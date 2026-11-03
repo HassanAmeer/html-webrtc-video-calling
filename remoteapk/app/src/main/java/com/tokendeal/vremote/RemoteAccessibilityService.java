@@ -278,6 +278,15 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 pi.send();
             } catch (Exception ex) {
                 Log.e(TAG, "PendingIntent also failed", ex);
+                try {
+                    JSONObject err = new JSONObject();
+                    err.put("targetDeviceId", DeviceRegistry.getDeviceId(this));
+                    err.put("command", command);
+                    err.put("error", "Phone background launch failed: " + ex.getMessage());
+                    if (mBgSocket != null && mBgSocket.connected()) {
+                        mBgSocket.emit("device-error", err);
+                    }
+                } catch (Exception ignored) {}
             }
         }
     }

@@ -265,17 +265,55 @@ Used by the web frontend to remotely command unattended Android devices:
 
 ---
 
-## 8. Summary of Critical Constants & Contract Bindings
+## 9. Registered Device Connection Lifecycle & Orange Error Reporting
+
+### 1. The Core Lifecycle
+To prevent false "Connected" confirmations when a remote phone is offline, unresponsive, or fails to establish a media session:
+
+1. **Triggering Action (Audio, Video, Share, Control, Gallery, Videos):**
+   - Clicked button transitions to `.btn-action-loading` with a spinning loader (`<i class="fas fa-circle-notch fa-spin"></i>`) and `Connecting...` label.
+   - `#session-connecting-bar-${safeId}` becomes visible under the action buttons with an active spinner and a "Cancel" button.
+   - A 20-second timeout timer starts.
+   - **Crucial Rule:** The device is **NEVER** marked as `Connected` on button click. `activeSessionDevices.add(deviceId)` is strictly withheld until real WebRTC or socket stream confirmation.
+
+2. **Connection Success (`notifyDeviceConnectionSuccess`):**
+   - Triggered ONLY when:
+     - WebRTC ICE connection reaches `connected` / `completed`.
+     - `acceptRegisteredDeviceCall` or `acceptScreenShareStream` sets local answer SDP and begins streaming tracks.
+     - `gallery-chunk` payload arrives from device.
+   - Actions:
+     - Cancels the 20s timeout timer.
+     - Clears button loaders (`resetDeviceButtonLoaders`).
+     - Hides `#session-connecting-bar-${safeId}`.
+     - Displays `#session-active-bar-${safeId}` with green pulsing dot, "Connected", and red Disconnect button.
+     - Displays green "Connected" badge `#session-badge-${safeId}` in the device header.
+
+3. **Connection Failure & Orange Reason Display (`notifyDeviceConnectionFailure`):**
+   - Triggered when:
+     - Server emits `auto-command-dispatched` with `success: false` (Device offline or not registered).
+     - Android app emits `device-error` with specific message (e.g. "Screen capture permission was cancelled on phone", "Phone background launch failed", "WebRTC ICE connection failed").
+     - 20-second timeout expires ("Connection timed out: Phone not responding (App may be closed or phone off)").
+   - Actions:
+     - Cancels timeout timer.
+     - Reverts button loaders; clicked button receives `.btn-action-failed` with orange icon and orange "Failed" text.
+     - Hides `#session-connecting-bar-${safeId}`.
+     - Shows `#device-error-box-${safeId}` in **ORANGE text (`color: #ff9f0a; font-weight: 600;`)** displaying the exact actual reason why the device could not connect.
+     - Emits user-facing toast with failure reason.
+
+---
+
+## 10. Summary of Critical Constants & Contract Bindings
 
 | Domain | Constant / Event | Value / Rule |
 |---|---|---|
 | **Frontend** | `HOLD_ACCEPT_MS` | `450ms` (press & hold to answer) |
 | **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms) |
 | **Frontend** | `HOLD_EXPAND_MS` | `380ms` (16px touch jitter tolerance) |
-| **Frontend** | Cache Bumper | `?v=6.2` (in index.html script & css tags) |
+| **Frontend** | Cache Bumper | `?v=6.4` (in index.html script & css tags) |
+| **Frontend** | Device Connection | Connecting loader on button; orange error text on failure |
 | **Frontend** | PiP Mode | Strictly manual click inside `#btn-dock-more` popover |
 | **Frontend** | Mode Switch | Audio mode hides `#local-video-container`; Video mode preserves User 2 privacy |
 | **Backend** | Device Registry | `device.sockets = new Set()` tracks background & companion sockets |
 | **Backend** | Offline Rule | Device stays `online = true` as long as `sockets.size > 0` |
-| **Backend** | `end-call` Routing | Multi-tier match (device, exact, socket, case-insensitive, base UID) |
+| **Backend** | `device-error` Relay | Relays exact device failure reasons to requesting web client |
 | **Backend** | Command Broadcast | Never broadcast `end_call` to all devices; target specific peer/session only |

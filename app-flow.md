@@ -237,7 +237,28 @@ MainActivity.stopAllMediaAndFinish()
 
 ---
 
-## 12. Summary of App Constraints & Build Checklist
+## 12. Device Error Catching & Orange Failure Relay
+
+To provide real-time explanations for why a connection did not succeed:
+1. **`WebRTCCompanion.java` - `emitDeviceError(String errorMsg)`:**
+   - Emits socket event `device-error` with `{ targetDeviceId: myDeviceId, error: errorMsg, from: myId }`.
+   - Bound to WebRTC callbacks:
+     - `onIceConnectionChange(FAILED)`: `"WebRTC ICE connection failed (Network/Firewall error)"`
+     - `onCreateFailure`: `"Phone WebRTC Offer failed: " + error`
+     - `onSetFailure`: `"Phone WebRTC Local SDP failed: " + error`
+2. **`MainActivity.java`:**
+   - Screen capture cancelled in `onActivityResult`: Emits `"Screen capture permission was cancelled on phone"`.
+   - `onError`: Catches internal WebRTC / camera hardware exceptions and relays via `emitDeviceError`.
+3. **`RemoteAccessibilityService.java`:**
+   - Try-catch on background `PendingIntent` and activity launch: Emits `"Phone background launch failed: " + ex.getMessage()`.
+4. **Offline Detection (`server.js`):**
+   - If an `auto-command` cannot find target or target has no open sockets, server emits `device-error`:
+     - `"Device is offline (phone app closed or background service not running)"`
+     - `"Device not registered on server (app has never connected)"`
+
+---
+
+## 13. Summary of App Constraints & Build Checklist
 
 | Component | Setting / Behavior | Requirement |
 |---|---|---|
@@ -247,5 +268,6 @@ MainActivity.stopAllMediaAndFinish()
 | Auto-PiP | `setAutoEnterEnabled(false)` | Strictly disabled; manual click only |
 | WebView Cache | `clearCache(true)` + `/?v=<timestamp>` | Always executes fresh HTML/JS/CSS |
 | Hardware Release | `stopAllMediaAndFinish()` | Extinguishes green camera dot immediately on call end |
+| Device Error Reporting | `emitDeviceError()` | Relays exact failure reasons in real-time |
 | Gradle Build | `gradle assembleRelease` on VPS | Builds unsigned/release APK into `/downloads/vremote.apk` |
 | Directory Sync | `public/` & `app/` | Must be 100% byte-for-byte identical at all times |
