@@ -488,7 +488,7 @@ video::-webkit-media-controls-enclosure {
     display: none;
 }
 
-/* Pinned Static Right Action Container (Never Scrolls) */
+/* Pinned Static Right Action Container (Never Scrolls - ONLY Dropdown Arrow) */
 .controls-static-action {
     display: flex;
     align-items: center;
@@ -497,7 +497,6 @@ video::-webkit-media-controls-enclosure {
     margin-left: 4px;
     border-left: 1px solid rgba(255, 255, 255, 0.16);
     flex-shrink: 0;
-    gap: 6px;
 }
 
 .toggle-bar-btn {
@@ -765,11 +764,11 @@ video::-webkit-media-controls-enclosure {
     display: none !important;
 }
 
-/* Dock More Options Popover Menu (Right side above More button) */
+/* Dock More Options Popover Menu */
 .dock-more-popover {
     position: absolute;
     bottom: calc(100% + 10px);
-    right: 86px;
+    right: 52px;
     left: auto;
     background: rgba(24, 26, 30, 0.94);
     -webkit-backdrop-filter: blur(24px);
@@ -2493,7 +2492,6 @@ html.bypass-lock .security-lock-overlay {
     .controls-static-action {
         padding-left: 5px;
         margin-left: 3px;
-        gap: 5px;
     }
 
     .floating-end-call-btn {
@@ -2507,7 +2505,7 @@ html.bypass-lock .security-lock-overlay {
     }
 
     .dock-more-popover {
-        right: 74px;
+        right: 44px;
         left: auto;
         min-width: 155px;
     }
