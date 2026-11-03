@@ -2223,7 +2223,13 @@ if (btnStartNativeStream) {
             }
 
             isScreenSharing = true;
-            if (toggleScreen) toggleScreen.classList.add("active");
+            if (toggleScreen) {
+                toggleScreen.classList.add("sharing-active");
+                toggleScreen.classList.remove("active");
+                const icon = toggleScreen.querySelector("i");
+                if (icon) icon.className = "fas fa-desktop";
+                toggleScreen.title = "Stop Screen Sharing";
+            }
             showToast(isFullControl ? `📱 Sharing screen to ${target} (Full Control ON)` : `📱 Sharing screen to ${target} (View Only)`);
         }
     });
@@ -2922,6 +2928,16 @@ function endCall(notifyServer = true) {
     // Close PiP if open
     if (document.pictureInPictureElement) {
         document.exitPictureInPicture().catch(() => {});
+    }
+
+    if (isScreenSharing) {
+        revertToCameraTrack();
+    } else if (toggleScreen) {
+        toggleScreen.classList.remove("sharing-active");
+        toggleScreen.classList.remove("active");
+        const icon = toggleScreen.querySelector("i");
+        if (icon) icon.className = "fas fa-desktop";
+        toggleScreen.title = "Share Screen";
     }
 
     renderParticipantsList();
@@ -3687,9 +3703,10 @@ if (toggleScreen) {
                 localVideo.play().catch(() => {});
 
                 isScreenSharing = true;
-                toggleScreen.classList.add("active");
+                toggleScreen.classList.add("sharing-active");
+                toggleScreen.classList.remove("active");
                 const icon = toggleScreen.querySelector("i");
-                if (icon) icon.className = "fas fa-stop";
+                if (icon) icon.className = "fas fa-desktop";
                 toggleScreen.title = "Stop Screen Sharing";
                 showToast("Screen Sharing: Active (Entire Screen / Tab Live)");
 
@@ -3718,6 +3735,7 @@ if (toggleScreen) {
             if (window.VRemoteNative && typeof window.VRemoteNative.stopScreenCapture === "function") {
                 window.VRemoteNative.stopScreenCapture();
                 isScreenSharing = false;
+                toggleScreen.classList.remove("sharing-active");
                 toggleScreen.classList.remove("active");
                 const icon = toggleScreen.querySelector("i");
                 if (icon) icon.className = "fas fa-desktop";
@@ -3733,6 +3751,7 @@ if (toggleScreen) {
 async function revertToCameraTrack() {
     if (!isScreenSharing) return;
     isScreenSharing = false;
+    toggleScreen.classList.remove("sharing-active");
     toggleScreen.classList.remove("active");
     const icon = toggleScreen.querySelector("i");
     if (icon) icon.className = "fas fa-desktop";
