@@ -1539,7 +1539,7 @@ async function ensureLocalStream(requireVideo = true) {
         }
         applyMirrorState();
 
-        if (localVideoContainer) {
+        if (localVideoContainer && !isAudioCallMode) {
             localVideoContainer.classList.remove("hidden-preview");
             localVideoContainer.style.display = "block";
         }
@@ -1660,7 +1660,7 @@ async function activateFullAppSession() {
             }
             applyMirrorState();
         }
-        if (localVideoContainer) {
+        if (localVideoContainer && !isAudioCallMode) {
             localVideoContainer.classList.remove("hidden-preview");
             localVideoContainer.style.display = "block";
         }
@@ -3780,11 +3780,22 @@ function updateCallModeBtnVisuals() {
         toggleCallMode.classList.add("audio-mode-active");
         if (callModeIcon) callModeIcon.className = "fas fa-video";
         toggleCallMode.title = "Switch to Video Call Mode";
+        // Hide top-right local camera self-view box during Audio Call
+        if (localVideoContainer) {
+            localVideoContainer.classList.add("hidden-preview");
+            localVideoContainer.style.setProperty("display", "none", "important");
+        }
     } else {
         // Currently in Video Call mode -> show Call (Phone) icon to switch to Audio Call
         toggleCallMode.classList.remove("audio-mode-active");
         if (callModeIcon) callModeIcon.className = "fas fa-phone-alt";
         toggleCallMode.title = "Switch to Audio Call (Voice Only)";
+        // Restore top-right local camera self-view box when in Video Call mode
+        if (localVideoContainer && isLocalVideoVisible) {
+            localVideoContainer.classList.remove("hidden-preview");
+            localVideoContainer.style.removeProperty("display");
+            localVideoContainer.style.display = "block";
+        }
     }
 }
 updateCallModeBtnVisuals();
@@ -6061,7 +6072,7 @@ async function restoreIdleMediaHardware() {
                     localVideo.setAttribute("webkit-playsinline", "");
                     localVideo.play().catch(() => {});
                 }
-                if (localVideoContainer) {
+                if (localVideoContainer && !isAudioCallMode) {
                     localVideoContainer.classList.remove("hidden-preview");
                     localVideoContainer.style.display = "block";
                 }
