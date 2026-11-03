@@ -96,6 +96,15 @@ let ringInterval = null;
 let outgoingAudioCtx = null;
 let outgoingWaveInterval = null;
 
+// Comprehensive Call & Stream Active Status Check
+function isCallOrStreamActive() {
+    const hasPeer = Boolean(activePeer || callingPeer || incomingCallData);
+    const hasPc = Boolean(peerConnection && peerConnection.connectionState !== "closed" && peerConnection.signalingState !== "closed");
+    const hasScreen = Boolean(isScreenSharing || (typeof screenPeerConnection !== "undefined" && screenPeerConnection));
+    const hasPiP = Boolean(document.pictureInPictureElement);
+    return Boolean(hasPeer || hasPc || hasScreen || hasPiP);
+}
+
 const rtcConfig = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -4529,7 +4538,7 @@ function handleQuickEndOrDeclineCall() {
 }
 
 function updateFloatingEndCallBtn() {
-    const isCallActive = Boolean(activePeer || callingPeer || peerConnection || incomingCallData);
+    const isCallActive = isCallOrStreamActive();
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
     const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
@@ -5555,7 +5564,19 @@ async function checkAndRestoreCallMedia() {
         }
     }
 
-    const isCallActive = !!(activePeer || callingPeer || peerConnection);
+    // 3. Resume remoteAudio playback
+    if (remoteAudio && remoteAudio.srcObject) {
+        if (remoteAudio.paused && !isSpeakerMuted) {
+            remoteAudio.play().catch(e => console.warn("Remote audio auto-play:", e));
+        }
+    }
+
+    // 4. Ensure AudioContext is running
+    if (typeof ensureAudioContextResumed === "function") {
+        ensureAudioContextResumed();
+    }
+
+    const isCallActive = isCallOrStreamActive();
     if (!isCallActive || isAudioCallMode) return;
 
     // Check if local video track was terminated or muted by mobile OS camera switch
@@ -5844,17 +5865,13 @@ if (attachDocInput) {
 //   - Returning to the tab / browser automatically restores camera & microphone.
 // When a call IS connected:
 //   - Switching tabs or minimizing browser MUST NOT stop or mute camera or mic.
-//     The call and streaming continue uninterrupted in the background!
+//     The call, screen sharing, PiP, and audio/video streaming continue 100% uninterrupted in the background!
 document.addEventListener("visibilitychange", async () => {
-    const isCallConnected = Boolean(
-        activePeer &&
-        peerConnection &&
-        (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")
-    );
+    const isCallActive = isCallOrStreamActive();
 
     if (document.visibilityState === "hidden") {
-        if (!isCallConnected) {
-            console.log("Tab/browser hidden & no active call -> Turning OFF camera and microphone hardware");
+        if (!isCallActive) {
+            console.log("Tab/browser hidden & NO call active -> Turning OFF camera and microphone hardware completely");
             if (localStream) {
                 localStream.getTracks().forEach(t => {
                     try { t.stop(); } catch (_) {}
@@ -5864,51 +5881,64 @@ document.addEventListener("visibilitychange", async () => {
             if (localVideo) {
                 localVideo.srcObject = null;
             }
-            if (toggleCamera) {
-                updateCameraBtnVisuals();
-            }
+            isCameraOn = false;
+            isMicOn = false;
+            updateCameraBtnVisuals();
             if (toggleMic) {
                 toggleMic.classList.add("camera-blocked", "active");
                 const icon = toggleMic.querySelector("i");
                 if (icon) icon.className = "fas fa-microphone-slash";
+                toggleMic.title = "Microphone: Blocked / OFF (Hardware stopped)";
             }
         } else {
-            console.log("Tab hidden but call is active -> Keeping camera and microphone live");
+            console.log("Tab hidden but CALL / STREAM is ACTIVE -> Keeping camera and microphone 100% LIVE in background!");
         }
     } else if (document.visibilityState === "visible") {
-        if (isAppUnlocked || hasDirectIdInUrl()) {
-            const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
-            const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
-            if (!localStream || !hasVideo || !hasAudio) {
-                console.log("Tab visible -> Turning camera and microphone hardware back ON");
-                try {
-                    await ensureLocalStream(true);
-                    if (localVideo && localStream) {
-                        localVideo.srcObject = localStream;
-                        localVideo.muted = true;
-                        localVideo.defaultMuted = true;
-                        localVideo.setAttribute("muted", "");
-                        localVideo.setAttribute("playsinline", "");
-                        localVideo.play().catch(() => {});
+        if (isCallActive) {
+            console.log("Tab visible & call active -> Checking and restoring video/audio playback");
+            checkAndRestoreCallMedia();
+        } else {
+            // No call active: automatically re-acquire camera & mic hardware if not frozen
+            if (!isFrozen) {
+                const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+                const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
+                if (!localStream || !hasVideo || !hasAudio) {
+                    console.log("Tab visible again & no call -> Automatically turning camera and mic hardware back ON");
+                    try {
+                        const stream = await ensureLocalStream(true);
+                        if (stream) {
+                            localStream = stream;
+                            if (localVideo) {
+                                localVideo.srcObject = localStream;
+                                localVideo.muted = true;
+                                localVideo.defaultMuted = true;
+                                localVideo.setAttribute("muted", "");
+                                localVideo.setAttribute("playsinline", "");
+                                localVideo.setAttribute("webkit-playsinline", "");
+                                localVideo.play().catch(() => {});
+                            }
+                            if (localVideoContainer) {
+                                localVideoContainer.classList.remove("hidden-preview");
+                                localVideoContainer.style.display = "block";
+                            }
+                            applyMirrorState();
+                            isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
+                            isMicOn = stream.getAudioTracks().some(t => t.readyState === "live");
+                            updateCameraBtnVisuals();
+                            if (toggleMic) {
+                                toggleMic.classList.remove("camera-blocked", "active");
+                                const icon = toggleMic.querySelector("i");
+                                if (icon) icon.className = "fas fa-microphone";
+                                toggleMic.title = "Toggle Microphone (My Voice)";
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Restoring media on tab visible error:", e);
                     }
-                    if (localVideoContainer) {
-                        localVideoContainer.classList.remove("hidden-preview");
-                        localVideoContainer.style.display = "block";
-                    }
-                    if (toggleCamera) {
-                        updateCameraBtnVisuals();
-                    }
-                    if (toggleMic) {
-                        toggleMic.classList.remove("camera-blocked", "active");
-                        const icon = toggleMic.querySelector("i");
-                        if (icon) icon.className = "fas fa-microphone";
-                    }
-                } catch (e) {
-                    console.warn("Restoring media error:", e);
                 }
             }
+            checkAndRestoreCallMedia();
         }
-        checkAndRestoreCallMedia();
     }
 });
 
@@ -5917,12 +5947,8 @@ window.addEventListener("focus", () => {
 });
 
 window.addEventListener("pagehide", () => {
-    const isCallConnected = Boolean(
-        activePeer &&
-        peerConnection &&
-        (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")
-    );
-    if (!isCallConnected && localStream) {
+    // Only stop hardware if NO call/stream/PiP is active
+    if (!isCallOrStreamActive() && localStream) {
         localStream.getTracks().forEach(t => {
             try { t.stop(); } catch (_) {}
         });
@@ -5931,7 +5957,8 @@ window.addEventListener("pagehide", () => {
 });
 
 window.addEventListener("beforeunload", () => {
-    if (localStream) {
+    // Only stop hardware if NO call/stream/PiP is active
+    if (!isCallOrStreamActive() && localStream) {
         localStream.getTracks().forEach(t => {
             try { t.stop(); } catch (_) {}
         });
