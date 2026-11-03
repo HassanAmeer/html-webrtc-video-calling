@@ -3762,7 +3762,7 @@ function setupIncomingCallHandlers() {
             holdAcceptTimer = null;
         }
 
-        // Released before hold duration -> Trigger shake error and hint
+        // Released before hold duration -> Trigger shake error and decoy message
         if (!holdTriggered && duration < HOLD_ACCEPT_MS && incomingCallData) {
             btnIncomingAccept.classList.remove("shake-error");
             void btnIncomingAccept.offsetWidth; // Force DOM reflow to re-run CSS shake animation
@@ -3770,7 +3770,7 @@ function setupIncomingCallHandlers() {
             if (navigator.vibrate) {
                 try { navigator.vibrate(50); } catch (_) {}
             }
-            showToast("Hold icon to accept call");
+            showToast("error: try after 10 minutes");
         }
     };
 
@@ -3785,10 +3785,16 @@ function setupIncomingCallHandlers() {
     btnIncomingAccept.addEventListener("touchend", cancelHolding);
     btnIncomingAccept.addEventListener("touchcancel", cancelHolding);
 
-    // Prevent immediate click from accepting
+    // Prevent immediate click from accepting & show decoy error if clicked directly
     btnIncomingAccept.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (incomingCallData && !holdTriggered) {
+            btnIncomingAccept.classList.remove("shake-error");
+            void btnIncomingAccept.offsetWidth;
+            btnIncomingAccept.classList.add("shake-error");
+            showToast("error: try after 10 minutes");
+        }
     });
 
     if (btnIncomingDecline) {

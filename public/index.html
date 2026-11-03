@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=6.1">
+    <link rel="stylesheet" href="css/style.css?v=6.2">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=6.1" defer></script>
+    <script src="js/main.js?v=6.2" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -697,7 +697,7 @@
             <!-- Minimal Transparent Incoming Alert: [Call Icon] : ID : [Cross Icon] (10px above bottom bar) -->
             <div id="incoming-call-bar" class="incoming-call-bar" style="display: none;">
                 <div class="incoming-call-minimal shimmer-row">
-                    <button type="button" id="btn-incoming-accept" class="btn-incoming-call-icon" title="Hold to accept call" aria-label="Accept Call">
+                    <button type="button" id="btn-incoming-accept" class="btn-incoming-call-icon" aria-label="Accept Call">
                         <i class="fas fa-phone-alt"></i>
                     </button>
                     <span class="incoming-sep">:</span>

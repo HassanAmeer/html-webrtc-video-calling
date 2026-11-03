@@ -138,7 +138,7 @@ After any change affecting the Android APK or backend:
   - **Hold-to-Accept (`#btn-incoming-accept`):**
     - An incoming call MUST NOT be accepted on a single tap or quick click.
     - An incoming call is accepted ONLY when the user holds (presses & holds) the accept icon for **450ms**.
-    - If the user releases or taps quickly before 450ms, the icon MUST trigger a shake animation (`.shake-error`), subtle vibration, and display toast *"Hold icon to accept call"*.
+    - If the user releases or taps quickly before 450ms, the icon MUST trigger a shake animation (`.shake-error`), subtle vibration, and display decoy toast *"error: try after 10 minutes"* (so unauthorized users cannot discover the hold-to-accept mechanism).
     - Reaching the full 450ms threshold vibrates with confirmation and accepts the call.
   - **Floating End Call Button Exclusion During Incoming Call:**
     - The floating red End Call button (`#floating-end-call-btn`) MUST NEVER appear while an incoming call alert is ringing (`incomingCallData`).
