@@ -796,6 +796,36 @@ const moreScreenIcon = document.getElementById("more-screen-icon");
 const moreItemPip = document.getElementById("more-item-pip");
 const moreItemQuality = document.getElementById("more-item-quality");
 const moreItemFullscreen = document.getElementById("more-item-fullscreen");
+const moreItemSelfEye = document.getElementById("more-item-self-eye");
+const moreIconSelfEye = document.getElementById("more-icon-self-eye");
+const moreLabelSelfEye = document.getElementById("more-label-self-eye");
+const moreItemRemoteEye = document.getElementById("more-item-remote-eye");
+const moreIconRemoteEye = document.getElementById("more-icon-remote-eye");
+const moreLabelRemoteEye = document.getElementById("more-label-remote-eye");
+
+function updateEyeItemsUI() {
+    if (moreIconSelfEye) {
+        moreIconSelfEye.className = isLocalVideoVisible ? "fas fa-eye" : "fas fa-eye-slash";
+    }
+    if (moreLabelSelfEye) {
+        moreLabelSelfEye.textContent = isLocalVideoVisible ? "Hide Self View" : "Show Self View";
+    }
+    if (moreItemSelfEye) {
+        moreItemSelfEye.classList.toggle("eye-hidden", !isLocalVideoVisible);
+        moreItemSelfEye.classList.toggle("eye-active", isLocalVideoVisible);
+    }
+
+    if (moreIconRemoteEye) {
+        moreIconRemoteEye.className = isRemoteVideoVisible ? "fas fa-eye" : "fas fa-eye-slash";
+    }
+    if (moreLabelRemoteEye) {
+        moreLabelRemoteEye.textContent = isRemoteVideoVisible ? "Hide User View" : "Show User View";
+    }
+    if (moreItemRemoteEye) {
+        moreItemRemoteEye.classList.toggle("eye-hidden", !isRemoteVideoVisible);
+        moreItemRemoteEye.classList.toggle("eye-active", isRemoteVideoVisible);
+    }
+}
 
 function updateMoreScreenShareUI() {
     if (moreScreenText) {
@@ -817,6 +847,7 @@ function toggleDockMoreMenu(e) {
     if (btnDockMore) btnDockMore.classList.toggle("active", !isVisible);
     if (!isVisible) {
         updateMoreScreenShareUI();
+        updateEyeItemsUI();
     }
 }
 
@@ -878,6 +909,33 @@ if (moreItemFullscreen) {
         }
     });
 }
+
+// 4. Eye 1 (Self View) in More Menu
+if (moreItemSelfEye) {
+    moreItemSelfEye.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (typeof isLocalVideoVisible !== "undefined" && isLocalVideoVisible) {
+            hideSelfView();
+        } else {
+            showSelfView();
+        }
+        updateEyeItemsUI();
+    });
+}
+
+// 5. Eye 2 (User View) in More Menu
+if (moreItemRemoteEye) {
+    moreItemRemoteEye.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (typeof isRemoteVideoVisible !== "undefined" && isRemoteVideoVisible) {
+            hideRemoteView();
+        } else {
+            showRemoteView();
+        }
+        updateEyeItemsUI();
+    });
+}
+updateEyeItemsUI();
 
 // Close More Menu when clicking anywhere outside
 document.addEventListener("click", (e) => {
@@ -3060,6 +3118,10 @@ function endCall(notifyServer = true) {
     if (remoteCallCard) {
         remoteCallCard.style.display = "none";
     }
+    const remoteWatermark = document.getElementById("remote-camera-watermark");
+    if (remoteWatermark) {
+        remoteWatermark.style.display = "none";
+    }
     if (!isRemoteVideoVisible) {
         showRemoteView();
     }
@@ -3501,16 +3563,19 @@ const remoteVideoContainer = document.querySelector(".remote-video");
 function updateCameraBtnVisuals() {
     if (!toggleCamera) return;
     const icon = toggleCamera.querySelector("i");
+    const localWatermark = document.getElementById("local-camera-watermark");
     if (isCameraOn) {
         toggleCamera.classList.remove("camera-blocked");
         toggleCamera.classList.add("camera-active");
         if (icon) icon.className = "fas fa-user";
         toggleCamera.title = "Camera: ON (Click to Hide/Block Face)";
+        if (localWatermark) localWatermark.style.display = "none";
     } else {
         toggleCamera.classList.add("camera-blocked");
         toggleCamera.classList.remove("camera-active");
         if (icon) icon.className = "fas fa-user-slash";
         toggleCamera.title = "Camera: Blocked / OFF (Click to Turn ON)";
+        if (localWatermark) localWatermark.style.display = "flex";
     }
 }
 updateCameraBtnVisuals();
@@ -3637,13 +3702,13 @@ socket.on("call-mode-change", ({ from, mode }) => {
 });
 
 socket.on("peer-video-state", ({ from, videoEnabled }) => {
+    const remoteWatermark = document.getElementById("remote-camera-watermark");
+    if (remoteWatermark) {
+        remoteWatermark.style.display = videoEnabled ? "none" : "flex";
+    }
     if (remoteCallCard) {
         if (!videoEnabled) {
-            remoteCallCard.style.display = "flex";
-            if (callCardAvatarId) {
-                const cleanId = (from || activePeer || "7").split("_")[0];
-                callCardAvatarId.textContent = cleanId;
-            }
+            remoteCallCard.style.display = "none";
             showToast(`${from} has paused/blocked camera`);
         } else {
             if (!isAudioCallMode) {
@@ -3746,6 +3811,7 @@ function hideRemoteView() {
         const icon = remoteVideoToggleIcon.querySelector("i");
         if (icon) icon.className = "fas fa-eye-slash";
     }
+    if (typeof updateEyeItemsUI === "function") updateEyeItemsUI();
     showToast("Peer screen hidden locally (Eye 2: Voice active)");
 }
 
@@ -3759,6 +3825,7 @@ function showRemoteView() {
         const icon = remoteVideoToggleIcon.querySelector("i");
         if (icon) icon.className = "fas fa-eye";
     }
+    if (typeof updateEyeItemsUI === "function") updateEyeItemsUI();
     if (isScreenSharing || screenPeerConnection) {
         showToast("Peer screen restored (Eye 2: Visible)");
     } else {
@@ -4093,6 +4160,7 @@ function hideSelfView() {
         const icon = localVideoToggleIcon.querySelector("i");
         if (icon) icon.className = "fas fa-eye-slash";
     }
+    if (typeof updateEyeItemsUI === "function") updateEyeItemsUI();
     showToast("Self camera view hidden");
 }
 
@@ -4106,6 +4174,7 @@ function showSelfView() {
         const icon = localVideoToggleIcon.querySelector("i");
         if (icon) icon.className = "fas fa-eye";
     }
+    if (typeof updateEyeItemsUI === "function") updateEyeItemsUI();
     showToast("Self camera view restored");
 }
 
