@@ -111,13 +111,17 @@ After any change affecting the Android APK or backend:
     - Regular audio and video calls MUST ONLY show "End Call" (`#floating-end-call-btn` or dock `#end-call-btn`).
     - Incoming call offers between website peers or matching UID partners must never be falsely classified as registered device calls (`from.length >= 8` check is strictly forbidden).
 
-- **Point 3: Tab Switch, Minimizing, & Inactivity Privacy Policy:**
-  - **When NO call is connected:**
-    - Switching to another browser tab (`document.visibilityState === 'hidden'`), minimizing the browser window, or navigating away / closing Chrome MUST immediately turn OFF the local camera and microphone hardware by calling `track.stop()` on all tracks.
+- **Point 3: Tab Switch, Minimizing, Focus Loss & Inactivity Privacy Policy (STRICT USER RULES):**
+  - **When NO call is connected (Idle State):**
+    - Switching to another browser tab (`document.visibilityState === 'hidden'`), minimizing the browser window, losing window focus (`window.onblur`), or navigating away / closing Chrome MUST immediately turn OFF the local camera and microphone hardware by calling `track.stop()` on all tracks.
     - Hardware camera LED and browser address bar privacy indicators (green dot/camera icon) MUST extinguish completely.
-    - Returning to the tab / restoring the browser window (`document.visibilityState === 'visible'`) MUST automatically re-acquire the camera and microphone and resume live preview without manual user intervention.
+    - Returning to the tab / restoring the browser window / regaining focus (`document.visibilityState === 'visible'` or `window.onfocus`) MUST automatically re-acquire the camera and microphone and resume live preview without manual user intervention.
   - **When a call IS connected (`activePeer && peerConnection`):**
-    - Switching tabs, minimizing the browser, or switching windows MUST NOT stop, mute, or interrupt the camera or microphone. The live call and audio/video streaming MUST continue uninterrupted in the background.
+    - Switching tabs, minimizing the browser, or switching windows / losing focus MUST NOT stop, mute, or interrupt the camera or microphone. The live call, audio streaming, and video streaming MUST continue 100% uninterrupted in the background across foreground and background states.
+  - **Strict Manual-Only Picture-in-Picture (NEVER AUTOMATIC):**
+    - Picture-in-Picture (PiP) MUST NEVER open automatically on tab switch, window minimize, app leave, home button press, or call start.
+    - Modern Chrome and Android WebView must have auto-PiP strictly disabled (`setAutoEnterEnabled(false)` in Android `MainActivity.java` and no auto-PiP triggers in Web JS).
+    - Picture-in-Picture may ONLY be entered when the user explicitly clicks the Picture-in-Picture button inside the More popover menu (`#more-item-pip` / `window.VRemoteNative.enterPip()`). If the user merely switches tabs or minimizes without clicking the PiP option, NO floating PiP window should appear.
 
 - **Point 4: Guaranteed Dual-Side Call End Synchronization & Dynamic In-Call Audio/Video Mode Switching with Receiver Privacy Guard:**
   - **Guaranteed Dual-Side Call End:**

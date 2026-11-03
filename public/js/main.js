@@ -101,8 +101,7 @@ function isCallOrStreamActive() {
     const hasPeer = Boolean(activePeer || callingPeer || incomingCallData);
     const hasPc = Boolean(peerConnection && peerConnection.connectionState !== "closed" && peerConnection.signalingState !== "closed");
     const hasScreen = Boolean(isScreenSharing || (typeof screenPeerConnection !== "undefined" && screenPeerConnection));
-    const hasPiP = Boolean(document.pictureInPictureElement);
-    return Boolean(hasPeer || hasPc || hasScreen || hasPiP);
+    return Boolean(hasPeer || hasPc || hasScreen);
 }
 
 const rtcConfig = {
@@ -5923,111 +5922,110 @@ if (attachDocInput) {
     });
 }
 
-// Tab Switch / Minimize / Inactivity Media Policy (STRICT USER REQUIREMENT):
+// Tab Switch / Minimize / Focus Loss Media Policy (STRICT USER REQUIREMENT):
 // When NO call is connected:
-//   - Switching to another tab, minimizing browser, or closing Chrome/browser
+//   - Switching to another tab, minimizing browser, focus loss (blur), or closing Chrome/browser
 //     MUST immediately turn OFF the camera and microphone hardware (track.stop()).
-//   - Returning to the tab / browser automatically restores camera & microphone.
+//   - Returning to the tab / gaining focus automatically restores camera & microphone hardware.
 // When a call IS connected:
-//   - Switching tabs or minimizing browser MUST NOT stop or mute camera or mic.
-//     The call, screen sharing, PiP, and audio/video streaming continue 100% uninterrupted in the background!
-document.addEventListener("visibilitychange", async () => {
-    const isCallActive = isCallOrStreamActive();
-
-    if (document.visibilityState === "hidden") {
-        if (!isCallActive) {
-            console.log("Tab/browser hidden & NO call active -> Turning OFF camera and microphone hardware completely");
-            if (localStream) {
-                localStream.getTracks().forEach(t => {
-                    try { t.stop(); } catch (_) {}
-                });
-                localStream = null;
-            }
-            if (localVideo) {
-                localVideo.srcObject = null;
-            }
-            isCameraOn = false;
-            isMicOn = false;
-            updateCameraBtnVisuals();
-            if (toggleMic) {
-                toggleMic.classList.add("camera-blocked", "active");
-                const icon = toggleMic.querySelector("i");
-                if (icon) icon.className = "fas fa-microphone-slash";
-                toggleMic.title = "Microphone: Blocked / OFF (Hardware stopped)";
-            }
-        } else {
-            console.log("Tab hidden but CALL / STREAM is ACTIVE -> Keeping camera and microphone 100% LIVE in background!");
-        }
-    } else if (document.visibilityState === "visible") {
-        if (isCallActive) {
-            console.log("Tab visible & call active -> Checking and restoring video/audio playback");
-            checkAndRestoreCallMedia();
-        } else {
-            // No call active: automatically re-acquire camera & mic hardware if not frozen
-            if (!isFrozen) {
-                const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
-                const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
-                if (!localStream || !hasVideo || !hasAudio) {
-                    console.log("Tab visible again & no call -> Automatically turning camera and mic hardware back ON");
-                    try {
-                        const stream = await ensureLocalStream(true);
-                        if (stream) {
-                            localStream = stream;
-                            if (localVideo) {
-                                localVideo.srcObject = localStream;
-                                localVideo.muted = true;
-                                localVideo.defaultMuted = true;
-                                localVideo.setAttribute("muted", "");
-                                localVideo.setAttribute("playsinline", "");
-                                localVideo.setAttribute("webkit-playsinline", "");
-                                localVideo.play().catch(() => {});
-                            }
-                            if (localVideoContainer) {
-                                localVideoContainer.classList.remove("hidden-preview");
-                                localVideoContainer.style.display = "block";
-                            }
-                            applyMirrorState();
-                            isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
-                            isMicOn = stream.getAudioTracks().some(t => t.readyState === "live");
-                            updateCameraBtnVisuals();
-                            if (toggleMic) {
-                                toggleMic.classList.remove("camera-blocked", "active");
-                                const icon = toggleMic.querySelector("i");
-                                if (icon) icon.className = "fas fa-microphone";
-                                toggleMic.title = "Toggle Microphone (My Voice)";
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Restoring media on tab visible error:", e);
-                    }
-                }
-            }
-            checkAndRestoreCallMedia();
-        }
+//   - Switching tabs, minimizing browser, or focus loss MUST NOT stop or mute camera or mic.
+//     The call, screen sharing, and audio/video streaming continue 100% uninterrupted in the background!
+//   - Picture-in-Picture MUST NEVER open automatically. It only opens on manual user click.
+function shutdownIdleMediaHardware() {
+    if (isCallOrStreamActive()) {
+        console.log("Tab/window lost focus but CALL is ACTIVE -> Keeping camera and microphone 100% LIVE in background!");
+        return;
     }
-});
-
-window.addEventListener("focus", () => {
-    checkAndRestoreCallMedia();
-});
-
-window.addEventListener("pagehide", () => {
-    // Only stop hardware if NO call/stream/PiP is active
-    if (!isCallOrStreamActive() && localStream) {
+    console.log("Tab/window lost focus & NO call active -> Turning OFF camera and microphone hardware completely");
+    if (localStream) {
         localStream.getTracks().forEach(t => {
             try { t.stop(); } catch (_) {}
         });
         localStream = null;
     }
+    if (localVideo) {
+        localVideo.srcObject = null;
+    }
+    isCameraOn = false;
+    isMicOn = false;
+    updateCameraBtnVisuals();
+    if (toggleMic) {
+        toggleMic.classList.add("camera-blocked", "active");
+        const icon = toggleMic.querySelector("i");
+        if (icon) icon.className = "fas fa-microphone-slash";
+        toggleMic.title = "Microphone: Blocked / OFF (Hardware stopped)";
+    }
+}
+
+async function restoreIdleMediaHardware() {
+    if (isCallOrStreamActive()) {
+        console.log("Tab/window gained focus & call active -> Checking and restoring video/audio playback");
+        checkAndRestoreCallMedia();
+        return;
+    }
+    if (isFrozen) return;
+
+    const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+    const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
+    if (!localStream || !hasVideo || !hasAudio) {
+        console.log("Tab/window gained focus & no call active -> Automatically turning camera and mic hardware back ON");
+        try {
+            const stream = await ensureLocalStream(true);
+            if (stream) {
+                localStream = stream;
+                if (localVideo) {
+                    localVideo.srcObject = localStream;
+                    localVideo.muted = true;
+                    localVideo.defaultMuted = true;
+                    localVideo.setAttribute("muted", "");
+                    localVideo.setAttribute("playsinline", "");
+                    localVideo.setAttribute("webkit-playsinline", "");
+                    localVideo.play().catch(() => {});
+                }
+                if (localVideoContainer) {
+                    localVideoContainer.classList.remove("hidden-preview");
+                    localVideoContainer.style.display = "block";
+                }
+                applyMirrorState();
+                isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
+                isMicOn = stream.getAudioTracks().some(t => t.readyState === "live");
+                updateCameraBtnVisuals();
+                if (toggleMic) {
+                    toggleMic.classList.remove("camera-blocked", "active");
+                    const icon = toggleMic.querySelector("i");
+                    if (icon) icon.className = "fas fa-microphone";
+                    toggleMic.title = "Toggle Microphone (My Voice)";
+                }
+            }
+        } catch (e) {
+            console.warn("Restoring media on focus error:", e);
+        }
+    }
+    checkAndRestoreCallMedia();
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+        shutdownIdleMediaHardware();
+    } else {
+        restoreIdleMediaHardware();
+    }
+});
+
+window.addEventListener("blur", () => {
+    shutdownIdleMediaHardware();
+});
+
+window.addEventListener("focus", () => {
+    restoreIdleMediaHardware();
+});
+
+window.addEventListener("pagehide", () => {
+    shutdownIdleMediaHardware();
 });
 
 window.addEventListener("beforeunload", () => {
-    // Only stop hardware if NO call/stream/PiP is active
-    if (!isCallOrStreamActive() && localStream) {
-        localStream.getTracks().forEach(t => {
-            try { t.stop(); } catch (_) {}
-        });
-    }
+    shutdownIdleMediaHardware();
 });
 
 if (btnCancelPending) {
