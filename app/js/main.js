@@ -863,26 +863,74 @@ if (toggleFitBtn) {
 // Native Floating Picture-in-Picture (Over other tabs and desktop apps - STRICTLY MANUAL VIA MORE MENU)
 async function togglePictureInPicture() {
     try {
+        if (!document.pictureInPictureEnabled) {
+            showToast("Picture-in-Picture is not supported in this browser");
+            return;
+        }
+
         if (document.pictureInPictureElement) {
             await document.exitPictureInPicture();
             showToast("Picture-in-Picture window closed");
-        } else {
-            // Prefer remote video if active, otherwise local video
-            const targetVideo = (remoteVideo.srcObject && remoteVideo.srcObject.active) 
-                ? remoteVideo 
-                : localVideo;
-
-            if (targetVideo.readyState >= 2 || (targetVideo.srcObject && targetVideo.srcObject.active)) {
-                targetVideo.disablePictureInPicture = false;
-                await targetVideo.requestPictureInPicture();
-                showToast("Floating PiP active (Stays on top of other tabs & apps)");
-            } else {
-                showToast("Start a call or enable camera to open Picture-in-Picture");
-            }
+            return;
         }
+
+        // Determine which video element is currently active and has live video frames
+        let targetVideo = null;
+
+        // Check if remoteVideo is actively receiving video during an active call
+        const hasLiveRemoteVideo = Boolean(
+            remoteVideo &&
+            remoteVideo.srcObject &&
+            (activePeer || callingPeer) &&
+            !isAudioCallMode &&
+            remoteVideo.srcObject.getVideoTracks &&
+            remoteVideo.srcObject.getVideoTracks().some(t => t.readyState === "live" && t.enabled !== false)
+        );
+
+        // Check if localVideo is actively broadcasting camera
+        const hasLiveLocalVideo = Boolean(
+            localVideo &&
+            localStream &&
+            isCameraOn &&
+            !isAudioCallMode &&
+            localStream.getVideoTracks &&
+            localStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled !== false)
+        );
+
+        if (hasLiveRemoteVideo) {
+            targetVideo = remoteVideo;
+        } else if (hasLiveLocalVideo) {
+            targetVideo = localVideo;
+        } else if (remoteVideo && remoteVideo.srcObject && !isAudioCallMode) {
+            targetVideo = remoteVideo;
+        } else if (localVideo && (localVideo.srcObject || localStream)) {
+            targetVideo = localVideo;
+        }
+
+        if (!targetVideo) {
+            showToast("Start a call or enable camera to open Picture-in-Picture");
+            return;
+        }
+
+        // Remove disable attribute/flag to allow manual user request
+        try { targetVideo.removeAttribute("disablepictureinpicture"); } catch (_) {}
+        try { targetVideo.removeAttribute("disablePictureInPicture"); } catch (_) {}
+        targetVideo.disablePictureInPicture = false;
+
+        // Ensure video has stream and is playing
+        if (targetVideo === localVideo && (!localVideo.srcObject || localVideo.srcObject !== localStream)) {
+            if (localStream) localVideo.srcObject = localStream;
+        }
+
+        if (targetVideo.paused) {
+            try { await targetVideo.play(); } catch (_) {}
+        }
+
+        await targetVideo.requestPictureInPicture();
+        showToast("Floating PiP active (Stays on top of other tabs & apps)");
     } catch (err) {
         console.error("Picture-in-Picture error:", err);
-        showToast("Picture-in-Picture not supported or blocked by browser");
+        showToast("Picture-in-Picture: " + (err.message || "Could not open floating window"));
     }
 }
 
