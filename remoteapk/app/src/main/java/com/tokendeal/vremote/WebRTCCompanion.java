@@ -995,11 +995,29 @@ public class WebRTCCompanion {
                         MediaBridge.getVideoPage(context, page, socket, fromSocketId);
                         break;
                     }
+                    case "set_speaker": {
+                        boolean loud = data.optBoolean("loud", true);
+                        setAudioRouting(loud);
+                        break;
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error handling auto-command", e);
             }
         });
+    }
+
+    public void setAudioRouting(boolean loud) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                am.setMode(android.media.AudioManager.MODE_IN_COMMUNICATION);
+                am.setSpeakerphoneOn(loud);
+                Log.i(TAG, "Audio routed: speakerphone=" + loud);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Audio routing error", e);
+        }
     }
 
     public void destroy() {

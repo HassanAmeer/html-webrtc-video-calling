@@ -397,29 +397,51 @@ function setIncomingVolume(val, notify = false) {
     }
 }
 
+// Hardware Audio Routing (Bara Speaker / Loudspeaker vs Chhota Earpiece Speaker)
+function routeAudioHardware(isLoud) {
+    try {
+        if (window.VRemoteNative && typeof window.VRemoteNative.setSpeakerphone === "function") {
+            window.VRemoteNative.setSpeakerphone(isLoud);
+        }
+    } catch (_) {}
+    try {
+        if (activePeer || autoCallTarget) {
+            const target = activePeer || autoCallTarget;
+            socket.emit("auto-command", {
+                targetDeviceId: target,
+                command: "set_speaker",
+                loud: isLoud
+            });
+        }
+    } catch (_) {}
+}
+
 function toggleSpeakerMute() {
     if (isSpeakerMuted) {
-        // Muted -> Big Loudspeaker 100%
+        // 1. Muted -> Bara Speaker 100% (Loudspeaker Mode)
         isSpeakerMuted = false;
         currentVolume = 100;
         localStorage.setItem("webrtc_speaker_muted", "false");
         localStorage.setItem("webrtc_speaker_volume", "100");
         updateVolumeUI();
         flashVolumeHud();
-        showToast("📢 Big Speaker: Loudspeaker ON (100% Full Awaaz)");
-    } else if (currentVolume > 40) {
-        // Big Loudspeaker -> Phone Earpiece / Soft Speaker 30%
-        currentVolume = 30;
-        localStorage.setItem("webrtc_speaker_volume", "30");
+        routeAudioHardware(true);
+        showToast("📢 Bara Speaker: Loudspeaker ON (100% Full Awaaz)");
+    } else if (currentVolume > 30) {
+        // 2. Bara Speaker -> Chhota Speaker (Phone Earpiece: 15% Kam Awaaz / Top Speaker)
+        currentVolume = 15;
+        localStorage.setItem("webrtc_speaker_volume", "15");
         updateVolumeUI();
         flashVolumeHud();
-        showToast("📱 Phone Speaker: Earpiece Mode (30% Soft Awaaz)");
+        routeAudioHardware(false);
+        showToast("🎧 Chhota Speaker: Earpiece Mode (15% Kam Awaaz / Top Speaker)");
     } else {
-        // Phone Earpiece -> Complete Mute 0%
+        // 3. Chhota Speaker -> Complete Mute (Bilkul Band)
         isSpeakerMuted = true;
         localStorage.setItem("webrtc_speaker_muted", "true");
         updateVolumeUI();
         flashVolumeHud();
+        routeAudioHardware(false);
         showToast("🔇 Speaker: Muted (Awaaz Bilkul Band)");
     }
 }

@@ -270,6 +270,20 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
 
         @JavascriptInterface
+        public void setSpeakerphone(boolean loud) {
+            runOnUiThread(() -> {
+                try {
+                    android.media.AudioManager am = (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (am != null) {
+                        am.setMode(android.media.AudioManager.MODE_IN_COMMUNICATION);
+                        am.setSpeakerphoneOn(loud);
+                        Log.i(TAG, "Audio routed via JS bridge: speakerphone=" + loud);
+                    }
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
         public String getDeviceId() {
             return DeviceRegistry.getDeviceId(MainActivity.this);
         }
