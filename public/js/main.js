@@ -4543,10 +4543,11 @@ function updateFloatingEndCallBtn() {
     const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
     if (floatingEndCallBtn) {
-        floatingEndCallBtn.style.display = (isCallActive && isDockCollapsed && !isScreenShareActive) ? "inline-flex" : "none";
+        floatingEndCallBtn.style.display = (isCallActive && !isScreenShareActive) ? "inline-flex" : "none";
+        floatingEndCallBtn.classList.toggle("dock-collapsed", isDockCollapsed);
     }
-    if (endCallBtn) {
-        endCallBtn.style.display = isCallActive ? "inline-flex" : "none";
+    if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
+        endCallBtn.style.display = "none";
     }
     if (floatingEndStreamBtn) {
         // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
