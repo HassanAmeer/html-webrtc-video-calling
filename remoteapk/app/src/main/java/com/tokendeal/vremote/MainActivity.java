@@ -136,10 +136,13 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
+
+        webView.clearCache(true);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -177,7 +180,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         // Add Native Android Bridge for Screen Capture & Remote Control
         webView.addJavascriptInterface(new NativeAppBridge(), "VRemoteNative");
 
-        webView.loadUrl(APP_URL);
+        // Fresh load with cache-buster parameter to ensure WebView always renders latest features
+        String appLoadUrl = APP_URL + "/?v=" + System.currentTimeMillis();
+        webView.loadUrl(appLoadUrl);
     }
 
     private void initWebRTC() {
@@ -450,7 +455,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 pipBuilder.setActions(actions);
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    pipBuilder.setAutoEnterEnabled(true);
+                    pipBuilder.setAutoEnterEnabled(false);
                     pipBuilder.setSeamlessResizeEnabled(true);
                 }
                 boolean entered = enterPictureInPictureMode(pipBuilder.build());
@@ -467,10 +472,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     public void onUserLeaveHint() {
         super.onUserLeaveHint();
-        // Float like WhatsApp when home button is pressed during active share OR active video/audio call
-        if (isCallActive || ScreenCaptureService.isRunning() || (webRTCCompanion != null && webRTCCompanion.isSharing()) || (webRTCCompanion != null && webRTCCompanion.getActivePeer() != null)) {
-            enterWhatsAppStylePipOrBack();
-        }
+        // Strict manual-only PiP: Do NOT enter PiP automatically on home button press.
+        // PiP is only entered when user explicitly clicks the PiP option in More menu.
     }
 
     @Override
@@ -519,8 +522,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override public void onRemoteVideoTrack(VideoTrack track) {}
     @Override public void onCallEnded() {
         runOnUiThread(() -> {
-            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
-            stopService(serviceIntent);
+            stopAllMediaAndFinish();
         });
     }
     @Override public void onError(String error) {

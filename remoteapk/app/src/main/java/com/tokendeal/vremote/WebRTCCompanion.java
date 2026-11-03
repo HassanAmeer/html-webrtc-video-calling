@@ -241,6 +241,26 @@ public class WebRTCCompanion {
             socket.on("end-call", args -> {
                 Log.i(TAG, "Call ended by peer");
                 endCall(false);
+                if (callback != null) callback.onCallEnded();
+            });
+
+            socket.on("call-mode-change", args -> {
+                try {
+                    JSONObject data = (JSONObject) args[0];
+                    String mode = data.optString("mode", "");
+                    Log.i(TAG, "Call mode change received: " + mode);
+                    if ("audio".equalsIgnoreCase(mode)) {
+                        if (localVideoTrack != null) {
+                            localVideoTrack.setEnabled(false);
+                        }
+                    } else if ("video".equalsIgnoreCase(mode)) {
+                        if (localVideoTrack != null) {
+                            localVideoTrack.setEnabled(true);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error handling call-mode-change in companion", e);
+                }
             });
 
             socket.on("chat-message", args -> {
