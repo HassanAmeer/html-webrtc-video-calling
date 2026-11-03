@@ -145,6 +145,20 @@ if (isNaN(currentVolume)) currentVolume = 100;
 let audioCtx = null;
 let gainNode = null;
 let remoteAudioSource = null;
+let localAudioSource = null;
+let remoteAnalyserNode = null;
+let remoteAnalyserData = null;
+let localAnalyserNode = null;
+let localAnalyserData = null;
+let meterAnimFrame = null;
+
+function ensureAudioContextResumed() {
+    if (audioCtx && audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+    }
+}
+window.addEventListener("click", ensureAudioContextResumed, { passive: true });
+window.addEventListener("touchstart", ensureAudioContextResumed, { passive: true });
 
 const toggleSpeaker = document.getElementById("toggle-speaker");
 const speakerIcon = document.getElementById("speaker-icon");
@@ -207,42 +221,76 @@ function updateVolumeHudUI() {
     }
 }
 
+function getVoiceEnergy(analyser, dataArray) {
+    if (!analyser || !dataArray) return 0;
+    try {
+        analyser.getByteFrequencyData(dataArray);
+        // Voice fundamental and dominant formants are in bins 1 to 12 (~80Hz to 2500Hz)
+        let sum = 0;
+        let count = 0;
+        for (let i = 1; i <= 12 && i < dataArray.length; i++) {
+            sum += dataArray[i];
+            count++;
+        }
+        return count > 0 ? (sum / count) : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
 function startSoundMeterLoop() {
     if (meterAnimFrame) cancelAnimationFrame(meterAnimFrame);
-    const audioCardBars = document.querySelectorAll("#call-card-audio-indicator .bar");
-    const audioWavePulse = document.getElementById("audio-wave-pulse");
+
+    const barWeights = [0.45, 0.85, 1.0, 0.78, 0.42];
 
     function checkLevel() {
-        if (analyserNode && analyserData) {
-            analyserNode.getByteFrequencyData(analyserData);
-            let sum = 0;
-            for (let i = 0; i < analyserData.length; i++) {
-                sum += analyserData[i];
-            }
-            const avg = sum / analyserData.length;
-            const volumePct = Math.min(100, Math.round((avg / 128) * 100));
+        if (audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+        }
 
-            // Dynamic voice activity response on audio call card waves (monochrome gray theme)
-            if (audioCardBars && audioCardBars.length > 0) {
-                audioCardBars.forEach((bar, idx) => {
-                    const freqVal = analyserData[idx * 4] || avg;
-                    const height = Math.max(5, Math.min(26, Math.round((freqVal / 255) * 26)));
-                    bar.style.height = `${height}px`;
-                    bar.style.opacity = (height > 6) ? "0.95" : "0.35";
-                });
-            }
+        const remoteVal = getVoiceEnergy(remoteAnalyserNode, remoteAnalyserData);
+        const localVal = getVoiceEnergy(localAnalyserNode, localAnalyserData);
+        const rawSpeechLevel = Math.max(remoteVal, localVal);
 
-            // Avatar wave pulse reaction on voice
-            if (audioWavePulse) {
-                if (volumePct > 8) {
-                    audioWavePulse.style.transform = `scale(${1 + (volumePct / 240)})`;
-                    audioWavePulse.style.opacity = `${0.25 + (volumePct / 220)}`;
+        // Noise gate: background room noise is usually below 10
+        let speechEnergy = 0;
+        if (rawSpeechLevel > 10) {
+            // Normalize speech activity to 0..100%
+            speechEnergy = Math.min(100, Math.round(((rawSpeechLevel - 10) / 60) * 100));
+        }
+
+        const bars = document.querySelectorAll("#call-card-audio-indicator .bar");
+        const audioWavePulse = document.getElementById("audio-wave-pulse");
+
+        if (bars && bars.length > 0) {
+            bars.forEach((bar, idx) => {
+                if (speechEnergy > 4) {
+                    // Active speaking: lively bouncing bars shaped like human vocal envelope
+                    const freqExtra = (remoteAnalyserData && remoteAnalyserData[1 + idx] ? remoteAnalyserData[1 + idx] : (localAnalyserData ? localAnalyserData[1 + idx] : 0)) / 255;
+                    const h = Math.max(6, Math.min(28, Math.round(6 + (speechEnergy * 0.22 * barWeights[idx]) * (0.8 + 0.4 * freqExtra))));
+                    bar.style.height = `${h}px`;
+                    bar.style.opacity = `${0.45 + (h / 28) * 0.50}`;
                 } else {
-                    audioWavePulse.style.transform = "scale(1)";
-                    audioWavePulse.style.opacity = "0.2";
+                    // Idle / silence: subtle resting state
+                    bar.style.height = "6px";
+                    bar.style.opacity = "0.35";
                 }
+            });
+        }
+
+        // Circular pulse wave around avatar
+        if (audioWavePulse) {
+            if (speechEnergy > 8) {
+                const scale = 1 + (speechEnergy / 100) * 0.22;
+                const opacity = 0.25 + (speechEnergy / 100) * 0.55;
+                audioWavePulse.style.transform = `scale(${scale.toFixed(2)})`;
+                audioWavePulse.style.opacity = `${opacity.toFixed(2)}`;
+            } else {
+                audioWavePulse.style.transform = "scale(1)";
+                audioWavePulse.style.opacity = "0.2";
             }
         }
+
         meterAnimFrame = requestAnimationFrame(checkLevel);
     }
     checkLevel();
@@ -264,23 +312,60 @@ function setupAudioGain(stream) {
         }
         if (stream.getAudioTracks && stream.getAudioTracks().length > 0) {
             remoteAudioSource = audioCtx.createMediaStreamSource(stream);
+            
+            // Direct analyser connection so speech meter works independently of volume/mute!
+            if (!remoteAnalyserNode) {
+                remoteAnalyserNode = audioCtx.createAnalyser();
+                remoteAnalyserNode.fftSize = 64;
+                remoteAnalyserNode.smoothingTimeConstant = 0.35;
+                remoteAnalyserData = new Uint8Array(remoteAnalyserNode.frequencyBinCount);
+            }
+            try { remoteAudioSource.connect(remoteAnalyserNode); } catch (_) {}
+
             if (!gainNode) {
                 gainNode = audioCtx.createGain();
                 gainNode.connect(audioCtx.destination);
             }
-            if (!analyserNode) {
-                analyserNode = audioCtx.createAnalyser();
-                analyserNode.fftSize = 64;
-                analyserData = new Uint8Array(analyserNode.frequencyBinCount);
-                gainNode.connect(analyserNode);
-                startSoundMeterLoop();
-            }
-            remoteAudioSource.connect(gainNode);
+            try { remoteAudioSource.connect(gainNode); } catch (_) {}
+
             const factor = (isSpeakerMuted || currentVolume === 0) ? 0 : (currentVolume / 100);
             gainNode.gain.setValueAtTime(factor, audioCtx.currentTime);
+
+            startSoundMeterLoop();
         }
     } catch (e) {
         console.log("AudioContext setup:", e);
+    }
+}
+
+function setupLocalAudioAnalyser(stream) {
+    if (!stream) return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+        }
+        if (localAudioSource) {
+            try { localAudioSource.disconnect(); } catch (_) {}
+        }
+        if (stream.getAudioTracks && stream.getAudioTracks().length > 0) {
+            localAudioSource = audioCtx.createMediaStreamSource(stream);
+            if (!localAnalyserNode) {
+                localAnalyserNode = audioCtx.createAnalyser();
+                localAnalyserNode.fftSize = 64;
+                localAnalyserNode.smoothingTimeConstant = 0.35;
+                localAnalyserData = new Uint8Array(localAnalyserNode.frequencyBinCount);
+            }
+            // Local mic ONLY connects to local analyser, NEVER to destination (avoids feedback!)
+            try { localAudioSource.connect(localAnalyserNode); } catch (_) {}
+            startSoundMeterLoop();
+        }
+    } catch (e) {
+        console.warn("Local audio analyser setup:", e);
     }
 }
 
@@ -1369,6 +1454,9 @@ async function ensureLocalStream(requireVideo = true) {
         localStream = stream;
         isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
         isMicOn = stream.getAudioTracks().some(t => t.readyState === "live");
+        if (typeof setupLocalAudioAnalyser === "function") {
+            setupLocalAudioAnalyser(stream);
+        }
 
         if (localVideo) {
             localVideo.srcObject = localStream;
@@ -3643,6 +3731,7 @@ updateCallModeBtnVisuals();
 
 if (toggleCallMode) {
     toggleCallMode.addEventListener("click", async () => {
+        ensureAudioContextResumed();
         if (!localStream) {
             showToast("Media not ready");
             return;
@@ -3655,6 +3744,12 @@ if (toggleCallMode) {
             // Audio-Only Call Mode
             if (videoTrack) videoTrack.enabled = false;
             updateCallModeBtnVisuals();
+            if (typeof setupLocalAudioAnalyser === "function") {
+                setupLocalAudioAnalyser(localStream);
+            }
+            if (typeof startSoundMeterLoop === "function") {
+                startSoundMeterLoop();
+            }
             
             if (remoteCallCard) {
                 remoteCallCard.style.display = "flex";
