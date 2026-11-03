@@ -757,7 +757,7 @@ public class WebRTCCompanion {
         try {
             if (socket != null && socket.connected()) {
                 JSONObject payload = new JSONObject();
-                payload.put("targetDeviceId", myDeviceId);
+                payload.put("targetDeviceId", DeviceRegistry.getDeviceId(context));
                 payload.put("error", errorMsg);
                 payload.put("from", myId);
                 socket.emit("device-error", payload);
