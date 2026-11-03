@@ -3122,6 +3122,10 @@ function endCall(notifyServer = true) {
     if (remoteWatermark) {
         remoteWatermark.style.display = "none";
     }
+    isAudioCallMode = false;
+    if (typeof updateCallModeBtnVisuals === "function") {
+        updateCallModeBtnVisuals();
+    }
     if (!isRemoteVideoVisible) {
         showRemoteView();
     }
@@ -3621,6 +3625,22 @@ if (toggleCamera) {
 const toggleCallMode = document.getElementById("toggle-call-mode");
 const callModeIcon = document.getElementById("call-mode-icon");
 
+function updateCallModeBtnVisuals() {
+    if (!toggleCallMode) return;
+    if (isAudioCallMode) {
+        // Currently in Audio Call mode -> show Video Camera icon to switch back to Video
+        toggleCallMode.classList.add("audio-mode-active");
+        if (callModeIcon) callModeIcon.className = "fas fa-video";
+        toggleCallMode.title = "Switch to Video Call Mode";
+    } else {
+        // Currently in Video Call mode -> show Call (Phone) icon to switch to Audio Call
+        toggleCallMode.classList.remove("audio-mode-active");
+        if (callModeIcon) callModeIcon.className = "fas fa-phone-alt";
+        toggleCallMode.title = "Switch to Audio Call (Voice Only)";
+    }
+}
+updateCallModeBtnVisuals();
+
 if (toggleCallMode) {
     toggleCallMode.addEventListener("click", async () => {
         if (!localStream) {
@@ -3634,10 +3654,7 @@ if (toggleCallMode) {
         if (isAudioCallMode) {
             // Audio-Only Call Mode
             if (videoTrack) videoTrack.enabled = false;
-            
-            toggleCallMode.classList.add("audio-mode-active");
-            if (callModeIcon) callModeIcon.className = "fas fa-phone-volume";
-            toggleCallMode.title = "Call Mode: Audio-Only (Click for Video Call)";
+            updateCallModeBtnVisuals();
             
             if (remoteCallCard) {
                 remoteCallCard.style.display = "flex";
@@ -3659,10 +3676,7 @@ if (toggleCallMode) {
         } else {
             // Video Call Mode
             if (videoTrack) videoTrack.enabled = isCameraOn;
-            
-            toggleCallMode.classList.remove("audio-mode-active");
-            if (callModeIcon) callModeIcon.className = "fas fa-video";
-            toggleCallMode.title = "Call Mode: Video Call (Click for Audio-Only)";
+            updateCallModeBtnVisuals();
             
             if (remoteCallCard) {
                 remoteCallCard.style.display = "none";
