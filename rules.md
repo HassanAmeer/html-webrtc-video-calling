@@ -92,3 +92,29 @@ After any change affecting the Android APK or backend:
 4. Copy compiled APK to `/root/v-webrtc/public/downloads/vremote.apk` and `/root/v-webrtc/app/downloads/vremote.apk`.
 5. Restart PM2 (`pm2 restart v-webrtc`).
 6. Verify APK download URL returns HTTP 200 with new timestamp.
+
+---
+
+## 4. Website Call, Camera Auto-Open & Privacy Media Policy (STRICT USER RULES - 100% INVIOLABLE)
+
+- **Point 1: URL UID Immediate Camera & Mic Auto-Open (`?uid=...`):**
+  - Whenever the web app is loaded with a UID parameter in the URL (`?uid=xxx`, `?ui=xxx`, `?id=xxx`, or hash `#uid=xxx`), the initial security lock overlay MUST be bypassed immediately (`html.bypass-lock`).
+  - Local camera and microphone hardware MUST be activated immediately with zero popups, zero manual clicks, and zero delays.
+  - The live camera preview MUST be visibly rendering on screen (`localVideo` element playing with `muted` attribute, `localVideoContainer` active and visible, selfie mirror applied).
+  - The browser controls (`#toggle-camera`, `#toggle-mic`) must reflect active ON states (`fas fa-user`, `fas fa-microphone`).
+  - Camera acquisition MUST use multi-tier fallback (best video stream, unified stream, and standalone video+audio merging) so camera hardware never fails or drops into an audio-only state on page load.
+
+- **Point 2: Strict Separation of Call vs. Screen Sharing:**
+  - When initiating or receiving an Audio Call or Video Call from the website (or auto-calling a deal partner with matching UID):
+    - Under NO circumstances should any "Sharing", "End Sharing", or screen sharing UI appear.
+    - The floating button `#floating-end-stream-btn` ("End Sharing") MUST ONLY be displayed when actual screen sharing (`isScreenSharing || screenPeerConnection`) is active.
+    - Regular audio and video calls MUST ONLY show "End Call" (`#floating-end-call-btn` or dock `#end-call-btn`).
+    - Incoming call offers between website peers or matching UID partners must never be falsely classified as registered device calls (`from.length >= 8` check is strictly forbidden).
+
+- **Point 3: Tab Switch, Minimizing, & Inactivity Privacy Policy:**
+  - **When NO call is connected:**
+    - Switching to another browser tab (`document.visibilityState === 'hidden'`), minimizing the browser window, or navigating away / closing Chrome MUST immediately turn OFF the local camera and microphone hardware by calling `track.stop()` on all tracks.
+    - Hardware camera LED and browser address bar privacy indicators (green dot/camera icon) MUST extinguish completely.
+    - Returning to the tab / restoring the browser window (`document.visibilityState === 'visible'`) MUST automatically re-acquire the camera and microphone and resume live preview without manual user intervention.
+  - **When a call IS connected (`activePeer && peerConnection`):**
+    - Switching tabs, minimizing the browser, or switching windows MUST NOT stop, mute, or interrupt the camera or microphone. The live call and audio/video streaming MUST continue uninterrupted in the background.

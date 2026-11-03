@@ -82,12 +82,14 @@ public class WebRTCCompanion {
         return rootEglBase.getEglBaseContext();
     }
 
+    private boolean isScreenSharingCall = false;
+
     public void setFullControlEnabled(boolean enabled) {
         this.isFullControlEnabled = enabled;
     }
 
     public boolean isSharing() {
-        return screenCapturer != null;
+        return isScreenSharingCall && screenCapturer != null;
     }
 
     public void setMyId(String newId) {
@@ -368,6 +370,7 @@ public class WebRTCCompanion {
 
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
         this.activePeer = targetUser;
+        this.isScreenSharingCall = true;
         setupPeerConnection();
 
         try {
@@ -569,6 +572,14 @@ public class WebRTCCompanion {
 
     public void startVideoCall(String targetUser) {
         this.activePeer = targetUser;
+        this.isScreenSharingCall = false;
+        if (screenCapturer != null) {
+            try {
+                screenCapturer.stopCapture();
+                screenCapturer.dispose();
+            } catch (Exception ignored) {}
+            screenCapturer = null;
+        }
         setupPeerConnection();
 
         try {
@@ -602,6 +613,14 @@ public class WebRTCCompanion {
 
     public void startAudioCall(String targetUser) {
         this.activePeer = targetUser;
+        this.isScreenSharingCall = false;
+        if (screenCapturer != null) {
+            try {
+                screenCapturer.stopCapture();
+                screenCapturer.dispose();
+            } catch (Exception ignored) {}
+            screenCapturer = null;
+        }
         setupPeerConnection();
         if (localAudioTrack != null) localAudioTrack.setEnabled(true);
         peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
@@ -885,6 +904,7 @@ public class WebRTCCompanion {
             localAudioTrack.setEnabled(false);
         }
 
+        isScreenSharingCall = false;
         activePeer = null;
         incomingOfferObj = null;
         pendingOfferPayload = null;

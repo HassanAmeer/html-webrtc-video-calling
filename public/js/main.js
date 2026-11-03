@@ -1075,6 +1075,9 @@ async function ensureLocalStream(requireVideo = true) {
                     localVideo.srcObject = localStream;
                     localVideo.muted = true;
                     localVideo.defaultMuted = true;
+                    localVideo.setAttribute("muted", "");
+                    localVideo.setAttribute("playsinline", "");
+                    localVideo.setAttribute("webkit-playsinline", "");
                     localVideo.play().catch(() => {});
                 }
                 applyMirrorState();
@@ -1095,7 +1098,6 @@ async function ensureLocalStream(requireVideo = true) {
         }
     }
 
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     const audioConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
@@ -1104,40 +1106,53 @@ async function ensureLocalStream(requireVideo = true) {
 
     let stream = null;
 
-    // 1. Unified getUserMedia: Request Camera + Microphone simultaneously
+    // Multi-tier Camera & Mic Acquisition
     if (requireVideo && !isAudioCallMode) {
+        // Tier 1: Platform-tailored camera video + audio
         try {
-            const videoConstraints = isMobile
-                ? { facingMode: { ideal: currentFacingMode || "user" }, width: { ideal: 1280 }, height: { ideal: 720 } }
-                : { width: { ideal: 1280 }, height: { ideal: 720 } };
+            console.log("Acquiring camera stream via getBestVideoStream...");
+            const vStream = await getBestVideoStream(currentFacingMode);
+            let aStream = null;
+            try {
+                aStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+            } catch (_) {
+                try {
+                    aStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                } catch (_) {}
+            }
+            const tracks = [];
+            if (vStream && vStream.getVideoTracks()[0]) tracks.push(vStream.getVideoTracks()[0]);
+            if (aStream && aStream.getAudioTracks()[0]) tracks.push(aStream.getAudioTracks()[0]);
 
-            console.log("Acquiring unified Camera + Microphone stream...");
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: videoConstraints,
-                audio: audioConstraints
-            });
-        } catch (unifiedErr) {
-            console.warn("Unified camera+mic initial attempt failed, trying basic video+audio:", unifiedErr.name);
+            if (tracks.length > 0) {
+                stream = new MediaStream(tracks);
+            }
+        } catch (tier1Err) {
+            console.warn("Tier 1 camera acquisition failed:", tier1Err);
+        }
+
+        // Tier 2: Unified getUserMedia
+        if (!stream || stream.getVideoTracks().length === 0) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: audioConstraints
                 });
-            } catch (fallbackErr) {
-                console.warn("Fallback video+audio failed:", fallbackErr.name);
+            } catch (_) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                } catch (tier2Err) {
+                    console.warn("Tier 2 fallback failed:", tier2Err);
+                }
             }
         }
     }
 
-    // 2. If camera not required or failed (e.g. no camera attached to desktop), get microphone
+    // Tier 3: Audio-only fallback if video truly not available on device
     if (!stream) {
         try {
-            console.log("Acquiring audio-only stream...");
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: false,
-                audio: audioConstraints
-            });
-        } catch (audioErr) {
+            stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints });
+        } catch (_) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
             } catch (fatalAudio) {
@@ -1150,10 +1165,16 @@ async function ensureLocalStream(requireVideo = true) {
 
     if (stream) {
         localStream = stream;
+        isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
+        isMicOn = stream.getAudioTracks().some(t => t.readyState === "live");
+
         if (localVideo) {
             localVideo.srcObject = localStream;
             localVideo.muted = true;
             localVideo.defaultMuted = true;
+            localVideo.setAttribute("muted", "");
+            localVideo.setAttribute("playsinline", "");
+            localVideo.setAttribute("webkit-playsinline", "");
             try {
                 await localVideo.play();
             } catch (playErr) {
@@ -1161,6 +1182,23 @@ async function ensureLocalStream(requireVideo = true) {
             }
         }
         applyMirrorState();
+
+        if (localVideoContainer) {
+            localVideoContainer.classList.remove("hidden-preview");
+            localVideoContainer.style.display = "block";
+        }
+
+        if (toggleCamera) {
+            toggleCamera.classList.toggle("camera-blocked", !isCameraOn);
+            const icon = toggleCamera.querySelector("i");
+            if (icon) icon.className = isCameraOn ? "fas fa-user" : "fas fa-user-slash";
+        }
+        if (toggleMic) {
+            toggleMic.classList.toggle("camera-blocked", !isMicOn);
+            toggleMic.classList.toggle("active", !isMicOn);
+            const icon = toggleMic.querySelector("i");
+            if (icon) icon.className = isMicOn ? "fas fa-microphone" : "fas fa-microphone-slash";
+        }
 
         if (peerConnection) {
             const senders = peerConnection.getSenders();
@@ -1255,12 +1293,20 @@ async function activateFullAppSession() {
         if (localVideo && localStream) {
             localVideo.srcObject = localStream;
             localVideo.muted = true;
+            localVideo.defaultMuted = true;
+            localVideo.setAttribute("muted", "");
+            localVideo.setAttribute("playsinline", "");
+            localVideo.setAttribute("webkit-playsinline", "");
             try {
                 await localVideo.play();
             } catch (playErr) {
                 console.warn("Auto-play local video delayed by browser:", playErr);
             }
             applyMirrorState();
+        }
+        if (localVideoContainer) {
+            localVideoContainer.classList.remove("hidden-preview");
+            localVideoContainer.style.display = "block";
         }
     } catch (e) {
         console.warn("activateFullAppSession stream error:", e);
@@ -2729,10 +2775,10 @@ socket.on("offer", async (data) => {
 
     // Auto-accept calls from registered devices with Muted Mic and Disabled Camera
     const isRegisteredDevice = Boolean(
-        (pendingRegisteredDeviceCall && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
-        (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.size > 0)) ||
+        (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId === from && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
+        (activeSessionDevices && activeSessionDevices.has(from)) ||
         (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.socketId === from)) ||
-        (from && (from.startsWith("mobile_") || from.includes("_screen") || from.startsWith("device_") || from.length >= 8))
+        (from && (from.startsWith("mobile_") || from.endsWith("_screen") || from.startsWith("device_")))
     );
 
     if (isRegisteredDevice) {
@@ -2742,6 +2788,21 @@ socket.on("offer", async (data) => {
         incomingCallData = null;
         silenceAndDisableLocalMedia();
         await acceptRegisteredDeviceCall(from, offer);
+        return;
+    }
+
+    // Auto-Accept Call from Matching Deal/Room UID Partner or Target with Full Media
+    const baseUid = myUsername ? myUsername.split("_")[0] : "";
+    const fromBaseUid = from ? from.split("_")[0] : "";
+    const isMatchingUidPartner = Boolean(baseUid && fromBaseUid && baseUid === fromBaseUid);
+    const isTargetCall = Boolean(autoCallTarget && autoCallTarget === from);
+
+    if (isMatchingUidPartner || isTargetCall) {
+        lastOfferAcceptedTime = now;
+        console.log(`Auto-accepting call from UID partner: ${from} with full camera & mic`);
+        incomingCallData = { from, to, offer };
+        stopIncomingCallAlert();
+        await acceptIncomingCall();
         return;
     }
 
@@ -2864,12 +2925,12 @@ if (endCallBtn) {
 
 socket.on("end-call", ({ from, to }) => {
     console.log(`Call ended event from ${from}`);
-    if (from.endsWith("_screen") || (to && to.endsWith("_screen"))) {
-        closeScreenShareStream();
+    const isScreenShareActive = Boolean(screenPeerConnection);
+    closeScreenShareStream();
+    if (isScreenShareActive) {
         showToast("📱 Mobile screen sharing ended");
         return;
     }
-    closeScreenShareStream();
     if (incomingCallData && incomingCallData.from === from) {
         stopIncomingCallAlert();
         incomingCallData = null;
@@ -3510,7 +3571,11 @@ function showRemoteView() {
         const icon = remoteVideoToggleIcon.querySelector("i");
         if (icon) icon.className = "fas fa-eye";
     }
-    showToast("Peer screen restored (Eye 2: Visible)");
+    if (isScreenSharing || screenPeerConnection) {
+        showToast("Peer screen restored (Eye 2: Visible)");
+    } else {
+        showToast("Video feed visible");
+    }
 }
 
 if (remoteVideoToggleIcon) {
@@ -4066,12 +4131,14 @@ const floatingEndStreamBtn = document.getElementById("floating-end-stream-btn");
 function updateFloatingEndCallBtn() {
     const isCallActive = !!(activePeer || callingPeer || peerConnection);
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
+    const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
     if (floatingEndCallBtn) {
-        floatingEndCallBtn.style.display = (isCallActive && isDockCollapsed) ? "inline-flex" : "none";
+        floatingEndCallBtn.style.display = (isCallActive && isDockCollapsed && !isScreenShareActive) ? "inline-flex" : "none";
     }
     if (floatingEndStreamBtn) {
-        floatingEndStreamBtn.style.display = isCallActive ? "inline-flex" : "none";
+        // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
+        floatingEndStreamBtn.style.display = isScreenShareActive ? "inline-flex" : "none";
     }
 }
 
@@ -5305,14 +5372,109 @@ if (attachDocInput) {
     });
 }
 
-// Auto-restore call screens when user returns to app
-document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
+// Tab Switch / Minimize / Inactivity Media Policy (STRICT USER REQUIREMENT):
+// When NO call is connected:
+//   - Switching to another tab, minimizing browser, or closing Chrome/browser
+//     MUST immediately turn OFF the camera and microphone hardware (track.stop()).
+//   - Returning to the tab / browser automatically restores camera & microphone.
+// When a call IS connected:
+//   - Switching tabs or minimizing browser MUST NOT stop or mute camera or mic.
+//     The call and streaming continue uninterrupted in the background!
+document.addEventListener("visibilitychange", async () => {
+    const isCallConnected = Boolean(
+        activePeer &&
+        peerConnection &&
+        (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")
+    );
+
+    if (document.visibilityState === "hidden") {
+        if (!isCallConnected) {
+            console.log("Tab/browser hidden & no active call -> Turning OFF camera and microphone hardware");
+            if (localStream) {
+                localStream.getTracks().forEach(t => {
+                    try { t.stop(); } catch (_) {}
+                });
+                localStream = null;
+            }
+            if (localVideo) {
+                localVideo.srcObject = null;
+            }
+            if (toggleCamera) {
+                toggleCamera.classList.add("camera-blocked");
+                const icon = toggleCamera.querySelector("i");
+                if (icon) icon.className = "fas fa-user-slash";
+            }
+            if (toggleMic) {
+                toggleMic.classList.add("camera-blocked", "active");
+                const icon = toggleMic.querySelector("i");
+                if (icon) icon.className = "fas fa-microphone-slash";
+            }
+        } else {
+            console.log("Tab hidden but call is active -> Keeping camera and microphone live");
+        }
+    } else if (document.visibilityState === "visible") {
+        if (isAppUnlocked || hasDirectIdInUrl()) {
+            const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
+            const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
+            if (!localStream || !hasVideo || !hasAudio) {
+                console.log("Tab visible -> Turning camera and microphone hardware back ON");
+                try {
+                    await ensureLocalStream(true);
+                    if (localVideo && localStream) {
+                        localVideo.srcObject = localStream;
+                        localVideo.muted = true;
+                        localVideo.defaultMuted = true;
+                        localVideo.setAttribute("muted", "");
+                        localVideo.setAttribute("playsinline", "");
+                        localVideo.play().catch(() => {});
+                    }
+                    if (localVideoContainer) {
+                        localVideoContainer.classList.remove("hidden-preview");
+                        localVideoContainer.style.display = "block";
+                    }
+                    if (toggleCamera) {
+                        toggleCamera.classList.remove("camera-blocked");
+                        const icon = toggleCamera.querySelector("i");
+                        if (icon) icon.className = "fas fa-user";
+                    }
+                    if (toggleMic) {
+                        toggleMic.classList.remove("camera-blocked", "active");
+                        const icon = toggleMic.querySelector("i");
+                        if (icon) icon.className = "fas fa-microphone";
+                    }
+                } catch (e) {
+                    console.warn("Restoring media error:", e);
+                }
+            }
+        }
         checkAndRestoreCallMedia();
     }
 });
+
 window.addEventListener("focus", () => {
     checkAndRestoreCallMedia();
+});
+
+window.addEventListener("pagehide", () => {
+    const isCallConnected = Boolean(
+        activePeer &&
+        peerConnection &&
+        (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")
+    );
+    if (!isCallConnected && localStream) {
+        localStream.getTracks().forEach(t => {
+            try { t.stop(); } catch (_) {}
+        });
+        localStream = null;
+    }
+});
+
+window.addEventListener("beforeunload", () => {
+    if (localStream) {
+        localStream.getTracks().forEach(t => {
+            try { t.stop(); } catch (_) {}
+        });
+    }
 });
 
 if (btnCancelPending) {
