@@ -4552,6 +4552,13 @@ function updateFloatingEndCallBtn() {
         // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
         floatingEndStreamBtn.style.display = isScreenShareActive ? "inline-flex" : "none";
     }
+
+    // Sync call active status with native Android App bridge
+    try {
+        if (window.VRemoteNative && typeof window.VRemoteNative.setCallActive === "function") {
+            window.VRemoteNative.setCallActive(Boolean(isCallActive));
+        }
+    } catch (_) {}
 }
 
 if (floatingEndCallBtn) {

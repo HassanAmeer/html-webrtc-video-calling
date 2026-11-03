@@ -484,6 +484,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         // Keep WebView execution active when backgrounded for screen capture

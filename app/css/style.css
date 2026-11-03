@@ -332,7 +332,7 @@ video::-webkit-media-controls-enclosure {
 /* iOS-style Floating Call Controls Dock (Max 85% width, Compact & Frosted Glass) */
 .call-controls {
     position: absolute;
-    bottom: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -2492,7 +2492,7 @@ html.bypass-lock .security-lock-overlay {
     }
 
     .call-controls {
-        bottom: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         padding: 4px 6px;
         max-width: 85% !important;
         border-radius: 32px;
