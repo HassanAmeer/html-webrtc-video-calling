@@ -1,4 +1,17 @@
 // Main WebRTC & Socket Client
+function isNativeAndroidApp() {
+    return !!(window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp());
+}
+
+// Global UI Containers & Controls (Declared at top to prevent TDZ ReferenceErrors)
+const localVideoContainer = document.getElementById("local-video-container") || document.querySelector(".local-video");
+const callControlsDock = document.getElementById("call-controls");
+const btnCollapseBar = document.getElementById("btn-collapse-bar");
+const btnExpandBar = document.getElementById("btn-expand-bar");
+const floatingEndCallBtn = document.getElementById("floating-end-call-btn");
+const btnBarEndCall = document.getElementById("btn-bar-end-call");
+const floatingEndStreamBtn = document.getElementById("floating-end-stream-btn");
+
 const createUserBtn = document.getElementById("create-user");
 const usernameInput = document.getElementById("username");
 const allusersHtml = document.getElementById("allusers");
@@ -77,6 +90,8 @@ let isCameraOn = true;
 let isMicOn = true;
 let isAudioCallMode = false;
 let isScreenSharing = false;
+let screenPeerConnection = null;
+let savedCameraStream = null;
 let isLocalVideoVisible = true;
 let isRemoteVideoVisible = true;
 let autoCallTarget = null;
@@ -2891,9 +2906,7 @@ async function startCall(targetUser) {
     }
 }
 
-// Screen Share Companion Stream Engine (Dual Stream: Screen in RemoteVideo + Camera in Floating PiP)
-let screenPeerConnection = null;
-let savedCameraStream = null;
+// Screen Share Companion Stream Engine (Dual Stream: Screen in RemoteVideo + Camera in Floating PiP - declared at top)
 
 async function acceptScreenShareStream(from, offer) {
     console.log(`Setting up Screen Share receiver for ${from}`);
@@ -4357,7 +4370,7 @@ if (participantsBackdrop) {
 // ==============================================================
 // LOCAL VIDEO: DRAGGABLE, RESIZABLE, AND HIDE / RESTORE PREVIEW
 // ==============================================================
-const localVideoContainer = document.getElementById("local-video-container") || document.querySelector(".local-video");
+// localVideoContainer declared globally at top
 const btnLocalSize = document.getElementById("btn-local-size");
 const iconLocalSize = document.getElementById("icon-local-size");
 const btnLocalHide = document.getElementById("btn-local-hide");
@@ -4600,13 +4613,7 @@ if (localVideoBox) {
     });
 }
 
-// Bottom Call Controls Dock Collapse / Expand Handlers
-const callControlsDock = document.getElementById("call-controls");
-const btnCollapseBar = document.getElementById("btn-collapse-bar");
-const btnExpandBar = document.getElementById("btn-expand-bar");
-const floatingEndCallBtn = document.getElementById("floating-end-call-btn");
-const btnBarEndCall = document.getElementById("btn-bar-end-call");
-const floatingEndStreamBtn = document.getElementById("floating-end-stream-btn");
+// Bottom Call Controls Dock Handlers (dock and floating elements declared globally at top)
 
 function handleQuickEndOrDeclineCall() {
     if (incomingCallData) {
