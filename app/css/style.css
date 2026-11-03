@@ -928,56 +928,7 @@ video::-webkit-media-controls-enclosure {
     opacity: 0.20;
 }
 
-/* Quick End Call Button - 10px rounded, outlined red with 15% opacity background */
-.end-call-btn {
-    border-radius: 10px !important;
-    background: rgba(239, 68, 68, 0.15) !important;
-    border: 1px solid rgba(239, 68, 68, 0.5) !important;
-    color: #f87171 !important;
-    padding: 3px 9px !important;
-    height: 32px !important;
-    width: auto !important;
-    min-width: unset !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 5px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-}
 
-.end-call-btn:hover {
-    background: rgba(239, 68, 68, 0.35) !important;
-    border-color: rgba(239, 68, 68, 0.85) !important;
-    color: #ffffff !important;
-    transform: scale(1.05);
-}
-
-.end-call-btn:active {
-    transform: scale(0.95);
-}
-
-.end-call-btn i {
-    font-size: 11px !important;
-    color: #f87171 !important;
-}
-
-.end-call-btn:hover i {
-    color: #ffffff !important;
-}
-
-.end-btn-text {
-    font-size: 10.5px !important;
-    font-weight: 600 !important;
-    color: #f87171 !important;
-    letter-spacing: 0.2px;
-    line-height: 1 !important;
-}
-
-.end-call-btn:hover .end-btn-text {
-    color: #ffffff !important;
-}
 
 .quality-toggle-btn {
     font-weight: 800;

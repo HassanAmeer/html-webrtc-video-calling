@@ -2842,7 +2842,7 @@ async function startCall(targetUser) {
             offer: pc.localDescription
         });
 
-        endCallBtn.style.display = "flex";
+        updateFloatingEndCallBtn();
         showActiveCallBar(targetUser);
         showToast(`Calling ${targetUser}...`);
     } catch (err) {
@@ -3035,7 +3035,7 @@ async function acceptRegisteredDeviceCall(from, offer) {
         });
 
         applyBitrateToSender(pc);
-        if (endCallBtn) endCallBtn.style.display = "flex";
+        updateFloatingEndCallBtn();
         showActiveCallBar(from);
 
         if (!isAudioCallMode) {
@@ -3139,7 +3139,7 @@ socket.on("answer", async ({ from, to, answer }) => {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
             await flushPendingCandidates(peerConnection);
             applyBitrateToSender(peerConnection);
-            endCallBtn.style.display = "flex";
+            updateFloatingEndCallBtn();
             showActiveCallBar(from);
             showToast(`Call connected with ${from}`);
             setTimeout(() => forceKeyframeWarmup(peerConnection), 300);
@@ -3208,9 +3208,7 @@ function endCall(notifyServer = true) {
     if (remoteAudio) {
         remoteAudio.srcObject = null;
     }
-    if (endCallBtn) {
-        endCallBtn.style.display = "none";
-    }
+    updateFloatingEndCallBtn();
     const remoteCallCard = document.getElementById("remote-call-card");
     if (remoteCallCard) {
         remoteCallCard.style.display = "none";
@@ -3604,7 +3602,7 @@ async function acceptIncomingCall() {
             answer: pc.localDescription
         });
 
-        endCallBtn.style.display = "flex";
+        updateFloatingEndCallBtn();
         showActiveCallBar(from);
         showToast(`Connected with ${from}`);
         renderParticipantsList();
@@ -4538,13 +4536,19 @@ function handleQuickEndOrDeclineCall() {
 }
 
 function updateFloatingEndCallBtn() {
-    const isCallActive = isCallOrStreamActive();
+    // Only show End Call button when an actual call is ringing, incoming, or actively connected
+    const isCallActive = Boolean(activePeer || callingPeer || incomingCallData);
     const isDockCollapsed = callControlsDock ? callControlsDock.classList.contains("collapsed") : true;
     const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
 
     if (floatingEndCallBtn) {
-        floatingEndCallBtn.style.display = (isCallActive && !isScreenShareActive) ? "inline-flex" : "none";
-        floatingEndCallBtn.classList.toggle("dock-collapsed", isDockCollapsed);
+        if (isCallActive && !isScreenShareActive) {
+            floatingEndCallBtn.style.setProperty("display", "inline-flex", "important");
+            floatingEndCallBtn.classList.toggle("dock-collapsed", isDockCollapsed);
+        } else {
+            floatingEndCallBtn.style.setProperty("display", "none", "important");
+            floatingEndCallBtn.classList.remove("dock-collapsed");
+        }
     }
     if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
         endCallBtn.style.display = "none";
