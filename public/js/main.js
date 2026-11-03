@@ -1239,17 +1239,19 @@ function getDirectIdFromUrl() {
             return String(window.__DIRECT_URL_ID__).trim();
         }
         const params = new URLSearchParams(window.location.search);
-        const keys = [
+        // Bug 3 fix: Only identity keys here — target/call keys handled separately in handleUrlQueryParams
+        const idKeys = [
             "ui", "uid", "id", "u", "user", "userId", "username", "name",
-            "room", "roomId", "target", "to", "call", "peer",
             "deal", "token", "code", "pin", "key"
         ];
-        for (const k of keys) {
+        for (const k of idKeys) {
             const v = params.get(k);
             if (v && v.trim().length > 0) return v.trim();
         }
+        // Fallback: any param that is NOT a target/call/room key
+        const skipKeys = new Set(["lock", "call", "to", "target", "peer", "room", "roomid"]);
         for (const [k, v] of params.entries()) {
-            if (k.toLowerCase() === "lock") continue;
+            if (skipKeys.has(k.toLowerCase())) continue;
             if (v && v.trim().length > 0) return v.trim();
             if (k && k.trim().length > 0 && !v) return k.trim();
         }
@@ -1257,7 +1259,7 @@ function getDirectIdFromUrl() {
             const hash = window.location.hash.substring(1);
             if (hash.includes("=")) {
                 const hp = new URLSearchParams(hash);
-                for (const k of keys) {
+                for (const k of idKeys) {
                     const v = hp.get(k);
                     if (v && v.trim().length > 0) return v.trim();
                 }
@@ -2495,6 +2497,13 @@ function hideActiveCallBar() {
 // Start Call
 async function startCall(targetUser) {
     if (!targetUser) return;
+    // Bug 4 fix: ensure myUsername is set before emitting any signaling packet
+    if (!myUsername || myUsername.trim() === "") {
+        myUsername = "Guest_" + Math.random().toString(36).slice(2, 7).toUpperCase();
+        if (usernameInput) usernameInput.value = myUsername;
+        socket.emit("join-user", myUsername);
+        await new Promise(res => setTimeout(res, 300));
+    }
     if (targetUser === myUsername) {
         alert("You cannot call yourself.");
         return;
@@ -2843,14 +2852,16 @@ socket.on("answer", async ({ from, to, answer }) => {
 // Handle Incoming ICE Candidate
 socket.on("icecandidate", async ({ from, candidate }) => {
     if (!candidate) return;
-    if (from.endsWith("_screen") || from.startsWith("mobile_remote_")) {
-        if (screenPeerConnection && screenPeerConnection.remoteDescription) {
+    // Route to screenPeerConnection ONLY if screen sharing receiver is active
+    if (screenPeerConnection && (from.endsWith("_screen") || from.startsWith("mobile_remote_"))) {
+        if (screenPeerConnection.remoteDescription) {
             try {
                 await screenPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
             } catch (err) {}
         }
         return;
     }
+    // Otherwise route to standard audio/video peerConnection
     if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
         try {
             await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));

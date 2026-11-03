@@ -275,6 +275,8 @@ public class WebRTCCompanion {
             peerConnection.close();
             peerConnection = null;
         }
+        // Bug 7 fix: clear any orphaned queued candidates from previous call
+        queuedCandidates.clear();
 
         List<PeerConnection.IceServer> iceServers = new ArrayList<>();
         iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
@@ -903,6 +905,9 @@ public class WebRTCCompanion {
         if (localAudioTrack != null) {
             localAudioTrack.setEnabled(false);
         }
+
+        // Bug 7 fix: clear queued candidates to prevent orphaned ICE candidates leaking into next call
+        queuedCandidates.clear();
 
         isScreenSharingCall = false;
         activePeer = null;

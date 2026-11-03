@@ -34,6 +34,46 @@ const usersBySocket = new Map();
 
 // Device Registry: deviceId -> { deviceId, deviceName, ram, platform, socketId, online }
 const DEVICES_FILE = join(dirname(fileURLToPath(import.meta.url)), "devices.json");
+
+// =====================================================================
+// findTargetSocketId — unified lookup: username, socketId, deviceId
+// Checks usersBySocket (exact match, _screen variant), io.sockets, deviceRegistry
+// =====================================================================
+function findTargetSocketId(to) {
+    if (!to) return null;
+    // 1. Exact username match in usersBySocket
+    for (const [sId, u] of usersBySocket.entries()) {
+        if (u.username === to || sId === to) return sId;
+    }
+    // 2. Try adding _screen suffix (mobile companion sends base name, browser targets base_screen)
+    const withScreen = to.endsWith("_screen") ? to : `${to}_screen`;
+    for (const [sId, u] of usersBySocket.entries()) {
+        if (u.username === withScreen) return sId;
+    }
+    // 3. Try stripping _screen suffix
+    const withoutScreen = to.endsWith("_screen") ? to.slice(0, -7) : null;
+    if (withoutScreen) {
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username === withoutScreen) return sId;
+        }
+    }
+    // 4. Direct socket ID match in io.sockets
+    if (io.sockets.sockets.has(to)) return to;
+    // 5. deviceRegistry — check all sockets of device
+    if (deviceRegistry.has(to)) {
+        const dev = deviceRegistry.get(to);
+        if (dev && dev.sockets && dev.sockets.size > 0) {
+            return [...dev.sockets][0]; // return first active socket
+        }
+        if (dev && dev.socketId && io.sockets.sockets.has(dev.socketId)) return dev.socketId;
+    }
+    // 6. Case-insensitive username match (fallback)
+    const toLower = to.toLowerCase();
+    for (const [sId, u] of usersBySocket.entries()) {
+        if (u.username.toLowerCase() === toLower) return sId;
+    }
+    return null;
+}
 const deviceRegistry = new Map();
 
 function loadDevices() {
@@ -266,12 +306,14 @@ io.on("connection", (socket) => {
             }
             finalName = cleanName;
         } else {
+            // Bug 5 fix: use while loop to guarantee unique suffix (not just a single linear pass)
             let suffix = 1;
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (sId !== socket.id && u.username.toLowerCase() === finalName.toLowerCase()) {
-                    finalName = `${cleanName}_${suffix++}`;
-                }
+            let candidate = cleanName;
+            const allUsernames = new Set([...usersBySocket.values()].map(u => u.username.toLowerCase()));
+            while (allUsernames.has(candidate.toLowerCase())) {
+                candidate = `${cleanName}_${suffix++}`;
             }
+            finalName = candidate;
         }
 
         const ua = socket.handshake.headers["user-agent"] || "";
@@ -321,17 +363,7 @@ io.on("connection", (socket) => {
         const { from, to, offer } = data || {};
         const isScreenShare = Boolean(data.isScreenShare || (offer && offer.isScreenShare));
         console.log(`Call offer: ${from} -> ${to} (isScreenShare=${isScreenShare})`);
-        let targetSocketId = null;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to) {
-                targetSocketId = sId;
-                break;
-            }
-        }
-        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
-            targetSocketId = to;
-        }
-
+        const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("offer", { ...data, from, to, offer, isScreenShare });
         } else {
@@ -343,16 +375,7 @@ io.on("connection", (socket) => {
     socket.on("remote-control", (data) => {
         const { to } = data || {};
         if (!to) return;
-        let targetSocketId = null;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to) {
-                targetSocketId = sId;
-                break;
-            }
-        }
-        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
-            targetSocketId = to;
-        }
+        const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("remote-control", data);
         }
@@ -361,17 +384,7 @@ io.on("connection", (socket) => {
     // WebRTC Answer
     socket.on("answer", ({ from, to, answer }) => {
         console.log(`Call answer: ${from} -> ${to}`);
-        let targetSocketId = null;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to) {
-                targetSocketId = sId;
-                break;
-            }
-        }
-        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
-            targetSocketId = to;
-        }
-
+        const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("answer", { from, to, answer });
         } else {
@@ -382,17 +395,7 @@ io.on("connection", (socket) => {
     // ICE Candidate
     socket.on("icecandidate", ({ from, to, candidate }) => {
         if (!candidate) return;
-        let targetSocketId = null;
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === to || sId === to) {
-                targetSocketId = sId;
-                break;
-            }
-        }
-        if (!targetSocketId && to && io.sockets.sockets.has(to)) {
-            targetSocketId = to;
-        }
-
+        const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("icecandidate", { from, candidate });
         }

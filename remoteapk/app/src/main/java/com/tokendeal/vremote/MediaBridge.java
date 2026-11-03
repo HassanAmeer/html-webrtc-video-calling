@@ -60,13 +60,31 @@ public class MediaBridge {
                                     String dataPath = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA));
                                     long size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE));
 
-                                    // Crisp thumbnail generation (sample size 2, 75% quality for crisp preview without blur)
+                                    // Bug 6 fix: Use ContentResolver for Android Q+ scoped storage
                                     Bitmap thumb = null;
                                     try {
-                                        BitmapFactory.Options opts = new BitmapFactory.Options();
-                                        opts.inSampleSize = 2;
-                                        thumb = BitmapFactory.decodeFile(dataPath, opts);
-                                    } catch (Exception ignored) {}
+                                        Uri imgUri = Uri.withAppendedPath(collection, String.valueOf(id));
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            android.util.Size thumbSize = new android.util.Size(320, 240);
+                                            thumb = ctx.getContentResolver().loadThumbnail(imgUri, thumbSize, null);
+                                        } else {
+                                            BitmapFactory.Options opts = new BitmapFactory.Options();
+                                            opts.inSampleSize = 2;
+                                            thumb = BitmapFactory.decodeFile(dataPath, opts);
+                                        }
+                                    } catch (Exception ex) {
+                                        // Fallback: try ContentResolver openInputStream
+                                        try {
+                                            Uri imgUri = Uri.withAppendedPath(collection, String.valueOf(id));
+                                            InputStream is = ctx.getContentResolver().openInputStream(imgUri);
+                                            if (is != null) {
+                                                BitmapFactory.Options opts = new BitmapFactory.Options();
+                                                opts.inSampleSize = 4;
+                                                thumb = BitmapFactory.decodeStream(is, null, opts);
+                                                is.close();
+                                            }
+                                        } catch (Exception ignored) {}
+                                    }
 
                                     String b64 = "";
                                     if (thumb != null) {
