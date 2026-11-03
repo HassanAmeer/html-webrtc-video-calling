@@ -237,9 +237,19 @@ MainActivity.stopAllMediaAndFinish()
 
 ---
 
-## 12. Device Error Catching & Orange Failure Relay
+## 12. Device Error Catching, Coturn TURN Traversal & Orange Failure Relay
 
-To provide real-time explanations for why a connection did not succeed:
+### A. Coturn TURN Traversal (`WebRTCCompanion.java`)
+To eliminate `WebRTC ICE connection failed (Network/Firewall error)` when Android devices operate on mobile cellular networks, symmetric NATs, or restrictive firewalls:
+- `WebRTCCompanion` configures both UDP and TCP TURN endpoints:
+  - `turn:201.18.218.29:3478?transport=udp`
+  - `turn:201.18.218.29:3478?transport=tcp`
+  - OpenRelay TURN backup servers (`turn:openrelay.metered.ca:80`, `443`, `tcp`)
+  - Google STUN servers (`stun:stun.l.google.com:19302`)
+- ICE gathering policy is explicitly set to `GATHER_CONTINUALLY` so candidates are gathered across all network interface switches.
+
+### B. Device Error Catching & Orange Failure Relay
+To provide real-time explanations on the web dashboard for why a connection did not succeed:
 1. **`WebRTCCompanion.java` - `emitDeviceError(String errorMsg)`:**
    - Emits socket event `device-error` with `{ targetDeviceId: myDeviceId, error: errorMsg, from: myId }`.
    - Bound to WebRTC callbacks:
@@ -255,6 +265,8 @@ To provide real-time explanations for why a connection did not succeed:
    - If an `auto-command` cannot find target or target has no open sockets, server emits `device-error`:
      - `"Device is offline (phone app closed or background service not running)"`
      - `"Device not registered on server (app has never connected)"`
+5. **In-Place UI Display on Web Dashboard:**
+   - The subtitle text *"Without touching phone"* is replaced directly in-place with the exact failure reason in **clean ORANGE text (`color: #ff9f0a; font-weight: 600;`)** with NO outline and NO background box to save card vertical space.
 
 ---
 
@@ -281,11 +293,15 @@ To support all Android devices (API 21+) and guarantee connectivity even if the 
 | Background Waking | `RemoteAccessibilityService` + `FULL_WAKE_LOCK` | Must illuminate screen & launch without user presence |
 | 30-min KeepAlive | `KeepAliveWorker` (WorkManager) | Auto-registers device every 30 mins even if app stopped |
 | Reboot Persistence | `BootReceiver` (`RECEIVE_BOOT_COMPLETED`) | Re-enqueues periodic work automatically on device boot |
+| Coturn TURN | VPS Coturn `turn:201.18.218.29:3478` (UDP/TCP) | Bypasses cellular NAT/firewalls; prevents ICE failures |
+| Stealth Lock PIN | `SECURITY_PIN = "7861"` (hold 1200ms) | Decoy error toast on wrong PIN/tap; bypass on `?uid=` |
+| Release APK Version | `v6.4.3` (`versionCode 14`) | Reflected in build.gradle & screen share download modal |
 | Stealth Mode | `moveTaskToBack(true)` on session start | Phone must never remain on VRemote UI |
 | Entire Screen Auto-Accept | `setAutoAcceptPending(true)` | Clicks "Entire screen" & "Start now" in < 500ms |
 | Auto-PiP | `setAutoEnterEnabled(false)` | Strictly disabled; manual click only |
+| Chat Media Policy | In-chat inline playback only; no PiP | Animated sliding progress bar loader on chat videos |
 | WebView Cache | `clearCache(true)` + `/?v=<timestamp>` | Always executes fresh HTML/JS/CSS |
 | Hardware Release | `stopAllMediaAndFinish()` | Extinguishes green camera dot immediately on call end |
-| Device Error Reporting | `emitDeviceError()` | Relays exact failure reasons in real-time |
-| Gradle Build | `gradle assembleRelease` on VPS | Builds unsigned/release APK into `/downloads/vremote.apk` |
+| Device Error Reporting | `emitDeviceError()` | Relays in-place orange failure reasons in real-time |
+| Gradle Build | `gradle assembleRelease` on VPS | Builds release APK into `/downloads/vremote.apk` |
 | Directory Sync | `public/` & `app/` | Must be 100% byte-for-byte identical at all times |

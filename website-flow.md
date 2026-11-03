@@ -27,9 +27,10 @@ Does URL contain UID parameter? (?uid=xxx, ?ui=xxx, ?id=xxx, or #uid=xxx)
        │            Render live local preview (top-right box, mirrored, muted)
        │            Auto-connect to deal partner if peer with matching base UID exists
        │
-       └──► NO  ──► Display Decoy Security PIN Lock Screen
-                    Wait for user to enter correct PIN (default: 1234)
-                    On correct PIN -> activate session & media
+       └──► NO  ──► Display Stealth Security PIN Lock Overlay
+                    Wait for user to enter correct PIN (PIN: 7861 with 1200ms hold)
+                    On correct PIN + 1200ms hold -> activate full app session & media
+                    On incorrect PIN / short tap -> shake error & "Error: Try again later after 10 minutes"
 ```
 1. **Instant Bypass:** Inline script in `<head>` executes before DOM render. If any key (`uid`, `ui`, `id`, `u`, `user`, `room`, `deal`, `token`, etc.) exists in query or hash, it sets `document.documentElement.classList.add('bypass-lock')` and conceals `#security-lock-screen`.
 2. **Instant Media Acquisition:** Camera and microphone hardware activate immediately with zero user prompts, zero manual clicks, and zero delays. Multi-tier acquisition ensures the camera preview is visible on page load and never drops into an audio-only fallback.
@@ -265,6 +266,19 @@ Used by the web frontend to remotely command unattended Android devices:
 
 ---
 
+## 8. Drawer Views Architecture: Participants vs. Registered Devices Separation
+Inside the sliding drawer (`#drawer-view`), users toggle between two distinct views using the info icon (`#btn-view-registered-devices`):
+1. **Participants View (`#drawer-participants-view`):**
+   - Displays the `#drawer-user-box` containing the user's Display Name input, Room/User ID box, and Join/Update button.
+   - Lists active room participants (`#participants-list`).
+2. **Registered Devices View (`#drawer-registered-devices-view`):**
+   - **Strict UI Cleanliness Rule:** The `#drawer-user-box` (Display Name input, Search/Join box) is **COMPLETELY HIDDEN** (`display: none !important;`).
+   - Contains ONLY the registered Android devices cards (`#registered-devices-list`).
+   - Devices auto-register when the VRemote app connects.
+   - Shows device name, RAM info, permanent device ID, online/offline status, and action buttons.
+
+---
+
 ## 9. Registered Device Connection Lifecycle & Orange Error Reporting
 
 ### 1. The Core Lifecycle
@@ -306,13 +320,19 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
 
 | Domain | Constant / Event | Value / Rule |
 |---|---|---|
+| **Frontend** | `SECURITY_PIN` | `"7861"` (`HOLD_SECURITY_MS = 1200ms` on `#btn-security-back`) |
 | **Frontend** | `HOLD_ACCEPT_MS` | `450ms` (press & hold to answer) |
-| **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms) |
+| **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms or wrong PIN) |
 | **Frontend** | `HOLD_EXPAND_MS` | `380ms` (16px touch jitter tolerance) |
-| **Frontend** | Cache Bumper | `?v=6.4.2` (in index.html script & css tags) |
-| **Frontend** | Device Connection | Connecting loader on button; orange error text on failure |
+| **Frontend** | Cache Bumper | `?v=6.4.3` (in index.html script & css tags) |
+| **Frontend** | APK Version Badge | `v6.4.3 (Latest)` in screen share download modal |
+| **Frontend** | Drawer Separation | `#drawer-user-box` hidden in registered devices view |
+| **Frontend** | Device Connection | Connecting loader on button; in-place orange error text (`#ff9f0a`) on failure |
 | **Frontend** | PiP Mode | Strictly manual click inside `#btn-dock-more` popover |
+| **Frontend** | Chat Media | Strictly inline in message bubble; no PiP; animated progress bar loader |
 | **Frontend** | Mode Switch | Audio mode hides `#local-video-container`; Video mode preserves User 2 privacy |
+| **Android** | WorkManager KeepAlive | 15-30 min `KeepAliveWorker` wakes socket & re-registers across OEMs |
+| **Android** | Coturn TURN | VPS `turn:201.18.218.29:3478` (UDP/TCP) + OpenRelay fallback |
 | **Backend** | Device Registry | `device.sockets = new Set()` tracks background & companion sockets |
 | **Backend** | Offline Rule | Device stays `online = true` as long as `sockets.size > 0` |
 | **Backend** | `device-error` Relay | Relays exact device failure reasons to requesting web client |

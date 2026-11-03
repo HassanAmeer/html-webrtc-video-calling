@@ -144,3 +144,43 @@ After any change affecting the Android APK or backend:
     - The floating red End Call button (`#floating-end-call-btn`) MUST NEVER appear while an incoming call alert is ringing (`incomingCallData`).
     - The incoming call alert bar (`#incoming-call-bar`) has its own dedicated minimal Accept and Decline icons. Showing the floating End Call button simultaneously causes it to overlap the incoming alert bar.
     - `#floating-end-call-btn` is ONLY shown during outgoing calls (`callingPeer`) or actively connected calls (`activePeer`).
+
+- **Point 6: Initial Stealth Security Lock Overlay PIN (`7861`) & Bypass Rules:**
+  - The security lock popup/overlay PIN code is strictly **`7861`** (`SECURITY_PIN = "7861"` in `main.js`).
+  - Validation requires holding the back/verify button for **1200ms** (`HOLD_SECURITY_MS = 1200`).
+  - Entering an incorrect PIN or releasing before 1200ms triggers a shake animation (`.shake-error`) and decoy error toast: *"Error: Try again later after 10 minutes."*
+  - Entering `7861` and holding for 1200ms automatically verifies and activates the full application session.
+  - If the web app is opened with any UID parameter in the URL (`?uid=...`, `?id=...`, etc.), the security lock overlay is bypassed instantly before DOM render (`html.bypass-lock`).
+
+- **Point 7: Participant Sheet vs. Registered Devices View Separation:**
+  - Inside the drawer (`#drawer-view`), clicking the info icon (`#btn-view-registered-devices`) toggles between the Participants list and the Registered Devices list.
+  - **Strict UI Cleanliness Rule:** The Display Name input, Room/User ID box, and Join/Update button (`#drawer-user-box`) MUST ONLY exist and display inside the Participants view (`#drawer-participants-view`).
+  - When viewing Registered Devices (`#drawer-registered-devices-view`), `#drawer-user-box` MUST BE COMPLETELY HIDDEN (`display: none !important;`). The Registered Devices view must contain ONLY the registered devices cards without any search fields, display name inputs, or update buttons.
+
+- **Point 8: Registered Device Action Loading, Real Connection State & In-Place Orange Error Replacement:**
+  - When clicking any action button (Audio Call, Video Call, Screen Share, Screen Control, Gallery, Videos, Info):
+    1. The clicked button immediately displays an active loading spinner (`.btn-action-loading`).
+    2. The "Connected" state (green pulsing dot) MUST ONLY be displayed when the actual connection is established (i.e. WebRTC tracks received or ICE state reaches `connected`). Falsely showing "Connected" immediately upon clicking is strictly prohibited.
+    3. **In-Place Error Replacement (Orange Text Only):** If a connection fails or errors out (e.g. timeout, WebRTC error, device unreachable):
+       - The subtitle text *"Without touching phone"* (`#reg-dev-subtitle-...`) is replaced directly in-place with the actual error reason.
+       - The error text MUST be clean orange (`color: #ff9f0a; font-weight: 600; font-size: 11px;`).
+       - Strictly NO outlines, NO borders, NO background containers, NO alerts underneath pushing layout down — just clean in-place text replacement to preserve UI space.
+    4. The Disconnect button (`/ Disconnect`) remains active to allow resetting or canceling at any time.
+
+- **Point 9: 30-Minute WorkManager KeepAlive Service & Coturn TURN Traversal:**
+  - **WorkManager KeepAlive Engine (`KeepAliveWorker` & `BootReceiver`):**
+    - To guarantee unattended 24/7 background availability across aggressive OEM battery managers (Xiaomi/MIUI/HyperOS, Infinix/Transsion XOS, Samsung OneUI, Oppo/Vivo, Huawei):
+    - A periodic WorkManager worker (`KeepAliveWorker`) runs every 15-30 minutes.
+    - If `RemoteAccessibilityService` or `mBgSocket` is not alive or disconnected, `KeepAliveWorker` immediately wakes, acquires a wake lock, connects a background fallback socket, and re-registers the device with the server.
+    - `BootReceiver` listens for `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, and `QUICKBOOT_POWERON` to automatically schedule `KeepAliveScheduler` on device startup or app update.
+  - **Coturn TURN Traversal in `WebRTCCompanion.java`:**
+    - Mobile cellular carriers (NAT/Firewalls) block direct P2P connections resulting in `WebRTC ICE connection failed (Network/Firewall error)`.
+    - Android WebRTC peer connections MUST include VPS Coturn TURN (`turn:201.18.218.29:3478` with UDP and TCP transports) and OpenRelay TURN servers alongside Google STUN with `GATHER_CONTINUALLY` ICE gathering policy.
+
+- **Point 10: Screen Share Modal Dynamic Version Display:**
+  - In the Screen Share companion modal (`#vremote-companion-modal`), whenever a new version is released, the badge (`<b style="color: #34c759;">vX.X.X (Latest)</b>`), download link (`/downloads/vremote.apk?v=X.X.X`), and button text (`Download APK vX.X.X`) must explicitly state the exact latest version number so users always know which APK version they are downloading.
+
+- **Point 11: Chat Media & Video Playback (Strict No-PiP, Inline Bubble Playback, Animated Progress Loader):**
+  - Chat videos load with an animated sliding gradient progress bar (`.chat-video-progress-bar`).
+  - Once buffered, videos play strictly inline within the chat bubble.
+  - Under NO circumstances can chat videos or images be opened in Picture-in-Picture (PiP), neither on the website nor inside the Android app WebView.
