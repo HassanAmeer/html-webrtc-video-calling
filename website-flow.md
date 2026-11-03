@@ -324,8 +324,8 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
 | **Frontend** | `HOLD_ACCEPT_MS` | `450ms` (press & hold to answer) |
 | **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms or wrong PIN) |
 | **Frontend** | `HOLD_EXPAND_MS` | `380ms` (16px touch jitter tolerance) |
-| **Frontend** | Cache Bumper | `?v=6.4.4` (in index.html script & css tags) |
-| **Frontend** | APK Version Badge | `v6.4.4 (Latest)` in screen share download modal |
+| **Frontend** | Cache Bumper | `?v=6.4.5` (in index.html script & css tags) |
+| **Frontend** | APK Version Badge | `v6.4.5 (Latest)` in screen share download modal |
 | **Frontend** | Drawer Separation | `#drawer-user-box` hidden in registered devices view |
 | **Frontend** | Device Connection | Connecting loader on button; in-place orange error text (`#ff9f0a`) on failure |
 | **Frontend** | PiP Mode | Strictly manual click inside `#btn-dock-more` popover |

@@ -427,6 +427,22 @@ public class WebRTCCompanion {
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
         this.activePeer = targetUser;
         this.isScreenSharingCall = true;
+
+        // Safely dispose any previous screen capturer to prevent multiple createVirtualDisplay on Android 14
+        if (screenCapturer != null) {
+            try {
+                screenCapturer.stopCapture();
+                screenCapturer.dispose();
+            } catch (Exception ignored) {}
+            screenCapturer = null;
+        }
+        if (surfaceTextureHelper != null) {
+            try {
+                surfaceTextureHelper.dispose();
+            } catch (Exception ignored) {}
+            surfaceTextureHelper = null;
+        }
+
         setupPeerConnection();
 
         try {
@@ -1000,6 +1016,10 @@ public class WebRTCCompanion {
 
     public boolean isSocketConnected() {
         return socket != null && socket.connected();
+    }
+
+    public boolean isScreenSharing() {
+        return isScreenSharingCall && screenCapturer != null;
     }
 
     public void registerDevice() {

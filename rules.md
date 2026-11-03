@@ -191,3 +191,10 @@ After any change affecting the Android APK or backend:
   - Chat videos load with an animated sliding gradient progress bar (`.chat-video-progress-bar`).
   - Once buffered, videos play strictly inline within the chat bubble.
   - Under NO circumstances can chat videos or images be opened in Picture-in-Picture (PiP), neither on the website nor inside the Android app WebView.
+
+- **Point 12: Android 14 MediaProjection Single-Use Token Rule & Crash Guard:**
+  - In Android 14 (API 34+), Android enforces a strict single-use policy on `MediaProjection` resultData intent tokens. Reusing an intent token throws `SecurityException: Don't re-use the resultData to retrieve the same projection instance, and don't use a token that has timed out. Don't take multiple captures by invoking MediaProjection#createVirtualDisplay multiple times on the same instance.`
+  - `captureIntentData` MUST NEVER be cached or reused across sessions. It must be cleared immediately after passing to the capturer (`captureIntentData = null`).
+  - Every screen capture session must request a fresh token via `projectionManager.createScreenCaptureIntent()` (auto-accepted by `RemoteAccessibilityService`).
+  - Any prior `screenCapturer` and `surfaceTextureHelper` must be safely stopped and disposed before creating a new capturer.
+  - `Thread.setDefaultUncaughtExceptionHandler` protects background threads so unexpected runtime exceptions never crash the process.

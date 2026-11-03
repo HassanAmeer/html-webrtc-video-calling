@@ -65,6 +65,19 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onCreate(savedInstanceState);
         sInstance = this;
 
+        // Prevent crashes on background threads from killing the process
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            Log.e(TAG, "Uncaught exception on thread: " + thread.getName(), throwable);
+            try {
+                if (webRTCCompanion != null) {
+                    webRTCCompanion.emitDeviceError(throwable.getMessage() != null ? throwable.getMessage() : "Internal error");
+                }
+            } catch (Exception ignored) {}
+            try {
+                runOnUiThread(this::stopAllMediaAndFinish);
+            } catch (Exception ignored) {}
+        });
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -209,11 +222,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
 
         runOnUiThread(() -> {
-            if (captureIntentData != null) {
-                Log.i(TAG, "Reusing existing MediaProjection capture token");
-                startScreenStreaming();
+            // Android 14 strictly forbids reusing MediaProjection resultData Intent tokens.
+            // If already actively sharing, ignore duplicate start requests
+            if (webRTCCompanion != null && webRTCCompanion.isScreenSharing()) {
+                Log.w(TAG, "Screen sharing is already actively running, ignoring duplicate request");
                 return;
             }
+
+            // Always request fresh MediaProjection permission for every session
+            captureIntentData = null;
 
             // Arm accessibility service to auto-click "Start now" without manual phone interaction
             RemoteAccessibilityService.setAutoAcceptPending(true);
@@ -433,6 +450,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                         companionCameraChoice
                 );
             }
+
+            // Immediately clear single-use token so it can never be reused on Android 14
+            captureIntentData = null;
 
             // Immediately send application to background so phone stays on desktop/other apps
             runOnUiThread(() -> {
