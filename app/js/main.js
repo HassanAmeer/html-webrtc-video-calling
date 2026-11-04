@@ -7847,10 +7847,15 @@ setupRemoteCameraPip();
     }
 
     if (btnToggleLogs) {
-        btnToggleLogs.addEventListener("click", (e) => {
-            e.stopPropagation();
-            openLiveLogsModal();
-        });
+        // Hide logs icon on Android native app — logs terminal is for web browser only
+        if (isNativeAndroidApp()) {
+            btnToggleLogs.style.setProperty("display", "none", "important");
+        } else {
+            btnToggleLogs.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openLiveLogsModal();
+            });
+        }
     }
     if (btnCloseLogs) {
         btnCloseLogs.addEventListener("click", closeLiveLogsModal);
