@@ -104,12 +104,20 @@ After any change affecting the Android APK or backend:
   - The browser controls (`#toggle-camera`, `#toggle-mic`) must reflect active ON states (`fas fa-user`, `fas fa-microphone`).
   - Camera acquisition MUST use multi-tier fallback (best video stream, unified stream, and standalone video+audio merging) so camera hardware never fails or drops into an audio-only state on page load.
 
-- **Point 2: Strict Separation of Call vs. Screen Sharing:**
+- **Point 2: Strict Separation of Call vs. Screen Sharing & Floating End Sharing Badge Lifecycle:**
   - When initiating or receiving an Audio Call or Video Call from the website (or auto-calling a deal partner with matching UID):
     - Under NO circumstances should any "Sharing", "End Sharing", or screen sharing UI appear.
     - The floating button `#floating-end-stream-btn` ("End Sharing") MUST ONLY be displayed when actual screen sharing (`isScreenSharing || screenPeerConnection`) is active.
     - Regular audio and video calls MUST ONLY show "End Call" (`#floating-end-call-btn` or dock `#end-call-btn`).
     - Incoming call offers between website peers or matching UID partners must never be falsely classified as registered device calls (`from.length >= 8` check is strictly forbidden).
+  - **Floating End Sharing Badge Aesthetics & Lifecycle (v6.4.9):**
+    - Opacity & Glassmorphism: Set to 50% opacity translucent red (`background: rgba(239, 68, 68, 0.5)`) with `backdrop-filter: blur(14px)`.
+    - Shimmer Effect: Features a continuous animated subtle light sweep (`@keyframes streamBtnShimmer`).
+    - Auto-Hide & Swipe Up: After 2.5 to 3 seconds of screen sharing activity, the badge automatically glides upwards off-screen (`.swiped-up` with `transform: translate(-50%, -85px); opacity: 0; pointer-events: none;`).
+    - Interactive Re-reveal: Moving cursor within 65px of top screen edge or touching near top immediately pulls the badge back down and restarts the timer. Hovering over the button holds it visible until cursor leaves.
+    - Absolute Lifecycle Cleanup: When a call or stream ends (via `endCall`, `closeScreenShareStream`, `socket.on("end-call")`, or registered device disconnect), `#floating-end-stream-btn` MUST be cleanly reset, hidden (`display: none`), timer cleared, and `screenPeerConnection` destroyed so the badge never lingers.
+  - **Participants Icon (v6.4.9):**
+    - The dock button `#toggle-participants-btn` and drawer header `#drawer-header-icon` feature the custom 3D Polished Aluminum Group emblem (`images/participants-icon.png`) on dark graphite squircle, giving a premium iPhone/iOS Cupertino aesthetic.
 
 - **Point 3: Tab Switch, Minimizing, Focus Loss & Inactivity Privacy Policy (STRICT USER RULES):**
   - **When NO call is connected (Idle State):**

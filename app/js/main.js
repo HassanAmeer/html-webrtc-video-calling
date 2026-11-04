@@ -3010,16 +3010,27 @@ async function acceptScreenShareStream(from, offer) {
             }
         };
 
+        pc.onconnectionstatechange = () => {
+            console.log("Screen share Connection State:", pc.connectionState);
+            if (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed") {
+                closeScreenShareStream();
+                if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
+            }
+        };
+
         pc.oniceconnectionstatechange = () => {
             console.log("Screen share ICE State:", pc.iceConnectionState);
             if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
                 if (typeof window.notifyDeviceConnectionSuccess === "function") {
                     window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
                 }
-            } else if (pc.iceConnectionState === "failed") {
+                if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
+            } else if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "closed") {
                 if (typeof window.notifyDeviceConnectionFailure === "function") {
                     window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "WebRTC ICE failed for Screen Share");
                 }
+                closeScreenShareStream();
+                if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
             }
         };
 
@@ -3048,6 +3059,7 @@ async function acceptScreenShareStream(from, offer) {
                     remoteVideo.srcObject = stream;
                     remoteVideo.play().catch(() => {});
                     showToast("📱 Mobile screen streaming live (1080p 60fps)!");
+                    if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
                 } else {
                     // Second Track: Companion Mobile Camera Feed (Shown ONLY to controller)
                     const pipEl = document.getElementById("remote-camera-pip");
@@ -3092,16 +3104,26 @@ function closeScreenShareStream() {
         try { screenPeerConnection.close(); } catch (_) {}
         screenPeerConnection = null;
     }
+    if (typeof remoteControlChannel !== "undefined" && remoteControlChannel) {
+        try { remoteControlChannel.close(); } catch (_) {}
+        remoteControlChannel = null;
+    }
     // Restore camera stream to main video if it was moved to PiP
     if (savedCameraStream) {
-        remoteVideo.srcObject = savedCameraStream;
-        remoteVideo.play().catch(() => {});
+        if (remoteVideo) {
+            remoteVideo.srcObject = savedCameraStream;
+            remoteVideo.play().catch(() => {});
+        }
         savedCameraStream = null;
     }
     const pipEl = document.getElementById("remote-camera-pip");
     const pipVideo = document.getElementById("remoteCameraVideo");
     if (pipEl) pipEl.style.display = "none";
     if (pipVideo) pipVideo.srcObject = null;
+
+    if (typeof clearFloatingStreamBtn === "function") {
+        clearFloatingStreamBtn();
+    }
 }
 
 // Strictly Mute Mic & Disable Camera on Browser when calling Registered Devices
@@ -3339,6 +3361,14 @@ function endCall(notifyServer = true) {
     callingPeer = null;
     incomingCallData = null;
     pendingIceCandidates = [];
+
+    // Ensure screen share peer & stream are completely closed and badge cleared
+    if (typeof closeScreenShareStream === "function") {
+        closeScreenShareStream();
+    }
+    if (typeof clearFloatingStreamBtn === "function") {
+        clearFloatingStreamBtn();
+    }
 
     stopIncomingCallAlert();
 
@@ -4369,6 +4399,8 @@ if (toggleScreen) {
                 if (icon) icon.className = "fas fa-desktop";
                 toggleScreen.title = "Share Screen";
                 updateMoreScreenShareUI();
+                if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
+                if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
                 showToast("Screen Sharing: Stopped");
                 return;
             }
@@ -4392,6 +4424,9 @@ async function revertToCameraTrack() {
         currentScreenStream.getTracks().forEach((track) => track.stop());
         currentScreenStream = null;
     }
+
+    if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
+    if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
 
     // Restore camera
     try {
@@ -4801,6 +4836,53 @@ function handleQuickEndOrDeclineCall() {
     updateFloatingEndCallBtn();
 }
 
+let streamBtnHideTimer = null;
+
+function clearFloatingStreamBtn() {
+    if (streamBtnHideTimer) {
+        clearTimeout(streamBtnHideTimer);
+        streamBtnHideTimer = null;
+    }
+    if (floatingEndStreamBtn) {
+        floatingEndStreamBtn.style.display = "none";
+        floatingEndStreamBtn.classList.remove("swiped-up");
+    }
+}
+
+function resetFloatingStreamBtnTimer() {
+    if (streamBtnHideTimer) {
+        clearTimeout(streamBtnHideTimer);
+        streamBtnHideTimer = null;
+    }
+    if (!floatingEndStreamBtn) return;
+
+    const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
+    if (!isScreenShareActive) {
+        floatingEndStreamBtn.style.display = "none";
+        floatingEndStreamBtn.classList.remove("swiped-up");
+        return;
+    }
+
+    // Keep it visible initially
+    floatingEndStreamBtn.style.display = "inline-flex";
+    floatingEndStreamBtn.classList.remove("swiped-up");
+
+    // Auto-hide after 2.5 seconds (swiping smoothly upwards)
+    streamBtnHideTimer = setTimeout(() => {
+        if (floatingEndStreamBtn && Boolean(isScreenSharing || screenPeerConnection)) {
+            floatingEndStreamBtn.classList.add("swiped-up");
+        }
+    }, 2500);
+}
+
+function showFloatingStreamBtn() {
+    if (!floatingEndStreamBtn) return;
+    const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
+    if (!isScreenShareActive) return;
+    floatingEndStreamBtn.classList.remove("swiped-up");
+    resetFloatingStreamBtnTimer();
+}
+
 function updateFloatingEndCallBtn() {
     // Show End Call button when an outgoing call is ringing or actively connected
     // (Incoming call has its own dedicated minimal alert bar with accept/decline icons and should not be overlapped)
@@ -4826,7 +4908,11 @@ function updateFloatingEndCallBtn() {
     if (floatingEndStreamBtn) {
         const isScreenShareActive = Boolean(isScreenSharing || screenPeerConnection);
         // Floating "End Sharing" button ONLY appears when Screen Sharing is actively streaming!
-        floatingEndStreamBtn.style.display = isScreenShareActive ? "inline-flex" : "none";
+        if (isScreenShareActive) {
+            resetFloatingStreamBtnTimer();
+        } else {
+            clearFloatingStreamBtn();
+        }
     }
 
     // Sync call active status with native Android App bridge
@@ -4858,9 +4944,42 @@ if (btnBarEndCall) {
     });
 }
 
+// Global mousemove / touch listener to reveal badge when user moves mouse near top of screen
+window.addEventListener("mousemove", (e) => {
+    if (e.clientY <= 65 && Boolean(isScreenSharing || screenPeerConnection)) {
+        showFloatingStreamBtn();
+    }
+}, { passive: true });
+
+window.addEventListener("touchstart", (e) => {
+    if (e.touches && e.touches[0] && e.touches[0].clientY <= 80 && Boolean(isScreenSharing || screenPeerConnection)) {
+        showFloatingStreamBtn();
+    }
+}, { passive: true });
+
 if (floatingEndStreamBtn) {
+    // When hovering over the button itself, keep it visible (don't swipe away while aiming to click!)
+    floatingEndStreamBtn.addEventListener("mouseenter", () => {
+        if (streamBtnHideTimer) {
+            clearTimeout(streamBtnHideTimer);
+            streamBtnHideTimer = null;
+        }
+        floatingEndStreamBtn.classList.remove("swiped-up");
+    });
+
+    floatingEndStreamBtn.addEventListener("mouseleave", () => {
+        if (Boolean(isScreenSharing || screenPeerConnection)) {
+            resetFloatingStreamBtnTimer();
+        }
+    });
+
     floatingEndStreamBtn.addEventListener("click", (e) => {
         e.stopPropagation();
+        closeScreenShareStream();
+        if (isScreenSharing) {
+            revertToCameraTrack();
+        }
+        clearFloatingStreamBtn();
         endCall(true);
         showToast("Stream ended.");
     });
@@ -7018,7 +7137,7 @@ setupRemoteCameraPip();
             if (typeof updateFloatingEndCallBtn === "function") {
                 updateFloatingEndCallBtn();
             }
-            if (floatingEndStreamBtn) floatingEndStreamBtn.style.display = "none";
+            if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
             const rsc = document.getElementById("remote-screen-container");
             if (rsc) rsc.style.display = "none";
             closeGallery();
