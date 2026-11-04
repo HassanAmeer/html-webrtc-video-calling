@@ -14,7 +14,8 @@ import androidx.core.app.NotificationCompat;
 public class ScreenCaptureService extends Service {
     private static final String CHANNEL_ID = "VRemoteScreenShareChannel";
     private static final int NOTIFICATION_ID = 8801;
-    private static boolean sIsRunning = false;
+    private static volatile boolean sIsRunning = false;
+    private static volatile boolean sForegroundReady = false;
 
     public interface OnForegroundStartedListener {
         void onForegroundStarted();
@@ -23,10 +24,10 @@ public class ScreenCaptureService extends Service {
     private static OnForegroundStartedListener sForegroundListener = null;
 
     public static void setOnForegroundStartedListener(OnForegroundStartedListener listener) {
-        sForegroundListener = listener;
-        if (sIsRunning && listener != null) {
-            listener.onForegroundStarted();
-            sForegroundListener = null;
+        if (sForegroundReady && listener != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(listener::onForegroundStarted);
+        } else {
+            sForegroundListener = listener;
         }
     }
 
@@ -66,10 +67,8 @@ public class ScreenCaptureService extends Service {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                int serviceType = 0;
-                if (!isCall) {
-                    serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
-                }
+                // On Android 14 (API 34+), always ensure MEDIA_PROJECTION type is active for ScreenCaptureService
+                int serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
@@ -90,6 +89,7 @@ public class ScreenCaptureService extends Service {
         }
 
         sIsRunning = true;
+        sForegroundReady = true;
         if (sForegroundListener != null) {
             OnForegroundStartedListener listener = sForegroundListener;
             sForegroundListener = null;
@@ -117,6 +117,7 @@ public class ScreenCaptureService extends Service {
     public void onDestroy() {
         super.onDestroy();
         sIsRunning = false;
+        sForegroundReady = false;
         sForegroundListener = null;
         stopForeground(true);
     }
