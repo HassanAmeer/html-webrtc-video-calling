@@ -921,27 +921,26 @@ public class WebRTCCompanion {
 
     private void handleRemoteControlMessage(String jsonStr) {
         if (jsonStr == null || jsonStr.trim().isEmpty()) return;
-        if (!isFullControlEnabled) {
-            AppLog.w(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
-            return;
-        }
-
-        // Drop gestures if queue backlog exceeds limit to prevent UI thread freezing & memory spikes
-        if (pendingGestures.get() >= MAX_PENDING_GESTURES) {
-            Log.w(TAG, "Dropping remote gesture: gesture queue backlog reached (" + pendingGestures.get() + ")");
-            return;
-        }
-
         try {
             JSONObject obj = new JSONObject(jsonStr);
             String type = obj.optString("type", "");
             if (type.isEmpty()) return;
 
+            if (!isFullControlEnabled) {
+                AppLog.w(TAG, "Remote gesture ignored (" + type + "): Full Control is OFF (View Only mode)");
+                return;
+            }
+
+            // Drop gestures if queue backlog exceeds limit to prevent UI thread freezing & memory spikes
+            if (pendingGestures.get() >= MAX_PENDING_GESTURES) {
+                AppLog.w(TAG, "Dropping remote gesture (" + type + "): backlog reached (" + pendingGestures.get() + ")");
+                return;
+            }
+
             // Throttling rapid gestures (e.g., rapid mousemove or dragging events)
             long now = System.currentTimeMillis();
             if ("tap".equals(type) || "swipe".equals(type)) {
                 if (now - lastGestureDispatchTime < 25) {
-                    // Drop gestures arriving faster than 25ms apart to avoid flooding the looper
                     return;
                 }
                 lastGestureDispatchTime = now;
@@ -956,12 +955,19 @@ public class WebRTCCompanion {
 
                     RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
                     if (accessibility == null) {
-                        AppLog.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
+                        AppLog.w(TAG, "⚠️ Remote Touch Ignored: Accessibility Service is not running! (Turn ON 'VRemote Screen Share' in Phone Settings > Accessibility to enable clicks)");
+                        if (socket != null && socket.connected()) {
+                            try {
+                                JSONObject errObj = new JSONObject();
+                                errObj.put("targetDeviceId", DeviceRegistry.getDeviceId(context));
+                                errObj.put("error", "Touch control requires Accessibility Permission: turn ON 'VRemote Screen Share' in Accessibility Settings");
+                                socket.emit("device-error", errObj);
+                            } catch (Throwable ignored) {}
+                        }
                         return;
                     }
 
-                    AppLog.d(TAG, "Handling gesture: " + type);
-                    Log.d(TAG, "Executing remote control gesture: " + type);
+                    AppLog.d(TAG, "Executing gesture: " + type);
 
                     switch (type) {
                         case "tap": {
@@ -970,7 +976,8 @@ public class WebRTCCompanion {
                             if (Double.isFinite(rawX) && Double.isFinite(rawY)) {
                                 float normX = Math.max(0.0f, Math.min(1.0f, (float) rawX));
                                 float normY = Math.max(0.0f, Math.min(1.0f, (float) rawY));
-                                accessibility.performTap(normX, normY);
+                                boolean ok = accessibility.performTap(normX, normY);
+                                AppLog.i(TAG, "Tap injected at (" + normX + ", " + normY + ") result=" + ok);
                             }
                             break;
                         }
@@ -986,35 +993,40 @@ public class WebRTCCompanion {
                                 float x2 = Math.max(0.0f, Math.min(1.0f, (float) rawX2));
                                 float y2 = Math.max(0.0f, Math.min(1.0f, (float) rawY2));
                                 long duration = Math.max(100L, Math.min(1000L, obj.optLong("duration", 250L)));
-                                accessibility.performSwipe(x1, y1, x2, y2, duration);
+                                boolean ok = accessibility.performSwipe(x1, y1, x2, y2, duration);
+                                AppLog.i(TAG, "Swipe injected (" + x1 + "," + y1 + " -> " + x2 + "," + y2 + ") result=" + ok);
                             }
                             break;
                         }
                         case "back": {
-                            accessibility.performBack();
+                            boolean ok = accessibility.performBack();
+                            AppLog.i(TAG, "Back button injected result=" + ok);
                             break;
                         }
                         case "home": {
-                            accessibility.performHome();
+                            boolean ok = accessibility.performHome();
+                            AppLog.i(TAG, "Home button injected result=" + ok);
                             break;
                         }
                         case "recents": {
-                            accessibility.performRecentApps();
+                            boolean ok = accessibility.performRecentApps();
+                            AppLog.i(TAG, "Recent apps injected result=" + ok);
                             break;
                         }
                         case "flip-camera": {
                             switchCompanionCamera();
+                            AppLog.i(TAG, "Flipped companion camera");
                             break;
                         }
                     }
                 } catch (Throwable e) {
-                    Log.e(TAG, "Error executing remote gesture: " + type, e);
+                    AppLog.e(TAG, "Safe catch: error executing gesture [" + type + "]: " + e.getMessage(), e);
                 } finally {
                     pendingGestures.decrementAndGet();
                 }
             });
         } catch (Throwable e) {
-            Log.e(TAG, "Error handling remote control message:", e);
+            AppLog.e(TAG, "Safe catch: error handling remote-control message: " + e.getMessage(), e);
         }
     }
 

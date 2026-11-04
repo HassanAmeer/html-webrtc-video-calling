@@ -27,6 +27,7 @@ app.post("/api/crash-log", (req, res) => {
         const logLine = `\n================== ANDROID CRASH REPORT [${timestamp}] ==================\nDevice: ${deviceId || "unknown"} (${deviceName || "Android"})\nThread: ${thread || "main"}\nError: ${error}\nStack:\n${stack}\n========================================================================\n`;
         console.error(logLine);
         fs.appendFileSync(join(dirname(fileURLToPath(import.meta.url)), "crash.log"), logLine);
+        addRuntimeLog("android", "error", "FATAL_CRASH", `CRASH on ${thread || 'main'}: ${error} [Device: ${deviceName || deviceId || 'Android'}]`);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -47,7 +48,7 @@ const io = new Server(server, {
 // =====================================================================
 // Unified Runtime Live Logging Buffer (Max 200 entries)
 // =====================================================================
-const MAX_RUNTIME_LOGS = 200;
+const MAX_RUNTIME_LOGS = 500;
 const runtimeLogs = [];
 
 function addRuntimeLog(source, level, tag, msg) {
@@ -69,13 +70,34 @@ function addRuntimeLog(source, level, tag, msg) {
     return entry;
 }
 
-// HTTP Endpoint for Runtime Logs
+// HTTP Endpoint for Runtime Logs (JSON)
 app.get("/api/logs", (req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.json({
         total: runtimeLogs.length,
         logs: runtimeLogs
     });
+});
+
+// HTTP Endpoint for Runtime Logs (Plain Text / Easy Copy All)
+app.get("/api/logs/text", (req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const lines = runtimeLogs.map(e => `[${e.time || ''}] [${(e.source || 'server').toUpperCase()}] ${e.tag ? '[' + e.tag + '] ' : ''}${e.msg}`);
+    res.send(lines.join("\n"));
+});
+
+// HTTP Endpoint to Post Log Entry from Client
+app.post("/api/logs", (req, res) => {
+    try {
+        const { source, level, tag, msg } = req.body || {};
+        if (msg) {
+            addRuntimeLog(source || "client", level || "info", tag || "HTTP", msg);
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.delete("/api/logs", (req, res) => {
@@ -515,6 +537,9 @@ io.on("connection", (socket) => {
         const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("remote-control", data);
+            addRuntimeLog("server", "info", "RemoteControl", `Relayed gesture [${data.type || "tap"}] to ${to}`);
+        } else {
+            addRuntimeLog("server", "warn", "RemoteControl", `Cannot relay gesture [${data.type || "tap"}]: ${to} not online`);
         }
     });
 

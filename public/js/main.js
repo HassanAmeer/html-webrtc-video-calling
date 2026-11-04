@@ -3,6 +3,48 @@ function isNativeAndroidApp() {
     return !!(window.VRemoteNative && typeof window.VRemoteNative.isNativeApp === "function" && window.VRemoteNative.isNativeApp());
 }
 
+// Global Unified Client Logging Dispatcher
+window.sendClientLog = window.sendClientLog || function(level, tag, msg) {
+    try {
+        const isApp = isNativeAndroidApp() || typeof window.Android !== "undefined";
+        const entry = {
+            source: isApp ? "android-web" : "browser",
+            level: level || "info",
+            tag: tag || "Client",
+            msg: typeof msg === "object" ? JSON.stringify(msg) : String(msg || ""),
+            time: new Date().toLocaleTimeString(),
+            timestamp: Date.now()
+        };
+        if (window.socket && window.socket.connected) {
+            window.socket.emit("client-log", entry);
+        } else {
+            fetch("/api/logs", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(entry)
+            }).catch(() => {});
+        }
+    } catch (_) {}
+};
+
+// Global Error & Promise Rejection Diagnostics
+window.addEventListener("error", (e) => {
+    try {
+        if (typeof window.sendClientLog === "function") {
+            window.sendClientLog("error", "WebUncaught", `${e.message} at ${e.filename || 'unknown'}:${e.lineno || 0}:${e.colno || 0}`);
+        }
+    } catch (_) {}
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+    try {
+        if (typeof window.sendClientLog === "function") {
+            const reason = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : "Unknown rejection";
+            window.sendClientLog("error", "WebPromise", reason);
+        }
+    } catch (_) {}
+});
+
 // Global UI Containers & Controls (Declared at top to prevent TDZ ReferenceErrors)
 const localVideoContainer = document.getElementById("local-video-container") || document.querySelector(".local-video");
 const callControlsDock = document.getElementById("call-controls");
@@ -2900,6 +2942,9 @@ if (remoteVideo) {
                 x: mouseDownStart.x,
                 y: mouseDownStart.y
             });
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("info", "RemoteTouch", `Tap sent at (${(mouseDownStart.x * 100).toFixed(1)}%, ${(mouseDownStart.y * 100).toFixed(1)}%)`);
+            }
             showClickRipple(mouseDownStart.clientX, mouseDownStart.clientY);
         } else {
             // Drag / Swipe / Scroll
@@ -2911,6 +2956,9 @@ if (remoteVideo) {
                 endY: endCoords.y,
                 duration: Math.max(120, Math.min(duration, 700))
             });
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("info", "RemoteTouch", `Swipe sent: (${(mouseDownStart.x * 100).toFixed(1)}%,${(mouseDownStart.y * 100).toFixed(1)}% -> ${(endCoords.x * 100).toFixed(1)}%,${(endCoords.y * 100).toFixed(1)}%)`);
+            }
             showClickRipple(e.clientX, e.clientY);
         }
     });
@@ -2919,6 +2967,9 @@ if (remoteVideo) {
     window.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && (activePeer || screenPeerConnection)) {
             sendRemoteControlCommand({ type: "back" });
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("info", "RemoteTouch", "Sent Back key command");
+            }
         }
     });
 }
@@ -2979,6 +3030,9 @@ async function startCall(targetUser) {
     }
 
     console.log(`Calling ${targetUser}...`);
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Call", `Calling "${targetUser}"`);
+    }
     callingPeer = targetUser;
     renderParticipantsList();
     startOutgoingWaveTone();
@@ -3016,6 +3070,9 @@ async function startCall(targetUser) {
         stopOutgoingWaveTone();
         renderParticipantsList();
         console.error("Failed to start call:", err);
+        if (typeof window.sendClientLog === "function") {
+            window.sendClientLog("error", "Call", `Failed to call "${targetUser}": ${err.message}`);
+        }
         alert("Failed to start call: " + err.message);
     }
 }
@@ -3313,6 +3370,9 @@ socket.on("offer", async (data) => {
     const { from, to, offer } = data || {};
     const isExplicitScreenShare = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare));
     console.log(`Received call offer from ${from} (isScreenShare=${isExplicitScreenShare})`, data);
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Call", `Received offer from "${from}" (isScreenShare=${isExplicitScreenShare})`);
+    }
 
     const now = Date.now();
     if (now - lastOfferAcceptedTime < 1200) {
@@ -3416,6 +3476,10 @@ function endCall(notifyServer = true) {
     stopIncomingCallAlert();
 
     const targetPeer = activePeer || callingPeer || (incomingCallData && incomingCallData.from);
+
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Call", `Call ended (peer: ${targetPeer || 'none'})`);
+    }
 
     if (notifyServer && targetPeer) {
         socket.emit("end-call", { from: myUsername, to: targetPeer });
@@ -3829,6 +3893,9 @@ async function acceptIncomingCall() {
     stopIncomingCallAlert();
 
     console.log(`Accepted call offer from ${from}`);
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Call", `Call accepted from "${from}"`);
+    }
     try {
         await ensureLocalStream();
         const pc = initPeerConnection(from);
@@ -3958,6 +4025,9 @@ function setupIncomingCallHandlers() {
         btnIncomingDecline.addEventListener("click", (e) => {
             e.stopPropagation();
             if (incomingCallData) {
+                if (typeof window.sendClientLog === "function") {
+                    window.sendClientLog("warn", "Call", `Call declined from "${incomingCallData.from}"`);
+                }
                 socket.emit("end-call", { from: myUsername, to: incomingCallData.from });
                 incomingCallData = null;
             }
@@ -4441,6 +4511,9 @@ if (toggleScreen) {
                 localVideo.play().catch(() => {});
 
                 isScreenSharing = true;
+                if (typeof window.sendClientLog === "function") {
+                    window.sendClientLog("info", "ScreenShare", "Screen sharing started");
+                }
                 toggleScreen.classList.add("sharing-active");
                 toggleScreen.classList.remove("active");
                 const icon = toggleScreen.querySelector("i");
@@ -4474,6 +4547,9 @@ if (toggleScreen) {
             if (window.VRemoteNative && typeof window.VRemoteNative.stopScreenCapture === "function") {
                 window.VRemoteNative.stopScreenCapture();
                 isScreenSharing = false;
+                if (typeof window.sendClientLog === "function") {
+                    window.sendClientLog("info", "ScreenShare", "Screen sharing stopped");
+                }
                 toggleScreen.classList.remove("sharing-active");
                 toggleScreen.classList.remove("active");
                 const icon = toggleScreen.querySelector("i");
@@ -4493,6 +4569,9 @@ if (toggleScreen) {
 async function revertToCameraTrack() {
     if (!isScreenSharing) return;
     isScreenSharing = false;
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "ScreenShare", "Screen sharing stopped");
+    }
     toggleScreen.classList.remove("sharing-active");
     toggleScreen.classList.remove("active");
     const icon = toggleScreen.querySelector("i");
@@ -7793,7 +7872,7 @@ setupRemoteCameraPip();
     function appendLog(entry) {
         if (!entry) return;
         allLogs.push(entry);
-        if (allLogs.length > 200) {
+        if (allLogs.length > 500) {
             allLogs.shift();
         }
 
@@ -7827,7 +7906,7 @@ setupRemoteCameraPip();
                 .then(res => res.json())
                 .then(data => {
                     if (data && Array.isArray(data.logs)) {
-                        allLogs = data.logs.slice(-200);
+                        allLogs = data.logs.slice(-500);
                         renderLogs();
                     }
                 })
@@ -7902,21 +7981,51 @@ setupRemoteCameraPip();
 
     if (btnCopyLogs) {
         btnCopyLogs.addEventListener("click", () => {
-            const filtered = allLogs.filter(matchesFilter);
-            if (filtered.length === 0) {
+            const logsToCopy = (activeFilter === "all" || allLogs.filter(matchesFilter).length === 0)
+                ? allLogs
+                : allLogs.filter(matchesFilter);
+
+            if (!logsToCopy || logsToCopy.length === 0) {
                 if (typeof showToast === "function") showToast("No logs to copy");
                 return;
             }
-            const text = filtered.map(e => `[${e.time || ''}] [${(e.source || 'server').toUpperCase()}] ${e.tag ? '[' + e.tag + '] ' : ''}${e.msg}`).join("\n");
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(() => {
-                    const origHtml = btnCopyLogs.innerHTML;
-                    btnCopyLogs.innerHTML = '<i class="fas fa-check" style="color:#34c759;"></i>';
-                    setTimeout(() => { btnCopyLogs.innerHTML = origHtml; }, 1500);
-                    if (typeof showToast === "function") showToast("Logs copied to clipboard");
-                }).catch(() => {
+
+            const text = logsToCopy.map(e => `[${e.time || ''}] [${(e.source || 'server').toUpperCase()}] ${e.tag ? '[' + e.tag + '] ' : ''}${e.msg}`).join("\n");
+
+            const setCopiedUI = () => {
+                const origHtml = btnCopyLogs.innerHTML;
+                btnCopyLogs.innerHTML = '<i class="fas fa-check" style="color:#34c759;"></i> <span class="btn-text">Copied!</span>';
+                setTimeout(() => { btnCopyLogs.innerHTML = origHtml; }, 1500);
+                if (typeof showToast === "function") showToast(`✅ Copied ${logsToCopy.length} logs to clipboard`);
+            };
+
+            const fallbackExecCopy = (str) => {
+                const ta = document.createElement("textarea");
+                ta.value = str;
+                ta.style.position = "fixed";
+                ta.style.top = "0";
+                ta.style.left = "0";
+                ta.style.opacity = "0";
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                try {
+                    const ok = document.execCommand("copy");
+                    if (ok) setCopiedUI();
+                    else if (typeof showToast === "function") showToast("Clipboard access denied");
+                } catch (_) {
                     if (typeof showToast === "function") showToast("Failed to copy logs");
+                } finally {
+                    document.body.removeChild(ta);
+                }
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(setCopiedUI).catch(() => {
+                    fallbackExecCopy(text);
                 });
+            } else {
+                fallbackExecCopy(text);
             }
         });
     }

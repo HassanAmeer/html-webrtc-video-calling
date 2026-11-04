@@ -649,7 +649,6 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
             Path path = new Path();
             path.moveTo(x, y);
-            path.lineTo(x, y + 1.0f);
 
             GestureDescription.StrokeDescription stroke =
                     new GestureDescription.StrokeDescription(path, 0, 50);
@@ -657,11 +656,21 @@ public class RemoteAccessibilityService extends AccessibilityService {
             GestureDescription.Builder builder = new GestureDescription.Builder();
             builder.addStroke(stroke);
 
-            // Pass null callback and null handler to prevent circular references and handler queue explosion
+            GestureResultCallback callback = new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription gestureDescription) {
+                    AppLog.d(TAG, "performTap gesture completed at (" + (int) x + ", " + (int) y + ")");
+                }
+                @Override
+                public void onCancelled(GestureDescription gestureDescription) {
+                    AppLog.w(TAG, "performTap gesture cancelled by system at (" + (int) x + ", " + (int) y + ")");
+                }
+            };
+
             AppLog.i(TAG, "performTap injected at: (" + (int) x + ", " + (int) y + ")");
-            return dispatchGesture(builder.build(), null, null);
+            return dispatchGesture(builder.build(), callback, null);
         } catch (Throwable t) {
-            AppLog.e(TAG, "performTap error", t);
+            AppLog.e(TAG, "performTap safe catch: " + t.getMessage(), t);
             return false;
         }
     }
@@ -701,10 +710,21 @@ public class RemoteAccessibilityService extends AccessibilityService {
             GestureDescription.Builder builder = new GestureDescription.Builder();
             builder.addStroke(stroke);
 
+            GestureResultCallback callback = new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription gestureDescription) {
+                    AppLog.d(TAG, "performSwipe gesture completed");
+                }
+                @Override
+                public void onCancelled(GestureDescription gestureDescription) {
+                    AppLog.w(TAG, "performSwipe gesture cancelled by system");
+                }
+            };
+
             AppLog.i(TAG, "performSwipe injected: (" + (int) x1 + "," + (int) y1 + ") -> (" + (int) x2 + "," + (int) y2 + ")");
-            return dispatchGesture(builder.build(), null, null);
+            return dispatchGesture(builder.build(), callback, null);
         } catch (Throwable t) {
-            AppLog.e(TAG, "performSwipe error", t);
+            AppLog.e(TAG, "performSwipe safe catch: " + t.getMessage(), t);
             return false;
         }
     }
