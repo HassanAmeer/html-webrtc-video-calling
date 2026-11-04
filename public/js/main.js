@@ -8065,105 +8065,83 @@ setupRemoteCameraPip();
         if (!permSheetBody) return;
         permSheetBody.innerHTML = '<div style="text-align:center;padding:24px;color:#9aa0a6;font-size:13px;"><i class="fas fa-circle-notch fa-spin"></i></div>';
 
+        var headerTitle = document.getElementById("perm-sheet-header-title");
+        var headerIcon = document.getElementById("perm-sheet-header-icon");
+
         // 1. Android Native App Bridge
         if (window.VRemoteNative && typeof window.VRemoteNative.getPermissionsStatus === "function") {
             try {
                 var statusJson = window.VRemoteNative.getPermissionsStatus();
                 if (statusJson) {
                     var status = JSON.parse(statusJson);
-                    renderPermissions(status, true);
+                    if (headerTitle) headerTitle.textContent = "App Permissions";
+                    if (headerIcon) headerIcon.className = "fas fa-shield-alt";
+                    renderNativePermissions(status);
                     return;
                 }
             } catch (e) {}
         }
 
         // 2. Web Browser Permissions Detection
+        if (headerTitle) headerTitle.textContent = "Browser Permissions";
+        if (headerIcon) headerIcon.className = "fas fa-globe";
+
         var webStatus = {
-            accessibility: "granted", // Controlled via web interface
-            background_service: (window.socket && window.socket.connected) ? "granted" : "denied",
-            battery_optimization: "granted",
-            overlay: "granted",
-            camera: (typeof localStream !== "undefined" && localStream && localStream.getVideoTracks().length > 0) ? "granted" : "denied",
-            microphone: (typeof localStream !== "undefined" && localStream && localStream.getAudioTracks().length > 0) ? "granted" : "denied",
-            storage: "granted",
-            notifications: (typeof Notification !== "undefined" && Notification.permission === "granted") ? "granted" : "denied"
+            web_camera: (typeof localStream !== "undefined" && localStream && localStream.getVideoTracks().length > 0) ? "granted" : "denied",
+            web_microphone: (typeof localStream !== "undefined" && localStream && localStream.getAudioTracks().length > 0) ? "granted" : "denied",
+            web_screen_share: (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === "function") ? "granted" : "denied",
+            web_notifications: (typeof Notification !== "undefined" && Notification.permission === "granted") ? "granted" : "denied",
+            web_audio_output: "granted",
+            web_socket: (window.socket && window.socket.connected) ? "granted" : "denied",
+            web_clipboard: (navigator.clipboard && typeof navigator.clipboard.writeText === "function") ? "granted" : "denied",
+            web_file_share: "granted"
         };
 
         try {
             if (navigator.permissions && navigator.permissions.query) {
                 try {
                     var cam = await navigator.permissions.query({ name: 'camera' });
-                    if (cam.state === 'granted') webStatus.camera = "granted";
+                    if (cam.state === 'granted') webStatus.web_camera = "granted";
                 } catch(_) {}
                 try {
                     var mic = await navigator.permissions.query({ name: 'microphone' });
-                    if (mic.state === 'granted') webStatus.microphone = "granted";
+                    if (mic.state === 'granted') webStatus.web_microphone = "granted";
                 } catch(_) {}
                 try {
                     var notif = await navigator.permissions.query({ name: 'notifications' });
-                    if (notif.state === 'granted') webStatus.notifications = "granted";
+                    if (notif.state === 'granted') webStatus.web_notifications = "granted";
                 } catch(_) {}
             }
         } catch(_) {}
 
-        renderPermissions(webStatus, false);
+        renderWebPermissions(webStatus);
     }
 
-    function renderFallback() {
-        return '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">Permissions not available.</div>';
-    }
+    // --- Android Native Permissions Renderer ---
+    function renderNativePermissions(status) {
+        var permMap = {
+            accessibility: { name: "Remote Touch Control", icon: "fa-universal-access" },
+            background_service: { name: "24/7 Background Service", icon: "fa-bolt" },
+            battery_optimization: { name: "Battery Unrestricted (Doze)", icon: "fa-battery-full" },
+            overlay: { name: "Display Over Other Apps (PiP)", icon: "fa-window-restore" },
+            camera: { name: "Camera", icon: "fa-camera" },
+            microphone: { name: "Microphone", icon: "fa-microphone" },
+            storage: { name: "Gallery & Media", icon: "fa-images" },
+            notifications: { name: "Notifications", icon: "fa-bell" }
+        };
 
-    function permIcon(type) {
-        return {
-            camera: "fa-camera",
-            microphone: "fa-microphone",
-            storage: "fa-images",
-            accessibility: "fa-universal-access",
-            background_service: "fa-bolt",
-            battery_optimization: "fa-battery-full",
-            overlay: "fa-window-restore",
-            notifications: "fa-bell"
-        }[type] || "fa-shield-alt";
-    }
-
-    function permLabel(type) {
-        return {
-            camera: "Camera",
-            microphone: "Microphone",
-            storage: "Gallery & Media",
-            accessibility: "Remote Touch Control",
-            background_service: "24/7 Background Service",
-            battery_optimization: "Battery Unrestricted (Doze Bypass)",
-            overlay: "Display Over Other Apps (PiP)",
-            notifications: "Notifications"
-        }[type] || type;
-    }
-
-    function renderPermissions(status, isNative) {
         var granted = [], denied = [];
-        var allPerms = [
-            "accessibility",
-            "background_service",
-            "battery_optimization",
-            "overlay",
-            "camera",
-            "microphone",
-            "storage",
-            "notifications"
-        ];
-
-        allPerms.forEach(function(key) {
-            if (status[key] === "granted") granted.push(key); else denied.push(key);
+        Object.keys(permMap).forEach(function(k) {
+            if (status[k] === "granted") granted.push(k); else denied.push(k);
         });
 
         var html = "";
-
         if (granted.length > 0) {
-            html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Active Permissions (' + granted.length + ')</div>';
-            granted.forEach(function(key) {
+            html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Active App Permissions (' + granted.length + ')</div>';
+            granted.forEach(function(k) {
                 html += '<div class="perm-item"><div class="perm-item-left">'
-                    + '<div class="perm-item-icon granted"><i class="fas ' + permIcon(key) + '"></i></div>'
-                    + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
+                    + '<div class="perm-item-icon granted"><i class="fas ' + permMap[k].icon + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permMap[k].name + '</div>'
                     + '<div class="perm-item-status granted">✓ Active &amp; Allowed</div></div>'
                     + '</div></div>';
             });
@@ -8171,83 +8149,136 @@ setupRemoteCameraPip();
 
         if (denied.length > 0) {
             html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission (' + denied.length + ')</div>';
-            denied.forEach(function(key) {
-                var btnText = key === "background_service" ? "Start Service" : (isNative ? "Open Settings" : "Allow");
+            denied.forEach(function(k) {
+                var btnText = k === "background_service" ? "Start Service" : "Open Settings";
                 html += '<div class="perm-item"><div class="perm-item-left">'
-                    + '<div class="perm-item-icon denied"><i class="fas ' + permIcon(key) + '"></i></div>'
-                    + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
+                    + '<div class="perm-item-icon denied"><i class="fas ' + permMap[k].icon + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permMap[k].name + '</div>'
                     + '<div class="perm-item-status denied">✗ Not enabled</div></div>'
                     + '</div>'
-                    + '<button class="perm-grant-btn" data-type="' + key + '">' + btnText + '</button>'
+                    + '<button class="perm-grant-btn" data-native-key="' + k + '">' + btnText + '</button>'
                     + '</div>';
             });
         }
 
-        if (!granted.length && !denied.length) {
-            html = renderFallback();
+        html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">'
+              + 'Tap "Open Settings" to configure Android system permissions'
+              + '</div>';
+
+        permSheetBody.innerHTML = html;
+        permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                var k = btn.getAttribute("data-native-key");
+                if (!window.VRemoteNative) return;
+                if (k === "accessibility") {
+                    if (typeof window.VRemoteNative.openAccessibilitySettings === "function") window.VRemoteNative.openAccessibilitySettings();
+                } else if (k === "battery_optimization") {
+                    if (typeof window.VRemoteNative.openBatterySettings === "function") window.VRemoteNative.openBatterySettings();
+                    else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
+                } else if (k === "overlay") {
+                    if (typeof window.VRemoteNative.openOverlaySettings === "function") window.VRemoteNative.openOverlaySettings();
+                    else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
+                } else if (k === "background_service") {
+                    if (typeof window.VRemoteNative.startBackgroundService === "function") {
+                        window.VRemoteNative.startBackgroundService();
+                        setTimeout(loadPermissions, 1000);
+                    }
+                } else {
+                    if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
+                }
+            });
+        });
+    }
+
+    // --- Website Browser Permissions Renderer ---
+    function renderWebPermissions(status) {
+        var permMap = {
+            web_camera: { name: "Camera (Video Calling)", icon: "fa-camera", desc: "Local video broadcast & calls" },
+            web_microphone: { name: "Microphone (Voice)", icon: "fa-microphone", desc: "Voice transmission & calls" },
+            web_screen_share: { name: "Screen Sharing", icon: "fa-desktop", desc: "Share screen, window or tab" },
+            web_notifications: { name: "Browser Notifications", icon: "fa-bell", desc: "Incoming call & chat alerts" },
+            web_audio_output: { name: "Speaker & Ringtone", icon: "fa-volume-up", desc: "Audio playback & ring chime" },
+            web_socket: { name: "WebRTC Signaling Socket", icon: "fa-network-wired", desc: "Live link to v.tokendeal.cloud" },
+            web_clipboard: { name: "Clipboard Copy", icon: "fa-clipboard", desc: "Copy meeting links & IDs" },
+            web_file_share: { name: "File & Attachment Upload", icon: "fa-paperclip", desc: "Upload media in meeting chat" }
+        };
+
+        var granted = [], denied = [];
+        Object.keys(permMap).forEach(function(k) {
+            if (status[k] === "granted") granted.push(k); else denied.push(k);
+        });
+
+        var html = "";
+        if (granted.length > 0) {
+            html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Active Browser Permissions (' + granted.length + ')</div>';
+            granted.forEach(function(k) {
+                html += '<div class="perm-item"><div class="perm-item-left">'
+                    + '<div class="perm-item-icon granted"><i class="fas ' + permMap[k].icon + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permMap[k].name + '</div>'
+                    + '<div class="perm-item-status granted">✓ Active &amp; Ready</div></div>'
+                    + '</div></div>';
+            });
+        }
+
+        if (denied.length > 0) {
+            html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission (' + denied.length + ')</div>';
+            denied.forEach(function(k) {
+                html += '<div class="perm-item"><div class="perm-item-left">'
+                    + '<div class="perm-item-icon denied"><i class="fas ' + permMap[k].icon + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permMap[k].name + '</div>'
+                    + '<div class="perm-item-status denied">✗ Not granted</div></div>'
+                    + '</div>'
+                    + '<button class="perm-grant-btn" data-web-key="' + k + '">Allow</button>'
+                    + '</div>';
+            });
         }
 
         html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">'
-              + (isNative ? 'Tap "Open Settings" to grant Android system permissions' : 'Web permissions active. Tap "Allow" to enable in browser')
+              + 'Web browser permissions for video calling, audio and notifications'
               + '</div>';
 
-        if (permSheetBody) {
-            permSheetBody.innerHTML = html;
-            permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
-                btn.addEventListener("click", function() {
-                    var permType = btn.getAttribute("data-type");
-
-                    // Android Native App Handling
-                    if (isNative && window.VRemoteNative) {
-                        if (permType === "accessibility") {
-                            if (typeof window.VRemoteNative.openAccessibilitySettings === "function") window.VRemoteNative.openAccessibilitySettings();
-                        } else if (permType === "battery_optimization") {
-                            if (typeof window.VRemoteNative.openBatterySettings === "function") window.VRemoteNative.openBatterySettings();
-                            else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
-                        } else if (permType === "overlay") {
-                            if (typeof window.VRemoteNative.openOverlaySettings === "function") window.VRemoteNative.openOverlaySettings();
-                            else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
-                        } else if (permType === "background_service") {
-                            if (typeof window.VRemoteNative.startBackgroundService === "function") {
-                                window.VRemoteNative.startBackgroundService();
-                                setTimeout(loadPermissions, 1000);
-                            }
-                        } else {
-                            if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
-                        }
-                        return;
-                    }
-
-                    // Web Browser Handling
-                    if (permType === "camera" || permType === "microphone") {
-                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                                .then(function(s) {
-                                    showToast("Camera & Microphone Allowed ✓");
-                                    loadPermissions();
-                                })
-                                .catch(function() {
-                                    showToast("Permission dismissed or blocked in browser settings");
-                                });
-                        }
-                    } else if (permType === "notifications") {
-                        if (typeof Notification !== "undefined") {
-                            Notification.requestPermission().then(function(p) {
-                                showToast("Notification: " + p);
+        permSheetBody.innerHTML = html;
+        permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                var k = btn.getAttribute("data-web-key");
+                if (k === "web_camera" || k === "web_microphone") {
+                    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                            .then(function() {
+                                showToast("Camera & Microphone Allowed ✓");
                                 loadPermissions();
+                            })
+                            .catch(function() {
+                                showToast("Click the lock icon in browser address bar to allow Camera/Mic");
                             });
-                        }
-                    } else if (permType === "overlay" || permType === "screen_capture") {
-                        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-                            showToast("Screen Share ready in browser ✓");
-                        }
-                    } else {
-                        showToast(permLabel(permType) + ": Active in browser session");
-                        loadPermissions();
                     }
-                });
+                } else if (k === "web_notifications") {
+                    if (typeof Notification !== "undefined") {
+                        Notification.requestPermission().then(function(p) {
+                            showToast(p === "granted" ? "Notifications Allowed ✓" : "Notifications Blocked");
+                            loadPermissions();
+                        });
+                    }
+                } else if (k === "web_screen_share") {
+                    showToast("Screen Share ready in browser ✓");
+                    loadPermissions();
+                } else if (k === "web_socket") {
+                    if (window.socket) window.socket.connect();
+                    showToast("Reconnecting to Signaling Server...");
+                    setTimeout(loadPermissions, 1000);
+                } else if (k === "web_clipboard") {
+                    if (navigator.clipboard) {
+                        navigator.clipboard.writeText(window.location.href).then(function() {
+                            showToast("Meeting Link Copied to Clipboard ✓");
+                            loadPermissions();
+                        });
+                    }
+                } else {
+                    showToast(permMap[k].name + " is ready in browser");
+                    loadPermissions();
+                }
             });
-        }
+        });
     }
 
     // --- Event listeners (always bind, regardless of native check) ---
