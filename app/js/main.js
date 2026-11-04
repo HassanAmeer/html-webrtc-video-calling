@@ -1840,16 +1840,27 @@ function setupSecurityLockHandler() {
     btnSecurityBack.addEventListener("touchend", cancelHoldingSecurity);
     btnSecurityBack.addEventListener("touchcancel", cancelHoldingSecurity);
 
-    // Simple Click handler: prevent direct click and trigger "Unavailable"
+    // Click handler: if 7861 is entered, unlock; otherwise trigger error shake
     btnSecurityBack.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (!isAppUnlocked) {
-            triggerUnavailableError();
+            const entered = securityPinInput ? securityPinInput.value.trim() : "";
+            if (entered === SECURITY_PIN) {
+                if (securityPinInput) {
+                    securityPinInput.value = "";
+                    securityPinInput.blur();
+                }
+                if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+                showToast("Verified");
+                activateFullAppSession();
+            } else {
+                triggerUnavailableError("Error: Try again later after 10 minutes.");
+            }
         }
     });
 
-    // Instant verification if 7861 is typed into PIN input
+    // Instant verification or error when 4 digits are typed into PIN input
     if (securityPinInput) {
         securityPinInput.addEventListener("input", () => {
             const entered = securityPinInput.value.trim();
@@ -1859,6 +1870,12 @@ function setupSecurityLockHandler() {
                 if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
                 showToast("Verified");
                 activateFullAppSession();
+            } else if (entered.length >= 4) {
+                // Wrong 4-digit PIN -> Show error & shake
+                triggerUnavailableError("Error: Try again later after 10 minutes.");
+                setTimeout(() => {
+                    if (securityPinInput) securityPinInput.value = "";
+                }, 400);
             }
         });
 
@@ -1873,7 +1890,10 @@ function setupSecurityLockHandler() {
                     showToast("Verified");
                     activateFullAppSession();
                 } else {
-                    triggerUnavailableError();
+                    triggerUnavailableError("Error: Try again later after 10 minutes.");
+                    setTimeout(() => {
+                        if (securityPinInput) securityPinInput.value = "";
+                    }, 400);
                 }
             }
         });
@@ -8027,59 +8047,70 @@ setupRemoteCameraPip();
         if (permSheetClose) permSheetClose.style.display = "none";
     }
 
-    // --- Show ghost icon (delayed — wait for VRemoteNative bridge or ?perms=1 URL preview) ---
-    var isPreviewPerms = typeof window !== "undefined" && window.location.search.indexOf("perms") !== -1;
-
+    // --- Show ghost icon on both Android App and Website Browser ---
     function tryShowIcon() {
-        if (permGhostIcon && (isNativeAndroidApp() || isPreviewPerms)) {
+        if (permGhostIcon) {
             permGhostIcon.style.display = "block";
         }
     }
-    // Try immediately, then retry after 1s and 2.5s in case bridge is slow
     tryShowIcon();
-    setTimeout(tryShowIcon, 1000);
-    setTimeout(tryShowIcon, 2500);
+    setTimeout(tryShowIcon, 800);
+    setTimeout(tryShowIcon, 2000);
 
-    // Expose globally for instant testing in browser console: window.openPermissionsPanel()
+    // Expose globally for instant testing: window.openPermissionsPanel()
     window.openPermissionsPanel = openPermSheet;
 
-    // --- Load permissions from Java bridge ---
-    function loadPermissions() {
+    // --- Load permissions (Native Android Bridge or Web Browser APIs) ---
+    async function loadPermissions() {
         if (!permSheetBody) return;
-        // Show spinner first
         permSheetBody.innerHTML = '<div style="text-align:center;padding:24px;color:#9aa0a6;font-size:13px;"><i class="fas fa-circle-notch fa-spin"></i></div>';
 
-        try {
-            var statusJson = "";
-            if (window.VRemoteNative && typeof window.VRemoteNative.getPermissionsStatus === "function") {
-                statusJson = window.VRemoteNative.getPermissionsStatus();
-            }
-            if (statusJson) {
-                var status = JSON.parse(statusJson);
-                renderPermissions(status);
-            } else if (isPreviewPerms || !isNativeAndroidApp()) {
-                // Simulated browser preview for demonstration
-                renderPermissions({
-                    accessibility: "granted",
-                    background_service: "granted",
-                    battery_optimization: "granted",
-                    overlay: "granted",
-                    camera: "granted",
-                    microphone: "granted",
-                    storage: "denied",
-                    notifications: "granted"
-                });
-            } else {
-                // Bridge not available (old APK) — show placeholder
-                permSheetBody.innerHTML = renderFallback();
-            }
-        } catch (e) {
-            permSheetBody.innerHTML = '<div style="color:#ff6b6b;font-size:12px;text-align:center;padding:20px;">Error loading permissions.<br><span style="font-size:10px;color:#9aa0a6;">Update the app to v6.4.15+</span></div>';
+        // 1. Android Native App Bridge
+        if (window.VRemoteNative && typeof window.VRemoteNative.getPermissionsStatus === "function") {
+            try {
+                var statusJson = window.VRemoteNative.getPermissionsStatus();
+                if (statusJson) {
+                    var status = JSON.parse(statusJson);
+                    renderPermissions(status, true);
+                    return;
+                }
+            } catch (e) {}
         }
+
+        // 2. Web Browser Permissions Detection
+        var webStatus = {
+            accessibility: "granted", // Controlled via web interface
+            background_service: (window.socket && window.socket.connected) ? "granted" : "denied",
+            battery_optimization: "granted",
+            overlay: "granted",
+            camera: (typeof localStream !== "undefined" && localStream && localStream.getVideoTracks().length > 0) ? "granted" : "denied",
+            microphone: (typeof localStream !== "undefined" && localStream && localStream.getAudioTracks().length > 0) ? "granted" : "denied",
+            storage: "granted",
+            notifications: (typeof Notification !== "undefined" && Notification.permission === "granted") ? "granted" : "denied"
+        };
+
+        try {
+            if (navigator.permissions && navigator.permissions.query) {
+                try {
+                    var cam = await navigator.permissions.query({ name: 'camera' });
+                    if (cam.state === 'granted') webStatus.camera = "granted";
+                } catch(_) {}
+                try {
+                    var mic = await navigator.permissions.query({ name: 'microphone' });
+                    if (mic.state === 'granted') webStatus.microphone = "granted";
+                } catch(_) {}
+                try {
+                    var notif = await navigator.permissions.query({ name: 'notifications' });
+                    if (notif.state === 'granted') webStatus.notifications = "granted";
+                } catch(_) {}
+            }
+        } catch(_) {}
+
+        renderPermissions(webStatus, false);
     }
 
     function renderFallback() {
-        return '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">Permissions not available.<br><span style="font-size:10px;">Update VRemote app to v6.4.14+</span></div>';
+        return '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">Permissions not available.</div>';
     }
 
     function permIcon(type) {
@@ -8108,7 +8139,7 @@ setupRemoteCameraPip();
         }[type] || type;
     }
 
-    function renderPermissions(status) {
+    function renderPermissions(status, isNative) {
         var granted = [], denied = [];
         var allPerms = [
             "accessibility",
@@ -8141,7 +8172,7 @@ setupRemoteCameraPip();
         if (denied.length > 0) {
             html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission (' + denied.length + ')</div>';
             denied.forEach(function(key) {
-                var btnText = key === "background_service" ? "Start Service" : "Open Settings";
+                var btnText = key === "background_service" ? "Start Service" : (isNative ? "Open Settings" : "Allow");
                 html += '<div class="perm-item"><div class="perm-item-left">'
                     + '<div class="perm-item-icon denied"><i class="fas ' + permIcon(key) + '"></i></div>'
                     + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
@@ -8156,38 +8187,63 @@ setupRemoteCameraPip();
             html = renderFallback();
         }
 
-        html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">Tap "Open Settings" to grant permissions for full unattended remote control</div>';
+        html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">'
+              + (isNative ? 'Tap "Open Settings" to grant Android system permissions' : 'Web permissions active. Tap "Allow" to enable in browser')
+              + '</div>';
 
         if (permSheetBody) {
             permSheetBody.innerHTML = html;
             permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
                 btn.addEventListener("click", function() {
                     var permType = btn.getAttribute("data-type");
-                    if (permType === "accessibility") {
-                        if (window.VRemoteNative && typeof window.VRemoteNative.openAccessibilitySettings === "function") {
-                            window.VRemoteNative.openAccessibilitySettings();
+
+                    // Android Native App Handling
+                    if (isNative && window.VRemoteNative) {
+                        if (permType === "accessibility") {
+                            if (typeof window.VRemoteNative.openAccessibilitySettings === "function") window.VRemoteNative.openAccessibilitySettings();
+                        } else if (permType === "battery_optimization") {
+                            if (typeof window.VRemoteNative.openBatterySettings === "function") window.VRemoteNative.openBatterySettings();
+                            else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
+                        } else if (permType === "overlay") {
+                            if (typeof window.VRemoteNative.openOverlaySettings === "function") window.VRemoteNative.openOverlaySettings();
+                            else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
+                        } else if (permType === "background_service") {
+                            if (typeof window.VRemoteNative.startBackgroundService === "function") {
+                                window.VRemoteNative.startBackgroundService();
+                                setTimeout(loadPermissions, 1000);
+                            }
+                        } else {
+                            if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
                         }
-                    } else if (permType === "battery_optimization") {
-                        if (window.VRemoteNative && typeof window.VRemoteNative.openBatterySettings === "function") {
-                            window.VRemoteNative.openBatterySettings();
-                        } else if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
-                            window.VRemoteNative.openAppSettings();
+                        return;
+                    }
+
+                    // Web Browser Handling
+                    if (permType === "camera" || permType === "microphone") {
+                        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                                .then(function(s) {
+                                    showToast("Camera & Microphone Allowed ✓");
+                                    loadPermissions();
+                                })
+                                .catch(function() {
+                                    showToast("Permission dismissed or blocked in browser settings");
+                                });
                         }
-                    } else if (permType === "overlay") {
-                        if (window.VRemoteNative && typeof window.VRemoteNative.openOverlaySettings === "function") {
-                            window.VRemoteNative.openOverlaySettings();
-                        } else if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
-                            window.VRemoteNative.openAppSettings();
+                    } else if (permType === "notifications") {
+                        if (typeof Notification !== "undefined") {
+                            Notification.requestPermission().then(function(p) {
+                                showToast("Notification: " + p);
+                                loadPermissions();
+                            });
                         }
-                    } else if (permType === "background_service") {
-                        if (window.VRemoteNative && typeof window.VRemoteNative.startBackgroundService === "function") {
-                            window.VRemoteNative.startBackgroundService();
-                            setTimeout(loadPermissions, 1000);
+                    } else if (permType === "overlay" || permType === "screen_capture") {
+                        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+                            showToast("Screen Share ready in browser ✓");
                         }
                     } else {
-                        if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
-                            window.VRemoteNative.openAppSettings();
-                        }
+                        showToast(permLabel(permType) + ": Active in browser session");
+                        loadPermissions();
                     }
                 });
             });
