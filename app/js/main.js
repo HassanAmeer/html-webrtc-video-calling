@@ -1898,6 +1898,22 @@ function handleUrlQueryParams() {
                     showToast(`Connected ID: ${myUsername}`);
                 }
             }
+        } else if (isNativeAndroidApp()) {
+            try {
+                const nativeDevId = window.VRemoteNative.getDeviceId();
+                if (nativeDevId) {
+                    myUsername = nativeDevId;
+                    hasJoined = true;
+                    if (usernameInput) {
+                        usernameInput.value = nativeDevId;
+                        usernameInput.placeholder = "Device ID";
+                    }
+                    if (createUserBtn) createUserBtn.textContent = "Update";
+                    if (socket.connected) {
+                        socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
+                    }
+                }
+            } catch (_) {}
         }
 
         if (openChatParam === "1" || openChatParam === "true") {
@@ -2000,9 +2016,6 @@ socket.on("name-confirmed", (confirmedName) => {
     usernameInput.value = confirmedName;
     createUserBtn.textContent = "Update";
     usernameInput.placeholder = "Change Name";
-    if (window.VRemoteNative && typeof window.VRemoteNative.setMyId === "function") {
-        window.VRemoteNative.setMyId(confirmedName);
-    }
 });
 
 // Join or Update Name
@@ -2461,8 +2474,10 @@ function initPeerConnection(targetUser) {
     // Remote track listener (handles streams and standalone tracks)
     pc.ontrack = (event) => {
         console.log("Remote track received:", event.track.kind);
-        if (typeof window.notifyDeviceConnectionSuccess === "function" && pendingRegisteredDeviceCall) {
-            window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+        const devIdToNotify = (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) ||
+                              (activePeer && normalizeDeviceId(activePeer));
+        if (typeof window.notifyDeviceConnectionSuccess === "function" && devIdToNotify) {
+            window.notifyDeviceConnectionSuccess(devIdToNotify);
         }
         const stream = (event.streams && event.streams[0]) ? event.streams[0] : null;
 
@@ -2545,8 +2560,10 @@ function initPeerConnection(targetUser) {
             if (remoteVideo) {
                 remoteVideo.play().catch(() => {});
             }
-            if (typeof window.notifyDeviceConnectionSuccess === "function" && pendingRegisteredDeviceCall) {
-                window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+            const devIdToNotify = (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) ||
+                                  (activePeer && normalizeDeviceId(activePeer));
+            if (typeof window.notifyDeviceConnectionSuccess === "function" && devIdToNotify) {
+                window.notifyDeviceConnectionSuccess(devIdToNotify);
             }
         }
         if (pc.iceConnectionState === "failed") {
@@ -3136,6 +3153,11 @@ async function acceptScreenShareStream(from, offer) {
             answer: pc.localDescription
         });
 
+        const cleanFromDevice = normalizeDeviceId(from);
+        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
+            window.notifyDeviceConnectionSuccess(cleanFromDevice);
+        }
+
         console.log(`Sent answer for screen share to ${from}`);
     } catch (err) {
         console.error("Error accepting screen share stream:", err);
@@ -3243,6 +3265,11 @@ async function acceptRegisteredDeviceCall(from, offer) {
             to: from,
             answer: pc.localDescription
         });
+
+        const cleanFromDevice = normalizeDeviceId(from);
+        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
+            window.notifyDeviceConnectionSuccess(cleanFromDevice);
+        }
 
         applyBitrateToSender(pc);
         updateFloatingEndCallBtn();
@@ -3819,6 +3846,11 @@ async function acceptIncomingCall() {
             to: from,
             answer: pc.localDescription
         });
+
+        const cleanFromDevice = normalizeDeviceId(from);
+        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
+            window.notifyDeviceConnectionSuccess(cleanFromDevice);
+        }
 
         updateFloatingEndCallBtn();
         showActiveCallBar(from);
@@ -6962,10 +6994,15 @@ setupRemoteCameraPip();
         const cleanId = normalizeDeviceId(rawId) || (pendingRegisteredDeviceCall && normalizeDeviceId(pendingRegisteredDeviceCall.deviceId));
         if (!cleanId) return;
 
-        // If screen sharing is actively running, DO NOT overwrite with connection failure unless screenPeerConnection actually closes or fails!
+        // If screen sharing or call is actively running, DO NOT overwrite with connection failure!
         if (typeof screenPeerConnection !== "undefined" && screenPeerConnection && 
             (screenPeerConnection.iceConnectionState === "connected" || screenPeerConnection.iceConnectionState === "completed")) {
             console.log("Ignoring notifyDeviceConnectionFailure because screenPeerConnection is actively connected:", errorReason);
+            return;
+        }
+        if (typeof peerConnection !== "undefined" && peerConnection && 
+            (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")) {
+            console.log("Ignoring notifyDeviceConnectionFailure because peerConnection is actively connected:", errorReason);
             return;
         }
 
@@ -7597,6 +7634,21 @@ setupRemoteCameraPip();
     socket.on("device-error", (data) => {
         const errorMsg = (data && data.error) || "Connection failed";
         const devId = (data && (data.targetDeviceId || data.deviceId)) || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) || currentGalleryDeviceId;
+        const cleanDevId = normalizeDeviceId(devId);
+
+        // If the session is actively connected and streaming, do not abruptly destroy the session on transient warnings
+        const isSessionActive = Boolean(
+            activeSessionDevices.has(cleanDevId) && (
+                (typeof peerConnection !== "undefined" && peerConnection && (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")) ||
+                (typeof screenPeerConnection !== "undefined" && screenPeerConnection && (screenPeerConnection.iceConnectionState === "connected" || screenPeerConnection.iceConnectionState === "completed"))
+            )
+        );
+
+        if (isSessionActive) {
+            console.warn(`Ignoring transient device-error for actively streaming session (${cleanDevId}):`, errorMsg);
+            return;
+        }
+
         if (devId && typeof notifyDeviceConnectionFailure === "function") {
             notifyDeviceConnectionFailure(devId, errorMsg);
         } else {

@@ -102,7 +102,13 @@ public class WebRTCCompanion {
 
     public void setMyId(String newId) {
         if (newId == null || newId.trim().isEmpty()) return;
+        String deviceId = DeviceRegistry.getDeviceId(this.context);
         String clean = newId.trim();
+        // The companion ID must always represent this physical device (e.g. 67230CDECD11DE4A_screen)
+        if (!clean.contains(deviceId)) {
+            Log.i(TAG, "Preserving permanent device companion ID (" + this.myId + "), ignoring non-device ID: " + clean);
+            return;
+        }
         this.myId = clean.endsWith("_screen") ? clean : (clean + "_screen");
         if (socket != null && socket.connected() && !this.myId.isEmpty()) {
             Log.i(TAG, "Companion registering socket as: " + this.myId);

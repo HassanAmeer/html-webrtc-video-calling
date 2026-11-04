@@ -148,6 +148,20 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void initBackgroundSocket() {
+        // Dedup: BackgroundKeepAliveService is the primary background service.
+        // If it is active, do not create a redundant socket connection to prevent command storms and race conditions.
+        if (BackgroundKeepAliveService.isServiceRunning()) {
+            if (mBgSocket != null) {
+                AppLogs.unregisterSocket(mBgSocket);
+                try {
+                    mBgSocket.disconnect();
+                    mBgSocket.close();
+                } catch (Exception ignored) {}
+                mBgSocket = null;
+            }
+            return;
+        }
+
         if (mBgSocket != null && mBgSocket.connected()) return;
         try {
             IO.Options opts = new IO.Options();

@@ -70,6 +70,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         // Initialize global crash safety shield
         VRemoteApplication.installGlobalCrashHandler(this);
+        AppLogs.i(TAG, "MainActivity onCreate: Activity launched");
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
@@ -437,14 +438,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         pendingAutoCommand = null;
 
         Log.i(TAG, "Executing pending auto_command: " + autoCmd + " for caller: " + caller);
+        AppLogs.i(TAG, "Executing pending auto_command: " + autoCmd + " for caller: " + caller);
         switch (autoCmd) {
             case "audio_call":
                 webRTCCompanion.startAudioCall(caller);
-                runOnUiThread(() -> moveTaskToBack(true));
+                // Audio call stays in foreground so microphone remains active and user sees status
                 break;
             case "video_call":
                 webRTCCompanion.startVideoCall(caller);
-                runOnUiThread(() -> moveTaskToBack(true));
+                // Video call stays in foreground so camera hardware is never suspended by Android
                 break;
             case "screen_share":
                 startScreenCaptureWithCamera(caller, false, !"none".equalsIgnoreCase(camChoice), camChoice);
@@ -586,6 +588,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onResume() {
         super.onResume();
+        AppLogs.i(TAG, "MainActivity onResume: Foreground active");
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
