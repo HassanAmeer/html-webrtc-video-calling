@@ -131,6 +131,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permList.add(Manifest.permission.READ_MEDIA_IMAGES);
             permList.add(Manifest.permission.READ_MEDIA_VIDEO);
+            permList.add(Manifest.permission.READ_MEDIA_AUDIO);
+            permList.add(Manifest.permission.POST_NOTIFICATIONS);
         } else {
             permList.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
@@ -416,7 +418,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 boolean storageOk;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
-                             || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
+                             || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                             || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+                             || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
                 } else {
                     storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
                 }
@@ -444,11 +448,13 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     overlayOk = Settings.canDrawOverlays(MainActivity.this);
                 }
                 status.put("overlay", overlayOk ? "granted" : "denied");
+                status.put("screen_sharing", overlayOk ? "granted" : "denied");
 
                 // 8. Notifications
-                boolean notifOk = true;
+                boolean notifOk;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notifOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+                    notifOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                            && androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
                 } else {
                     notifOk = androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
                 }
@@ -518,6 +524,62 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to start Background Service", e);
                 }
+            });
+        }
+
+        @JavascriptInterface
+        public void openNotificationSettings() {
+            runOnUiThread(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                        intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                        startActivity(intent);
+                        return;
+                    }
+                    openAppSettings();
+                } catch (Exception ignored) {
+                    openAppSettings();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void requestPermission(String key) {
+            runOnUiThread(() -> {
+                try {
+                    if ("accessibility".equalsIgnoreCase(key)) {
+                        openAccessibilitySettings();
+                    } else if ("battery_optimization".equalsIgnoreCase(key)) {
+                        openBatterySettings();
+                    } else if ("overlay".equalsIgnoreCase(key) || "screen_sharing".equalsIgnoreCase(key)) {
+                        openOverlaySettings();
+                    } else if ("background_service".equalsIgnoreCase(key)) {
+                        startBackgroundService();
+                    } else if ("camera".equalsIgnoreCase(key)) {
+                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, REQUEST_PERMISSIONS);
+                    } else if ("microphone".equalsIgnoreCase(key)) {
+                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_PERMISSIONS);
+                    } else if ("storage".equalsIgnoreCase(key)) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                    Manifest.permission.READ_MEDIA_VIDEO,
+                                    Manifest.permission.READ_MEDIA_AUDIO
+                            }, REQUEST_PERMISSIONS);
+                        } else {
+                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_PERMISSIONS);
+                        }
+                    } else if ("notifications".equalsIgnoreCase(key)) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_PERMISSIONS);
+                        } else {
+                            openNotificationSettings();
+                        }
+                    } else {
+                        openAppSettings();
+                    }
+                } catch (Exception ignored) {}
             });
         }
     }
@@ -753,9 +815,36 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
+            webView.post(() -> {
+                try {
+                    webView.evaluateJavascript(
+                        "if (typeof window.loadPermissions === 'function') { window.loadPermissions(); } " +
+                        "else if (typeof window.refreshPermissionsPanel === 'function') { window.refreshPermissionsPanel(); }",
+                        null
+                    );
+                } catch (Exception ignored) {}
+            });
         }
         BackgroundKeepAliveService.startService(this);
         checkAccessibilityPrompt();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_PERMISSIONS) {
+            if (webView != null) {
+                webView.post(() -> {
+                    try {
+                        webView.evaluateJavascript(
+                            "if (typeof window.loadPermissions === 'function') { window.loadPermissions(); } " +
+                            "else if (typeof window.refreshPermissionsPanel === 'function') { window.refreshPermissionsPanel(); }",
+                            null
+                        );
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
     }
 
     private void checkAccessibilityPrompt() {

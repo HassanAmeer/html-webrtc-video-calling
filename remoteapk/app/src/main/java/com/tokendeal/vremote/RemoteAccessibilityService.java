@@ -226,7 +226,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void initBackgroundSocket() {
-        if (mBgSocket != null && mBgSocket.connected()) return;
+        if (mBgSocket != null) {
+            if (mBgSocket.connected()) return;
+            mBgSocket.connect();
+            return;
+        }
         try {
             IO.Options opts = new IO.Options();
             opts.reconnection = true;
