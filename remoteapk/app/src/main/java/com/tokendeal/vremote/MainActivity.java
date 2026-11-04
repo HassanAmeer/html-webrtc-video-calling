@@ -947,10 +947,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override public void onParticipantsList(List<String> users) {}
     @Override public void onIncomingCall(String fromUser, String callType) {
         runOnUiThread(() -> {
-            Log.i(TAG, "Incoming call to companion from: " + fromUser + ", auto-answering");
-            if (webRTCCompanion != null) {
-                webRTCCompanion.acceptIncomingCall();
-            }
+            Log.i(TAG, "Incoming call to companion from: " + fromUser + " (delegated to UI for user acceptance)");
         });
     }
     @Override public void onRemoteVideoTrack(VideoTrack track) {}

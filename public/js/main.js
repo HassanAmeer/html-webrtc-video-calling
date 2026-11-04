@@ -3329,42 +3329,29 @@ socket.on("offer", async (data) => {
         return;
     }
 
-    // Auto-accept calls from registered devices with Muted Mic and Disabled Camera
+    // Explicit registered device unattended call (ONLY when user explicitly clicked action in device drawer within last 60s)
     const cleanFromOffer = normalizeDeviceId(from);
     const cleanPendingId = pendingRegisteredDeviceCall ? normalizeDeviceId(pendingRegisteredDeviceCall.deviceId) : "";
-    const isRegisteredDevice = Boolean(
-        (cleanPendingId && cleanFromOffer && cleanPendingId === cleanFromOffer && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
-        (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId === from && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
-        (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.has(cleanFromOffer))) ||
-        (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.deviceId === cleanFromOffer || d.socketId === from)) ||
-        (from && (from.startsWith("mobile_") || from.endsWith("_screen") || from.startsWith("device_")))
+    const isExplicitPendingDeviceCall = Boolean(
+        pendingRegisteredDeviceCall &&
+        (cleanPendingId === cleanFromOffer || pendingRegisteredDeviceCall.deviceId === from) &&
+        (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)
     );
 
-    if (isRegisteredDevice) {
+    if (isExplicitPendingDeviceCall) {
         lastOfferAcceptedTime = now;
-        console.log("Auto-accepting call from registered device:", from);
+        console.log("Accepting explicit pending registered device call:", from);
         stopIncomingCallAlert();
         incomingCallData = null;
+        pendingRegisteredDeviceCall = null;
         silenceAndDisableLocalMedia();
         await acceptRegisteredDeviceCall(from, offer);
         return;
     }
 
-    // Auto-Accept Call from Matching Deal/Room UID Partner or Target with Full Media
-    const baseUid = myUsername ? myUsername.split("_")[0] : "";
-    const fromBaseUid = from ? from.split("_")[0] : "";
-    const isMatchingUidPartner = Boolean(baseUid && fromBaseUid && baseUid === fromBaseUid);
-    const isTargetCall = Boolean(autoCallTarget && autoCallTarget === from);
-
-    if (isMatchingUidPartner || isTargetCall) {
-        lastOfferAcceptedTime = now;
-        console.log(`Auto-accepting call from UID partner: ${from} with full camera & mic`);
-        incomingCallData = { from, to, offer };
-        stopIncomingCallAlert();
-        await acceptIncomingCall();
-        return;
-    }
-
+    // ALL other calls (browser-to-app, app-to-browser, user-to-user) MUST show the incoming call alert bar
+    // so the receiver has the Attend option and can accept or decline!
+    console.log(`Incoming call from ${from} - presenting Attend/Accept option`);
     incomingCallData = { from, to, offer };
     renderParticipantsList();
     startIncomingCallAlert(from);
@@ -3444,6 +3431,12 @@ function endCall(notifyServer = true) {
     callingPeer = null;
     incomingCallData = null;
     pendingIceCandidates = [];
+    autoCallTarget = null;
+    pendingRegisteredDeviceCall = null;
+    if (activeSessionDevices) {
+        activeSessionDevices.clear();
+    }
+    lastOfferAcceptedTime = 0;
 
     // Ensure screen share peer & stream are completely closed and badge cleared
     if (typeof closeScreenShareStream === "function") {
