@@ -911,37 +911,39 @@
 
     <!-- Permissions Side Sheet Overlay -->
     <div id="perm-sheet-overlay"
-        style="display:none; position:fixed; inset:0; z-index:19991; background:rgba(0,0,0,0.5);">
+        style="position:fixed; inset:0; z-index:19991; background:rgba(0,0,0,0.5);
+               opacity:0; pointer-events:none; transition:opacity 0.3s;">
     </div>
 
     <!-- Permissions Side Sheet (slides from left) -->
     <div id="perm-sheet"
-        style="display:none; position:fixed; top:0; left:0; height:100%; width:78%;
+        style="position:fixed; top:0; left:0; height:100%; width:78%;
                max-width:320px; z-index:19992; background:#1c1c1e; overflow-y:auto;
                transform:translateX(-100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);
                box-shadow:4px 0 24px rgba(0,0,0,0.6);">
-        <!-- Sheet Header -->
+        <!-- Sheet Header (no close button here) -->
         <div style="padding:20px 16px 12px; border-bottom:1px solid rgba(255,255,255,0.08);
-                    display:flex; align-items:center; justify-content:space-between; position:sticky; top:0;
+                    display:flex; align-items:center; position:sticky; top:0;
                     background:#1c1c1e; z-index:1;">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <i class="fas fa-shield-alt" style="color:#8ab4f8; font-size:1.1rem;"></i>
-                <span style="color:#f2f2f7; font-size:15px; font-weight:600;">App Permissions</span>
-            </div>
-            <button id="perm-sheet-close"
-                style="background:rgba(255,255,255,0.08); border:none; border-radius:8px;
-                       color:#9aa0a6; width:28px; height:28px; cursor:pointer;
-                       display:flex; align-items:center; justify-content:center; font-size:14px;">
-                <i class="fas fa-times"></i>
-            </button>
+            <i class="fas fa-shield-alt" style="color:#8ab4f8; font-size:1.1rem; margin-right:10px;"></i>
+            <span style="color:#f2f2f7; font-size:15px; font-weight:600;">App Permissions</span>
         </div>
         <!-- Sheet Body -->
-        <div id="perm-sheet-body" style="padding:12px 14px;">
+        <div id="perm-sheet-body" style="padding:12px 14px; padding-bottom:70px;">
             <div style="text-align:center; padding:24px; color:#9aa0a6; font-size:13px;">
                 <i class="fas fa-circle-notch fa-spin"></i>
             </div>
         </div>
     </div>
+
+    <!-- Close button — fixed bottom-right corner, just X icon, no background -->
+    <button id="perm-sheet-close"
+        style="display:none; position:fixed; bottom:24px; right:20px; z-index:19993;
+               background:none; border:none; padding:8px; cursor:pointer;
+               color:rgba(255,255,255,0.55); font-size:22px; line-height:1;
+               -webkit-tap-highlight-color:transparent;">
+        <i class="fas fa-times"></i>
+    </button>
 
 </body>
 </html>

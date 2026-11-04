@@ -7980,136 +7980,132 @@ setupRemoteCameraPip();
 // ==============================================================
 
 (function initPermissionsPanel() {
-    const permGhostIcon = document.getElementById("perm-ghost-icon");
-    const permSheet = document.getElementById("perm-sheet");
-    const permSheetOverlay = document.getElementById("perm-sheet-overlay");
-    const permSheetClose = document.getElementById("perm-sheet-close");
-    const permSheetBody = document.getElementById("perm-sheet-body");
+    // DOM elements
+    var permGhostIcon  = document.getElementById("perm-ghost-icon");
+    var permSheet      = document.getElementById("perm-sheet");
+    var permSheetOverlay = document.getElementById("perm-sheet-overlay");
+    var permSheetClose = document.getElementById("perm-sheet-close");
+    var permSheetBody  = document.getElementById("perm-sheet-body");
+    var sheetOpen = false;
 
-    // Only show ghost icon on Android native app
-    if (!isNativeAndroidApp()) return;
-    if (permGhostIcon) permGhostIcon.style.display = "block";
-
+    // --- Open / Close helpers ---
     function openPermSheet() {
-        if (!permSheet || !permSheetOverlay) return;
-        permSheet.style.display = "block";
-        permSheetOverlay.style.display = "block";
-        // Force reflow for transition
-        permSheet.getBoundingClientRect();
-        permSheet.classList.add("perm-sheet-open");
+        if (sheetOpen) return;
+        sheetOpen = true;
+        // Show overlay
+        if (permSheetOverlay) {
+            permSheetOverlay.style.opacity = "1";
+            permSheetOverlay.style.pointerEvents = "auto";
+        }
+        // Show close button
+        if (permSheetClose) permSheetClose.style.display = "block";
+        // Slide sheet in (already in DOM, just translate)
+        if (permSheet) permSheet.style.transform = "translateX(0)";
+        // Load permissions (safe — won't crash sheet)
         loadPermissions();
     }
 
     function closePermSheet() {
-        if (!permSheet || !permSheetOverlay) return;
-        permSheet.classList.remove("perm-sheet-open");
-        setTimeout(() => {
-            permSheet.style.display = "none";
-            permSheetOverlay.style.display = "none";
-        }, 310);
+        if (!sheetOpen) return;
+        sheetOpen = false;
+        if (permSheet) permSheet.style.transform = "translateX(-100%)";
+        if (permSheetOverlay) {
+            permSheetOverlay.style.opacity = "0";
+            permSheetOverlay.style.pointerEvents = "none";
+        }
+        if (permSheetClose) permSheetClose.style.display = "none";
     }
 
+    // --- Show ghost icon (delayed — wait for VRemoteNative bridge) ---
+    function tryShowIcon() {
+        if (permGhostIcon && isNativeAndroidApp()) {
+            permGhostIcon.style.display = "block";
+        }
+    }
+    // Try immediately, then retry after 1s and 2.5s in case bridge is slow
+    tryShowIcon();
+    setTimeout(tryShowIcon, 1000);
+    setTimeout(tryShowIcon, 2500);
+
+    // --- Load permissions from Java bridge ---
     function loadPermissions() {
         if (!permSheetBody) return;
+        // Show spinner first
+        permSheetBody.innerHTML = '<div style="text-align:center;padding:24px;color:#9aa0a6;font-size:13px;"><i class="fas fa-circle-notch fa-spin"></i></div>';
+
         try {
-            const statusJson = window.VRemoteNative.getPermissionsStatus();
-            const status = JSON.parse(statusJson);
-            renderPermissions(status);
+            var statusJson = "";
+            if (window.VRemoteNative && typeof window.VRemoteNative.getPermissionsStatus === "function") {
+                statusJson = window.VRemoteNative.getPermissionsStatus();
+            }
+            if (statusJson) {
+                var status = JSON.parse(statusJson);
+                renderPermissions(status);
+            } else {
+                // Bridge not available (old APK) — show placeholder
+                permSheetBody.innerHTML = renderFallback();
+            }
         } catch (e) {
-            permSheetBody.innerHTML = '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">Could not load permissions</div>';
+            permSheetBody.innerHTML = '<div style="color:#ff6b6b;font-size:12px;text-align:center;padding:20px;">Error loading permissions.<br><span style="font-size:10px;color:#9aa0a6;">Update the app to v6.4.14+</span></div>';
         }
+    }
+
+    function renderFallback() {
+        return '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">Permissions not available.<br><span style="font-size:10px;">Update VRemote app to v6.4.14+</span></div>';
     }
 
     function permIcon(type) {
-        const icons = {
-            camera: "fa-camera",
-            microphone: "fa-microphone",
-            storage: "fa-photo-film",
-            accessibility: "fa-universal-access"
-        };
-        return icons[type] || "fa-circle";
+        return { camera:"fa-camera", microphone:"fa-microphone", storage:"fa-images", accessibility:"fa-universal-access" }[type] || "fa-circle";
     }
 
     function permLabel(type) {
-        const labels = {
-            camera: "Camera",
-            microphone: "Microphone",
-            storage: "Storage / Gallery",
-            accessibility: "Accessibility Service"
-        };
-        return labels[type] || type;
+        return { camera:"Camera", microphone:"Microphone", storage:"Storage / Gallery", accessibility:"Accessibility Service" }[type] || type;
     }
 
     function renderPermissions(status) {
-        const granted = [];
-        const denied = [];
-        const permOrder = ["camera", "microphone", "storage", "accessibility"];
-
-        permOrder.forEach(key => {
-            if (status[key] === "granted") {
-                granted.push(key);
-            } else {
-                denied.push(key);
-            }
+        var granted = [], denied = [];
+        ["camera","microphone","storage","accessibility"].forEach(function(key) {
+            if (status[key] === "granted") granted.push(key); else denied.push(key);
         });
 
-        let html = "";
+        var html = "";
 
-        // Section 1: Granted
         if (granted.length > 0) {
             html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Granted</div>';
-            granted.forEach(key => {
-                html += `
-                <div class="perm-item">
-                    <div class="perm-item-left">
-                        <div class="perm-item-icon granted">
-                            <i class="fas ${permIcon(key)}"></i>
-                        </div>
-                        <div>
-                            <div class="perm-item-name">${permLabel(key)}</div>
-                            <div class="perm-item-status granted">✓ Granted</div>
-                        </div>
-                    </div>
-                </div>`;
+            granted.forEach(function(key) {
+                html += '<div class="perm-item"><div class="perm-item-left">'
+                    + '<div class="perm-item-icon granted"><i class="fas ' + permIcon(key) + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
+                    + '<div class="perm-item-status granted">✓ Granted</div></div>'
+                    + '</div></div>';
             });
         }
 
-        // Section 2: Needs Permission
         if (denied.length > 0) {
             html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission</div>';
-            denied.forEach(key => {
-                const isAcc = key === "accessibility";
-                html += `
-                <div class="perm-item">
-                    <div class="perm-item-left">
-                        <div class="perm-item-icon denied">
-                            <i class="fas ${permIcon(key)}"></i>
-                        </div>
-                        <div>
-                            <div class="perm-item-name">${permLabel(key)}</div>
-                            <div class="perm-item-status denied">✗ Not Granted</div>
-                        </div>
-                    </div>
-                    <button class="perm-grant-btn" data-perm="${key}" data-acc="${isAcc}">
-                        Open Settings
-                    </button>
-                </div>`;
+            denied.forEach(function(key) {
+                var isAcc = (key === "accessibility") ? "true" : "false";
+                html += '<div class="perm-item"><div class="perm-item-left">'
+                    + '<div class="perm-item-icon denied"><i class="fas ' + permIcon(key) + '"></i></div>'
+                    + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
+                    + '<div class="perm-item-status denied">✗ Not granted</div></div>'
+                    + '</div>'
+                    + '<button class="perm-grant-btn" data-acc="' + isAcc + '">Open Settings</button>'
+                    + '</div>';
             });
         }
 
-        if (granted.length === 0 && denied.length === 0) {
-            html = '<div style="color:#9aa0a6;font-size:12px;text-align:center;padding:20px;">No permissions found</div>';
+        if (!granted.length && !denied.length) {
+            html = renderFallback();
         }
 
-        // Footer note
         html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">Tap "Open Settings" to grant missing permissions</div>';
 
         if (permSheetBody) {
             permSheetBody.innerHTML = html;
-            // Attach Open Settings button events
-            permSheetBody.querySelectorAll(".perm-grant-btn").forEach(btn => {
-                btn.addEventListener("click", () => {
-                    const isAcc = btn.dataset.acc === "true";
+            permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
+                btn.addEventListener("click", function() {
+                    var isAcc = btn.getAttribute("data-acc") === "true";
                     if (isAcc) {
                         if (window.VRemoteNative && typeof window.VRemoteNative.openAccessibilitySettings === "function") {
                             window.VRemoteNative.openAccessibilitySettings();
@@ -8124,8 +8120,8 @@ setupRemoteCameraPip();
         }
     }
 
-    // Event listeners
-    if (permGhostIcon) permGhostIcon.addEventListener("click", openPermSheet);
-    if (permSheetClose) permSheetClose.addEventListener("click", closePermSheet);
-    if (permSheetOverlay) permSheetOverlay.addEventListener("click", closePermSheet);
+    // --- Event listeners (always bind, regardless of native check) ---
+    if (permGhostIcon)    permGhostIcon.addEventListener("click",    function(e){ e.stopPropagation(); openPermSheet(); });
+    if (permSheetClose)   permSheetClose.addEventListener("click",   function(e){ e.stopPropagation(); closePermSheet(); });
+    if (permSheetOverlay) permSheetOverlay.addEventListener("click", function(){ closePermSheet(); });
 })();
