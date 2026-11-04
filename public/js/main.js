@@ -7621,7 +7621,6 @@ setupRemoteCameraPip();
 
     const modal = document.getElementById("live-logs-modal");
     const btnToggleLogs = document.getElementById("btn-toggle-live-logs");
-    const btnToggleLogsInline = document.getElementById("btn-toggle-live-logs-inline");
     const btnCloseLogs = document.getElementById("btn-close-logs");
     const logsBody = document.getElementById("live-logs-body");
     const logsCountBadge = document.getElementById("logs-count-badge");
@@ -7785,12 +7784,6 @@ setupRemoteCameraPip();
 
     if (btnToggleLogs) {
         btnToggleLogs.addEventListener("click", (e) => {
-            e.stopPropagation();
-            openLiveLogsModal();
-        });
-    }
-    if (btnToggleLogsInline) {
-        btnToggleLogsInline.addEventListener("click", (e) => {
             e.stopPropagation();
             openLiveLogsModal();
         });

@@ -1087,6 +1087,37 @@ video::-webkit-media-controls-enclosure {
     box-shadow: 0 0 10px rgba(10, 132, 255, 0.4);
 }
 
+/* Subtle Mini Icons (Terminal & Info): 50% size & 50% opacity */
+.drawer-mini-icon-btn {
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px !important;
+    min-height: 20px !important;
+    opacity: 0.50 !important;
+    font-size: 7.5px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 0 !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.drawer-mini-icon-btn i {
+    font-size: 8px !important;
+}
+
+.drawer-mini-icon-btn:hover {
+    opacity: 1 !important;
+    transform: scale(1.15) !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.drawer-mini-icon-btn.active {
+    opacity: 0.95 !important;
+    background: rgba(10, 132, 255, 0.25) !important;
+    border-color: rgba(10, 132, 255, 0.5) !important;
+}
+
 .drawer-close-icon {
     background: rgba(255, 255, 255, 0.08);
     border: none;
