@@ -10,8 +10,8 @@ android {
         applicationId "com.tokendeal.vremote"
         minSdk 21
         targetSdk 34
-        versionCode 24
-        versionName "6.4.13"
+        versionCode 25
+        versionName "6.4.14"
 
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a'
