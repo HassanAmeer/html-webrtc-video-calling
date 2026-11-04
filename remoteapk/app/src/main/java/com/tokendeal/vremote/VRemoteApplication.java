@@ -22,6 +22,11 @@ public class VRemoteApplication extends Application {
 
         // Install top-level crash safety shield for the entire application process
         installGlobalCrashHandler(this);
+
+        // Guarantee 30-minute WorkManager periodic keep-alive on all devices
+        try {
+            KeepAliveScheduler.schedulePeriodicWork(this);
+        } catch (Exception ignored) {}
     }
 
     public static synchronized void installGlobalCrashHandler(Context context) {

@@ -236,9 +236,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         // Add Native Android Bridge for Screen Capture & Remote Control
         webView.addJavascriptInterface(new NativeAppBridge(), "VRemoteNative");
 
-        // Fresh load with cache-buster parameter to ensure WebView always renders latest features
-        String appLoadUrl = APP_URL + "/?v=" + System.currentTimeMillis();
-        webView.loadUrl(appLoadUrl);
+        // Clean URL load without query params or IDs so the Lock screen (PIN 7861) is required
+        webView.loadUrl(APP_URL);
     }
 
     private void initWebRTC() {
@@ -397,13 +396,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         public String getPermissionsStatus() {
             try {
                 org.json.JSONObject status = new org.json.JSONObject();
-                // Camera
+                // 1. Camera
                 boolean cameraOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
                 status.put("camera", cameraOk ? "granted" : "denied");
-                // Microphone
+
+                // 2. Microphone
                 boolean micOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
                 status.put("microphone", micOk ? "granted" : "denied");
-                // Storage (API-level aware)
+
+                // 3. Storage
                 boolean storageOk;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
@@ -412,12 +413,42 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
                 }
                 status.put("storage", storageOk ? "granted" : "denied");
-                // Accessibility service
+
+                // 4. Remote Touch Control (Accessibility)
                 boolean accOk = RemoteAccessibilityService.isServiceRunning();
                 status.put("accessibility", accOk ? "granted" : "denied");
+
+                // 5. 24/7 Background Service
+                boolean bgOk = BackgroundKeepAliveService.isServiceRunning();
+                status.put("background_service", bgOk ? "granted" : "denied");
+
+                // 6. Battery Optimization (Unrestricted / Doze Bypass)
+                boolean batteryOk = true;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                    batteryOk = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+                }
+                status.put("battery_optimization", batteryOk ? "granted" : "denied");
+
+                // 7. Display Over Other Apps (Overlay / Screen Control)
+                boolean overlayOk = true;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    overlayOk = Settings.canDrawOverlays(MainActivity.this);
+                }
+                status.put("overlay", overlayOk ? "granted" : "denied");
+
+                // 8. Notifications
+                boolean notifOk = true;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notifOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+                } else {
+                    notifOk = androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
+                }
+                status.put("notifications", notifOk ? "granted" : "denied");
+
                 return status.toString();
             } catch (Exception e) {
-                return "{\"camera\":\"denied\",\"microphone\":\"denied\",\"storage\":\"denied\",\"accessibility\":\"denied\"}";
+                return "{}";
             }
         }
 
@@ -429,6 +460,56 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     intent.setData(android.net.Uri.fromParts("package", getPackageName(), null));
                     startActivity(intent);
                 } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
+        public void openBatterySettings() {
+            runOnUiThread(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                            return;
+                        } catch (Exception ignored) {}
+                    }
+                    Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                    startActivity(intent);
+                } catch (Exception ignored) {
+                    openAppSettings();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openOverlaySettings() {
+            runOnUiThread(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                        intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                        return;
+                    }
+                    openAppSettings();
+                } catch (Exception ignored) {
+                    openAppSettings();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void startBackgroundService() {
+            runOnUiThread(() -> {
+                try {
+                    BackgroundKeepAliveService.startService(MainActivity.this);
+                    KeepAliveScheduler.schedulePeriodicWork(MainActivity.this);
+                    Toast.makeText(MainActivity.this, "Background Service Started", Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to start Background Service", e);
+                }
             });
         }
     }

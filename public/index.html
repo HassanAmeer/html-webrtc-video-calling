@@ -22,14 +22,6 @@
                             break;
                         }
                     }
-                    if (!foundId) {
-                        p.forEach(function(val, key) {
-                            if (!foundId && key.toLowerCase() !== 'lock') {
-                                if (val && val.trim().length > 0) foundId = val.trim();
-                                else if (key && key.trim().length > 0) foundId = key.trim();
-                            }
-                        });
-                    }
                 }
                 if (!foundId && h && h.length > 1) {
                     var hashPart = h.substring(1);
@@ -39,8 +31,6 @@
                             var hv = hp.get(keys[j]);
                             if (hv && hv.trim().length > 0) { foundId = hv.trim(); break; }
                         }
-                    } else if (hashPart.toLowerCase().indexOf('lock') === -1) {
-                        foundId = hashPart.trim();
                     }
                 }
                 if (foundId) {

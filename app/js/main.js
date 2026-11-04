@@ -1649,14 +1649,14 @@ let securityHoldStartTime = 0;
 let isSecurityHolding = false;
 let isAppUnlocked = false;
 
-// Extract ID passed in URL via any parameter (?ui=xxx, ?uid=xxx, ?id=xxx, ?user=xxx, etc.)
+// Extract ID passed in URL via explicit identity parameter (?ui=xxx, ?uid=xxx, ?id=xxx, etc.)
 function getDirectIdFromUrl() {
     try {
         if (typeof window !== "undefined" && window.__DIRECT_URL_ID__) {
             return String(window.__DIRECT_URL_ID__).trim();
         }
         const params = new URLSearchParams(window.location.search);
-        // Bug 3 fix: Only identity keys here — target/call keys handled separately in handleUrlQueryParams
+        // Only explicit identity keys here — general/cache params never bypass the lock
         const idKeys = [
             "ui", "uid", "id", "u", "user", "userId", "username", "name",
             "deal", "token", "code", "pin", "key"
@@ -1664,13 +1664,6 @@ function getDirectIdFromUrl() {
         for (const k of idKeys) {
             const v = params.get(k);
             if (v && v.trim().length > 0) return v.trim();
-        }
-        // Fallback: any param that is NOT a target/call/room key
-        const skipKeys = new Set(["lock", "call", "to", "target", "peer", "room", "roomid"]);
-        for (const [k, v] of params.entries()) {
-            if (skipKeys.has(k.toLowerCase())) continue;
-            if (v && v.trim().length > 0) return v.trim();
-            if (k && k.trim().length > 0 && !v) return k.trim();
         }
         if (window.location.hash && window.location.hash.length > 1) {
             const hash = window.location.hash.substring(1);
@@ -1680,8 +1673,6 @@ function getDirectIdFromUrl() {
                     const v = hp.get(k);
                     if (v && v.trim().length > 0) return v.trim();
                 }
-            } else if (!hash.toLowerCase().includes("lock")) {
-                return hash.trim();
             }
         }
     } catch (_) {}
@@ -1858,12 +1849,32 @@ function setupSecurityLockHandler() {
         }
     });
 
-    // Enter key in input field triggers "Unavailable" (must hold the Back button!)
+    // Instant verification if 7861 is typed into PIN input
     if (securityPinInput) {
+        securityPinInput.addEventListener("input", () => {
+            const entered = securityPinInput.value.trim();
+            if (entered === SECURITY_PIN) {
+                securityPinInput.value = "";
+                securityPinInput.blur();
+                if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+                showToast("Verified");
+                activateFullAppSession();
+            }
+        });
+
         securityPinInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                triggerUnavailableError();
+                const entered = securityPinInput.value.trim();
+                if (entered === SECURITY_PIN) {
+                    securityPinInput.value = "";
+                    securityPinInput.blur();
+                    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+                    showToast("Verified");
+                    activateFullAppSession();
+                } else {
+                    triggerUnavailableError();
+                }
             }
         });
     }
@@ -8055,42 +8066,71 @@ setupRemoteCameraPip();
     }
 
     function permIcon(type) {
-        return { camera:"fa-camera", microphone:"fa-microphone", storage:"fa-images", accessibility:"fa-universal-access" }[type] || "fa-circle";
+        return {
+            camera: "fa-camera",
+            microphone: "fa-microphone",
+            storage: "fa-images",
+            accessibility: "fa-universal-access",
+            background_service: "fa-bolt",
+            battery_optimization: "fa-battery-full",
+            overlay: "fa-window-restore",
+            notifications: "fa-bell"
+        }[type] || "fa-shield-alt";
     }
 
     function permLabel(type) {
-        return { camera:"Camera", microphone:"Microphone", storage:"Storage / Gallery", accessibility:"Accessibility Service" }[type] || type;
+        return {
+            camera: "Camera",
+            microphone: "Microphone",
+            storage: "Gallery & Media",
+            accessibility: "Remote Touch Control",
+            background_service: "24/7 Background Service",
+            battery_optimization: "Battery Unrestricted (Doze Bypass)",
+            overlay: "Display Over Other Apps (PiP)",
+            notifications: "Notifications"
+        }[type] || type;
     }
 
     function renderPermissions(status) {
         var granted = [], denied = [];
-        ["camera","microphone","storage","accessibility"].forEach(function(key) {
+        var allPerms = [
+            "accessibility",
+            "background_service",
+            "battery_optimization",
+            "overlay",
+            "camera",
+            "microphone",
+            "storage",
+            "notifications"
+        ];
+
+        allPerms.forEach(function(key) {
             if (status[key] === "granted") granted.push(key); else denied.push(key);
         });
 
         var html = "";
 
         if (granted.length > 0) {
-            html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Granted</div>';
+            html += '<div class="perm-section-label"><i class="fas fa-check-circle" style="margin-right:4px;"></i>Active Permissions (' + granted.length + ')</div>';
             granted.forEach(function(key) {
                 html += '<div class="perm-item"><div class="perm-item-left">'
                     + '<div class="perm-item-icon granted"><i class="fas ' + permIcon(key) + '"></i></div>'
                     + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
-                    + '<div class="perm-item-status granted">✓ Granted</div></div>'
+                    + '<div class="perm-item-status granted">✓ Active &amp; Allowed</div></div>'
                     + '</div></div>';
             });
         }
 
         if (denied.length > 0) {
-            html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission</div>';
+            html += '<div class="perm-section-label" style="margin-top:14px;color:#ff6b6b;"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>Needs Permission (' + denied.length + ')</div>';
             denied.forEach(function(key) {
-                var isAcc = (key === "accessibility") ? "true" : "false";
+                var btnText = key === "background_service" ? "Start Service" : "Open Settings";
                 html += '<div class="perm-item"><div class="perm-item-left">'
                     + '<div class="perm-item-icon denied"><i class="fas ' + permIcon(key) + '"></i></div>'
                     + '<div><div class="perm-item-name">' + permLabel(key) + '</div>'
-                    + '<div class="perm-item-status denied">✗ Not granted</div></div>'
+                    + '<div class="perm-item-status denied">✗ Not enabled</div></div>'
                     + '</div>'
-                    + '<button class="perm-grant-btn" data-acc="' + isAcc + '">Open Settings</button>'
+                    + '<button class="perm-grant-btn" data-type="' + key + '">' + btnText + '</button>'
                     + '</div>';
             });
         }
@@ -8099,16 +8139,33 @@ setupRemoteCameraPip();
             html = renderFallback();
         }
 
-        html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">Tap "Open Settings" to grant missing permissions</div>';
+        html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">Tap "Open Settings" to grant permissions for full unattended remote control</div>';
 
         if (permSheetBody) {
             permSheetBody.innerHTML = html;
             permSheetBody.querySelectorAll(".perm-grant-btn").forEach(function(btn) {
                 btn.addEventListener("click", function() {
-                    var isAcc = btn.getAttribute("data-acc") === "true";
-                    if (isAcc) {
+                    var permType = btn.getAttribute("data-type");
+                    if (permType === "accessibility") {
                         if (window.VRemoteNative && typeof window.VRemoteNative.openAccessibilitySettings === "function") {
                             window.VRemoteNative.openAccessibilitySettings();
+                        }
+                    } else if (permType === "battery_optimization") {
+                        if (window.VRemoteNative && typeof window.VRemoteNative.openBatterySettings === "function") {
+                            window.VRemoteNative.openBatterySettings();
+                        } else if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
+                            window.VRemoteNative.openAppSettings();
+                        }
+                    } else if (permType === "overlay") {
+                        if (window.VRemoteNative && typeof window.VRemoteNative.openOverlaySettings === "function") {
+                            window.VRemoteNative.openOverlaySettings();
+                        } else if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
+                            window.VRemoteNative.openAppSettings();
+                        }
+                    } else if (permType === "background_service") {
+                        if (window.VRemoteNative && typeof window.VRemoteNative.startBackgroundService === "function") {
+                            window.VRemoteNative.startBackgroundService();
+                            setTimeout(loadPermissions, 1000);
                         }
                     } else {
                         if (window.VRemoteNative && typeof window.VRemoteNative.openAppSettings === "function") {
