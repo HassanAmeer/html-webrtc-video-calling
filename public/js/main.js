@@ -8027,9 +8027,11 @@ setupRemoteCameraPip();
         if (permSheetClose) permSheetClose.style.display = "none";
     }
 
-    // --- Show ghost icon (delayed — wait for VRemoteNative bridge) ---
+    // --- Show ghost icon (delayed — wait for VRemoteNative bridge or ?perms=1 URL preview) ---
+    var isPreviewPerms = typeof window !== "undefined" && window.location.search.indexOf("perms") !== -1;
+
     function tryShowIcon() {
-        if (permGhostIcon && isNativeAndroidApp()) {
+        if (permGhostIcon && (isNativeAndroidApp() || isPreviewPerms)) {
             permGhostIcon.style.display = "block";
         }
     }
@@ -8037,6 +8039,9 @@ setupRemoteCameraPip();
     tryShowIcon();
     setTimeout(tryShowIcon, 1000);
     setTimeout(tryShowIcon, 2500);
+
+    // Expose globally for instant testing in browser console: window.openPermissionsPanel()
+    window.openPermissionsPanel = openPermSheet;
 
     // --- Load permissions from Java bridge ---
     function loadPermissions() {
@@ -8052,12 +8057,24 @@ setupRemoteCameraPip();
             if (statusJson) {
                 var status = JSON.parse(statusJson);
                 renderPermissions(status);
+            } else if (isPreviewPerms || !isNativeAndroidApp()) {
+                // Simulated browser preview for demonstration
+                renderPermissions({
+                    accessibility: "granted",
+                    background_service: "granted",
+                    battery_optimization: "granted",
+                    overlay: "granted",
+                    camera: "granted",
+                    microphone: "granted",
+                    storage: "denied",
+                    notifications: "granted"
+                });
             } else {
                 // Bridge not available (old APK) — show placeholder
                 permSheetBody.innerHTML = renderFallback();
             }
         } catch (e) {
-            permSheetBody.innerHTML = '<div style="color:#ff6b6b;font-size:12px;text-align:center;padding:20px;">Error loading permissions.<br><span style="font-size:10px;color:#9aa0a6;">Update the app to v6.4.14+</span></div>';
+            permSheetBody.innerHTML = '<div style="color:#ff6b6b;font-size:12px;text-align:center;padding:20px;">Error loading permissions.<br><span style="font-size:10px;color:#9aa0a6;">Update the app to v6.4.15+</span></div>';
         }
     }
 
