@@ -1142,14 +1142,16 @@ video::-webkit-media-controls-enclosure {
     background: rgba(138, 180, 248, 0.12);
     border: 1px solid rgba(138, 180, 248, 0.3);
     color: #8ab4f8;
-    padding: 3px 8px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     border-radius: 6px;
     cursor: pointer;
     font-size: 11px;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
     transition: all 0.2s ease;
     text-transform: none;
     letter-spacing: normal;
@@ -1158,6 +1160,7 @@ video::-webkit-media-controls-enclosure {
 .refresh-list-btn:hover {
     background: rgba(138, 180, 248, 0.25);
     color: #ffffff;
+    transform: scale(1.08);
 }
 
 @keyframes spin-anim {
