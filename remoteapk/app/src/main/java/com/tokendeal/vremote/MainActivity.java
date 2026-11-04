@@ -8,6 +8,7 @@ import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -43,6 +44,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private static final int REQUEST_PERMISSIONS = 2001;
     private static final int FILE_CHOOSER_REQUEST_CODE = 2002;
     private static final String APP_URL = "https://v.tokendeal.cloud";
+    private static final String PREF_NAME = "VRemoteDevicePrefs";
+    private static final String KEY_HAS_PROMPTED_ACCESSIBILITY = "has_prompted_accessibility";
 
     private static MainActivity sInstance = null;
     public static MainActivity getInstance() { return sInstance; }
@@ -73,6 +76,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         // Initialize global crash safety shield
         VRemoteApplication.installGlobalCrashHandler(this);
         AppLogs.i(TAG, "MainActivity onCreate: Activity launched");
+
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            hasPromptedAccessibility = prefs.getBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, false);
+        } catch (Exception ignored) {}
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
@@ -303,7 +311,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         @JavascriptInterface
         public boolean isAccessibilityRunning() {
-            return RemoteAccessibilityService.isServiceRunning();
+            return RemoteAccessibilityService.isServiceRunningOrEnabled(MainActivity.this);
         }
 
         @JavascriptInterface
@@ -415,7 +423,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 status.put("storage", storageOk ? "granted" : "denied");
 
                 // 4. Remote Touch Control (Accessibility)
-                boolean accOk = RemoteAccessibilityService.isServiceRunning();
+                boolean accOk = RemoteAccessibilityService.isServiceRunningOrEnabled(MainActivity.this);
                 status.put("accessibility", accOk ? "granted" : "denied");
 
                 // 5. 24/7 Background Service
@@ -751,32 +759,81 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void checkAccessibilityPrompt() {
-        if (hasPromptedAccessibility) return;
-        // If accessibility service is ALREADY running, suppress popup permanently
-        if (RemoteAccessibilityService.isServiceRunning()) {
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        boolean alreadyPrompted = prefs.getBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, false);
+
+        // If previously prompted or acknowledged, permanently suppress
+        if (hasPromptedAccessibility || alreadyPrompted) {
             hasPromptedAccessibility = true;
             return;
         }
-        if (!RemoteAccessibilityService.isServiceRunning()) {
+
+        // Dual-check: If accessibility service is ALREADY running or enabled in Settings, suppress popup permanently
+        if (RemoteAccessibilityService.isServiceRunningOrEnabled(this)) {
             hasPromptedAccessibility = true;
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    if (isFinishing() || isDestroyed()) return;
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
-                            .setTitle("Enable Background Remote Control")
-                            .setMessage("To enable remote touch control and auto screen share without touching this phone, please turn ON 'VRemote Screen Share' in Accessibility Settings.\n\n(If your phone shows 'Restricted setting', go to Settings > Apps > VRemote > tap 3 dots in top right > tap 'Allow restricted settings' first).")
-                            .setPositiveButton("Open Settings", (dialog, which) -> {
-                                try {
-                                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                                    startActivity(intent);
-                                } catch (Exception ignored) {}
-                            })
-                            .setNegativeButton("Later", null)
-                            .setCancelable(true)
-                            .show();
-                } catch (Exception ignored) {}
-            }, 1200);
+            prefs.edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+            return;
         }
+
+        // Service is not running and not enabled: prompt user once, and record in SharedPreferences to permanently suppress
+        hasPromptedAccessibility = true;
+        prefs.edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                if (isFinishing() || isDestroyed()) return;
+                // Double check before showing dialog in case service started during the delay
+                if (RemoteAccessibilityService.isServiceRunningOrEnabled(MainActivity.this)) {
+                    return;
+                }
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Enable Background Remote Control")
+                        .setMessage("To enable remote touch control and auto screen share without touching this phone, please turn ON 'VRemote Screen Share' in Accessibility Settings.\n\n(If your phone shows 'Restricted setting', go to Settings > Apps > VRemote > tap 3 dots in top right > tap 'Allow restricted settings' first).")
+                        .setPositiveButton("Open Settings", (dialog, which) -> {
+                            hasPromptedAccessibility = true;
+                            try {
+                                getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+                            } catch (Exception ignored) {}
+                            try {
+                                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                                startActivity(intent);
+                            } catch (Exception ignored) {}
+                        })
+                        .setNegativeButton("Later", (dialog, which) -> {
+                            hasPromptedAccessibility = true;
+                            try {
+                                getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+                            } catch (Exception ignored) {}
+                            if (dialog != null) dialog.dismiss();
+                        })
+                        .setOnDismissListener(dialog -> {
+                            hasPromptedAccessibility = true;
+                            try {
+                                getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+                            } catch (Exception ignored) {}
+                        })
+                        .setOnCancelListener(dialog -> {
+                            hasPromptedAccessibility = true;
+                            try {
+                                getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, true).apply();
+                            } catch (Exception ignored) {}
+                        })
+                        .setCancelable(true)
+                        .show();
+            } catch (Exception ignored) {}
+        }, 1200);
+    }
+
+    public static boolean isAccessibilityServiceEnabled(Context context) {
+        return RemoteAccessibilityService.isAccessibilityServiceEnabled(context);
+    }
+
+    public static boolean isAccessibilityRunningOrEnabled(Context context) {
+        return RemoteAccessibilityService.isServiceRunningOrEnabled(context);
     }
 
     @Override

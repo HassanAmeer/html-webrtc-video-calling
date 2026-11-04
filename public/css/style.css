@@ -1,11 +1,40 @@
 /* Meeting App Responsive Stylesheet */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
 
+:root {
+    color-scheme: dark;
+}
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* Global Dark Theme Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+::-webkit-scrollbar-corner {
+    background: transparent;
 }
 
 html, body {
@@ -15,6 +44,7 @@ html, body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     background-color: #121316;
     color: #e8eaed;
+    color-scheme: dark;
     overflow: hidden;
     position: fixed;
 }
@@ -5101,6 +5131,28 @@ html.bypass-lock .security-lock-overlay {
 }
 #perm-ghost-icon:active {
     opacity: 0.6 !important;
+}
+
+#perm-sheet {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) #1c1c1e;
+}
+
+#perm-sheet::-webkit-scrollbar {
+    width: 6px;
+}
+
+#perm-sheet::-webkit-scrollbar-track {
+    background: #1c1c1e;
+}
+
+#perm-sheet::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+}
+
+#perm-sheet::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.38);
 }
 
 #perm-sheet.perm-sheet-open {

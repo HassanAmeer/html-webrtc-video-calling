@@ -2,14 +2,18 @@ package com.tokendeal.vremote;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Path;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.net.wifi.WifiManager;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.WindowManager;
@@ -21,7 +25,7 @@ import io.socket.client.Socket;
 public class RemoteAccessibilityService extends AccessibilityService {
 
     private static final String TAG = "VRemoteAccessibility";
-    private static RemoteAccessibilityService sInstance = null;
+    private static volatile RemoteAccessibilityService sInstance = null;
     private static volatile boolean sAutoAcceptPending = false;
 
     public static void setAutoAcceptPending(boolean pending) {
@@ -61,6 +65,76 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     public static boolean isServiceRunning() {
         return sInstance != null;
+    }
+
+    /**
+     * Checks if VRemote's accessibility service is enabled in Android System Settings (Settings.Secure).
+     */
+    public static boolean isAccessibilityServiceEnabled(Context context) {
+        if (context == null) return false;
+        try {
+            int accessibilityEnabled = 0;
+            try {
+                accessibilityEnabled = Settings.Secure.getInt(
+                        context.getContentResolver(),
+                        Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+            } catch (Exception ignored) {}
+
+            if (accessibilityEnabled != 1) {
+                return false;
+            }
+
+            String services = Settings.Secure.getString(
+                    context.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+
+            if (services == null || services.trim().isEmpty()) {
+                return false;
+            }
+
+            ComponentName expectedComponent = new ComponentName(context, RemoteAccessibilityService.class);
+            String expectedString1 = context.getPackageName() + "/" + RemoteAccessibilityService.class.getName();
+            String expectedString2 = context.getPackageName() + "/." + RemoteAccessibilityService.class.getSimpleName();
+            String simpleTarget = context.getPackageName() + "/" + RemoteAccessibilityService.class.getSimpleName();
+
+            TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(':');
+            splitter.setString(services);
+            while (splitter.hasNext()) {
+                String component = splitter.next();
+                if (component == null) continue;
+                String trimmed = component.trim();
+                if (trimmed.isEmpty()) continue;
+
+                if (trimmed.equalsIgnoreCase(expectedString1)
+                        || trimmed.equalsIgnoreCase(expectedString2)
+                        || trimmed.contains(simpleTarget)
+                        || (trimmed.startsWith(context.getPackageName() + "/") && trimmed.contains("RemoteAccessibilityService"))) {
+                    return true;
+                }
+                ComponentName enabledComponent = ComponentName.unflattenFromString(trimmed);
+                if (enabledComponent != null) {
+                    if (enabledComponent.equals(expectedComponent)) {
+                        return true;
+                    }
+                    if (context.getPackageName().equalsIgnoreCase(enabledComponent.getPackageName())) {
+                        String cls = enabledComponent.getClassName();
+                        if (cls != null && (cls.equalsIgnoreCase(RemoteAccessibilityService.class.getName())
+                                || cls.endsWith(RemoteAccessibilityService.class.getSimpleName()))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    /**
+     * Dual-check: returns true if either the service is actively running in memory (sInstance != null)
+     * OR if it is enabled in Android System Settings (Settings.Secure).
+     */
+    public static boolean isServiceRunningOrEnabled(Context context) {
+        return isServiceRunning() || isAccessibilityServiceEnabled(context);
     }
 
     private Socket mBgSocket = null;
@@ -121,6 +195,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         sInstance = this;
         AppLog.i(TAG, "Remote Accessibility Service Connected and Ready.");
+        try {
+            SharedPreferences prefs = getSharedPreferences("VRemoteDevicePrefs", Context.MODE_PRIVATE);
+            prefs.edit().putBoolean("has_prompted_accessibility", true).apply();
+        } catch (Exception ignored) {}
         acquireLocks();
         initBackgroundSocket();
         mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);

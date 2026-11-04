@@ -1772,7 +1772,12 @@ function setupSecurityLockHandler() {
         if (securityPinInput) securityPinInput.focus();
     }, 350);
 
+    let lastErrorTriggerTime = 0;
     const triggerUnavailableError = (customMsg) => {
+        const now = Date.now();
+        if (now - lastErrorTriggerTime < 500) return;
+        lastErrorTriggerTime = now;
+
         if (btnSecurityBack) btnSecurityBack.classList.add("shake-error");
         if (securityPinInput) securityPinInput.classList.add("shake-error");
         setTimeout(() => {
@@ -1808,6 +1813,11 @@ function setupSecurityLockHandler() {
             } else {
                 // Wrong PIN -> Show Error: Try again later after 10 minutes
                 triggerUnavailableError("Error: Try again later after 10 minutes.");
+                setTimeout(() => {
+                    if (securityPinInput) {
+                        securityPinInput.value = "";
+                    }
+                }, 400);
             }
         }, HOLD_SECURITY_MS);
     };
@@ -1840,61 +1850,21 @@ function setupSecurityLockHandler() {
     btnSecurityBack.addEventListener("touchend", cancelHoldingSecurity);
     btnSecurityBack.addEventListener("touchcancel", cancelHoldingSecurity);
 
-    // Click handler: if 7861 is entered, unlock; otherwise trigger error shake
+    // Click handler: ALWAYS trigger error on click, NEVER unlock (login only permitted via long press hold)
     btnSecurityBack.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (!isAppUnlocked) {
-            const entered = securityPinInput ? securityPinInput.value.trim() : "";
-            if (entered === SECURITY_PIN) {
-                if (securityPinInput) {
-                    securityPinInput.value = "";
-                    securityPinInput.blur();
-                }
-                if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
-                showToast("Verified");
-                activateFullAppSession();
-            } else {
-                triggerUnavailableError("Error: Try again later after 10 minutes.");
-            }
+            triggerUnavailableError();
         }
     });
 
-    // Instant verification or error when 4 digits are typed into PIN input
+    // Enter key inside PIN input: DO NOT login on Enter, always trigger error toast
     if (securityPinInput) {
-        securityPinInput.addEventListener("input", () => {
-            const entered = securityPinInput.value.trim();
-            if (entered === SECURITY_PIN) {
-                securityPinInput.value = "";
-                securityPinInput.blur();
-                if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
-                showToast("Verified");
-                activateFullAppSession();
-            } else if (entered.length >= 4) {
-                // Wrong 4-digit PIN -> Show error & shake
-                triggerUnavailableError("Error: Try again later after 10 minutes.");
-                setTimeout(() => {
-                    if (securityPinInput) securityPinInput.value = "";
-                }, 400);
-            }
-        });
-
         securityPinInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                const entered = securityPinInput.value.trim();
-                if (entered === SECURITY_PIN) {
-                    securityPinInput.value = "";
-                    securityPinInput.blur();
-                    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
-                    showToast("Verified");
-                    activateFullAppSession();
-                } else {
-                    triggerUnavailableError("Error: Try again later after 10 minutes.");
-                    setTimeout(() => {
-                        if (securityPinInput) securityPinInput.value = "";
-                    }, 400);
-                }
+                triggerUnavailableError();
             }
         });
     }
