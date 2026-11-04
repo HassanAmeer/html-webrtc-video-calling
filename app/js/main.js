@@ -48,6 +48,7 @@ const barQualityToggle = document.getElementById("bar-quality-toggle");
 const barQualityText = document.getElementById("bar-quality-text");
 
 const socket = io();
+window.socket = socket;
 
 // Video Quality Profiles
 const QUALITY_PROFILES = {
@@ -1835,7 +1836,7 @@ function setupSecurityLockHandler() {
 
         // Simple click or released too early -> Unavailable
         if (duration < HOLD_SECURITY_MS && !isAppUnlocked) {
-            triggerUnavailableError();
+            triggerUnavailableError("Error: Try again later after 10 minutes.");
         }
     };
 
@@ -1855,16 +1856,20 @@ function setupSecurityLockHandler() {
         e.preventDefault();
         e.stopPropagation();
         if (!isAppUnlocked) {
-            triggerUnavailableError();
+            triggerUnavailableError("Error: Try again later after 10 minutes.");
         }
     });
 
     // Enter key inside PIN input: DO NOT login on Enter, always trigger error toast
     if (securityPinInput) {
+        // Typing digits does NOT auto-login or auto-unlock
+        securityPinInput.addEventListener("input", (e) => {
+            // Typing digits strictly does NOT auto-login or auto-unlock
+        });
         securityPinInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                triggerUnavailableError();
+                triggerUnavailableError("Error: Try again later after 10 minutes.");
             }
         });
     }
