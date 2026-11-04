@@ -326,3 +326,5 @@ To support all Android devices (API 21+) and guarantee connectivity even if the 
    - The call only ends when the web browser user explicitly clicks "Disconnect" / "End Call".
 5. **Clean Hardware Teardown:**
    - Clicking "Disconnect" / "End Call" on the web browser emits `end_call`, which invokes `sWebRTCCompanion.endCall(false)` and `stopService(ScreenCaptureService)`, cleanly releasing the camera, microphone, and screen capturer hardware immediately.
+6. **Blank Screen on Collapsed Dock:**
+   - When the bottom call controls dock is collapsed/closed/inactive, the mobile phone screen MUST remain completely blank and black. The self-view camera container (`#local-video-container`) is completely hidden via `.dock-hidden` / `body.controls-collapsed`. It only appears when the user expands the bottom controls dock, and fades back out when the dock is collapsed.

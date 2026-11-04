@@ -54,7 +54,7 @@
     <script src="js/main.js?v=6.4.10" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
-<body>
+<body class="controls-collapsed">
     <main class="main-container">
         <!-- Floating Toast Notification -->
         <div id="toast-notice" class="toast-notice"></div>
@@ -560,7 +560,7 @@
                         <i class="fas fa-user"></i>
                     </div>
                 </div>
-                <div class="local-video" id="local-video-container">
+                <div class="local-video dock-hidden" id="local-video-container">
                     <video id="localVideo" autoplay muted playsinline webkit-playsinline poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
                     <!-- 25% Opacity User-Slash Watermark for Self Camera Off State -->
                     <div class="camera-blocked-watermark" id="local-camera-watermark" style="display: none;">

@@ -252,3 +252,12 @@ After any change affecting the Android APK or backend:
     - A call is ONLY terminated when the web browser user explicitly clicks "Disconnect" / "End Call", or when the network connection is permanently severed.
   - **Clean Hardware Release on Remote Hangup:**
     - When the browser clicks "Disconnect" / "End Call", `end_call` is routed to the device, which calls `sWebRTCCompanion.endCall(false)` and `stopService(ScreenCaptureService)`, immediately stopping all camera capturers, audio tracks, and foreground notifications, returning the device to low-power idle standby.
+
+- **Point 20: Blank Screen & Self-View Dock Synchronization Policy (v6.4.13):**
+  - **Blank Screen on Inactive / Collapsed Controls:** When the bottom call controls dock is collapsed (`call-controls.collapsed` / `body.controls-collapsed`), the screen MUST remain completely blank and clean.
+  - The floating self-view camera container (`#local-video-container` / `.local-video`) is strictly hidden (`opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; transform: scale(0.92) !important;` via `.dock-hidden` / `body.controls-collapsed`).
+  - **Dynamic Synchronization:**
+    - Initial page load starts in `controls-collapsed` state (`<body class="controls-collapsed">` with `<div class="local-video dock-hidden">`) ensuring zero flicker and an instantly blank display.
+    - As soon as the bottom controls bar is expanded/active (`showControlsBar()`), `.local-video` smoothly animates into view with a 0.25s transition.
+    - When the bottom controls bar is collapsed again (`hideControlsBar()`), `.local-video` smoothly fades out into the blank screen.
+  - Any future AI, developer, or UI modification MUST preserve this exact dock-to-camera-box synchronization.

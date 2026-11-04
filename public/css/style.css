@@ -124,7 +124,16 @@ video::-webkit-media-controls-enclosure {
     touch-action: none; /* Allows smooth mobile touch dragging */
     user-select: none;
     -webkit-user-select: none;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.25s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Blank Screen Policy: When bottom call controls dock is collapsed, hide local video camera box completely */
+body.controls-collapsed .local-video,
+.local-video.dock-hidden {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transform: scale(0.92) !important;
 }
 
 .local-video:hover {

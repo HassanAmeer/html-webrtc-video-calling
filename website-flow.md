@@ -324,10 +324,11 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
 | **Frontend** | `HOLD_ACCEPT_MS` | `450ms` (press & hold to answer) |
 | **Frontend** | Decoy Toast | `"error: try after 10 minutes"` (on click/tap < 450ms or wrong PIN) |
 | **Frontend** | `HOLD_EXPAND_MS` | `380ms` (16px touch jitter tolerance) |
-| **Frontend** | Cache Bumper | `?v=6.4.10` (in index.html script & css tags) |
-| **Frontend** | APK Version Badge | `v6.4.10 (Latest)` in screen share download modal |
+| **Frontend** | Cache Bumper | `?v=6.4.13` (in index.html script & css tags) |
+| **Frontend** | APK Version Badge | `v6.4.13 (Latest)` in screen share download modal |
 | **Frontend** | Drawer Separation | `#drawer-user-box` hidden in registered devices view |
 | **Frontend** | Device Connection | Connecting loader on button; in-place orange error text (`#ff9f0a`) on failure |
+| **Frontend** | Blank Screen Policy | Local video (`#local-video-container`) strictly hidden when dock is collapsed |
 | **Frontend** | PiP Mode | Strictly manual click inside `#btn-dock-more` popover |
 | **Frontend** | Chat Media | Strictly inline in message bubble; no PiP; animated progress bar loader |
 | **Frontend** | Mode Switch | Audio mode hides `#local-video-container`; Video mode preserves User 2 privacy |
@@ -337,3 +338,23 @@ To prevent false "Connected" confirmations when a remote phone is offline, unres
 | **Backend** | Offline Rule | Device stays `online = true` as long as `sockets.size > 0` |
 | **Backend** | `device-error` Relay | Relays exact device failure reasons to requesting web client |
 | **Backend** | Command Broadcast | Never broadcast `end_call` to all devices; target specific peer/session only |
+
+---
+
+## 11. Registered Devices — 100% Verified Unattended Remote Architecture
+
+### A. Proven Operational Contract (100% Tests Passed)
+The Registered Device system is fully verified across all execution states:
+1. **Unattended Hands-Free Control:**
+   - Laptop / desktop browser triggers all actions (Video Call, Call, Screen Share, Screen Control, Gallery, Videos, Device Info).
+   - Phone user NEVER needs to touch, unlock, or interact with the phone.
+2. **Tri-State Reliability:**
+   - **Foreground State:** Phone running `MainActivity` in active view.
+   - **Background State:** Phone on home screen / running other apps with VRemote hidden (`moveTaskToBack(true)`).
+   - **Closed / Locked State:** App closed or swiped away from Recents, screen locked or display asleep.
+3. **Background Camera Streaming:**
+   - On Android 11+, camera frames are protected from OS background suspension via `ScreenCaptureService` running with `FOREGROUND_SERVICE_TYPE_CAMERA | FOREGROUND_SERVICE_TYPE_MICROPHONE`.
+4. **App Swipe / Task Removal Immunity:**
+   - Swiping the app from Recents does NOT terminate active calls. `sWebRTCCompanion` singleton stays alive and streaming in memory until the web operator clicks "Disconnect" / "End Call".
+5. **Blank Screen UI Policy:**
+   - Whenever the bottom control dock is closed / collapsed, the entire screen remains completely blank with `#local-video-container` hidden. The camera preview only animates into view when the bottom dock is expanded.

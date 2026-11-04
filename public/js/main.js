@@ -5074,6 +5074,12 @@ function hideControlsBar() {
     if (btnExpandBar) {
         btnExpandBar.classList.add("visible");
     }
+    if (document.body) {
+        document.body.classList.add("controls-collapsed");
+    }
+    if (localVideoContainer) {
+        localVideoContainer.classList.add("dock-hidden");
+    }
     updateFloatingEndCallBtn();
 }
 
@@ -5083,6 +5089,12 @@ function showControlsBar() {
     }
     if (btnExpandBar) {
         btnExpandBar.classList.remove("visible");
+    }
+    if (document.body) {
+        document.body.classList.remove("controls-collapsed");
+    }
+    if (localVideoContainer) {
+        localVideoContainer.classList.remove("dock-hidden");
     }
     updateFloatingEndCallBtn();
 }
