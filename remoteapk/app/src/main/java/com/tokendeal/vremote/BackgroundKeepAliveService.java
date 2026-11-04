@@ -97,6 +97,16 @@ public class BackgroundKeepAliveService extends Service {
     }
 
     @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        AppLogs.i(TAG, "onTaskRemoved: Activity swiped away, ensuring BackgroundKeepAliveService persists!");
+        startInForeground();
+        if (mBgSocket == null || !mBgSocket.connected()) {
+            initBackgroundSocket();
+        }
+    }
+
+    @Override
     public IBinder onBind(Intent intent) {
         return null;
     }

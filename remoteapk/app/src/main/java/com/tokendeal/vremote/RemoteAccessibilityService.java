@@ -148,20 +148,6 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void initBackgroundSocket() {
-        // Dedup: BackgroundKeepAliveService is the primary background service.
-        // If it is active, do not create a redundant socket connection to prevent command storms and race conditions.
-        if (BackgroundKeepAliveService.isServiceRunning()) {
-            if (mBgSocket != null) {
-                AppLogs.unregisterSocket(mBgSocket);
-                try {
-                    mBgSocket.disconnect();
-                    mBgSocket.close();
-                } catch (Exception ignored) {}
-                mBgSocket = null;
-            }
-            return;
-        }
-
         if (mBgSocket != null && mBgSocket.connected()) return;
         try {
             IO.Options opts = new IO.Options();
@@ -252,11 +238,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
             payload.put("deviceName", deviceName);
             payload.put("ram", ram);
             payload.put("platform", "android");
-            payload.put("role", "background_service");
+            payload.put("role", "accessibility_service");
 
             if (mBgSocket != null && mBgSocket.connected()) {
                 mBgSocket.emit("register-device", payload);
-                Log.i(TAG, "Background Device Registered: " + deviceId + " (" + deviceName + ")");
+                AppLog.i(TAG, "Background Accessibility Device Registered: " + deviceId + " (" + deviceName + ")");
             }
         } catch (Exception e) {
             Log.e(TAG, "Error registering background device", e);
