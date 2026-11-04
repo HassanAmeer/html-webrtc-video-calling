@@ -204,16 +204,17 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     } else if ("end_call".equals(command)) {
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
+                        if (MainActivity.getCompanionInstance() != null) {
+                            MainActivity.getCompanionInstance().endCall(false);
+                        }
                         if (MainActivity.getInstance() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {
                                 MainActivity.getInstance().stopAllMediaAndFinish();
                             });
                         }
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
-                        if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
-                            MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().getWebRTCCompanion().switchCompanionCamera();
-                            });
+                        if (MainActivity.getCompanionInstance() != null) {
+                            MainActivity.getCompanionInstance().switchCompanionCamera();
                         }
                     }
                 } catch (Exception e) {

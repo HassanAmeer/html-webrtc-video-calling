@@ -49,9 +49,15 @@ public class ScreenCaptureService extends Service {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
 
+        String sessionType = intent != null ? intent.getStringExtra("session_type") : "";
+        boolean isCall = "video_call".equals(sessionType) || "audio_call".equals(sessionType);
+
+        String notifTitle = isCall ? "VRemote Call Active" : "VRemote Screen Sharing Active";
+        String notifText = isCall ? "Remote call is streaming in background" : "Live screen is streaming with Remote Control enabled";
+
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("VRemote Screen Sharing Active")
-                .setContentText("Live screen is streaming with Remote Control enabled")
+                .setContentTitle(notifTitle)
+                .setContentText(notifText)
                 .setSmallIcon(R.drawable.app_icon)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
@@ -60,7 +66,10 @@ public class ScreenCaptureService extends Service {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                int serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+                int serviceType = 0;
+                if (!isCall) {
+                    serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
                     serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;

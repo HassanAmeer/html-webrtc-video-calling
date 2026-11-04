@@ -69,6 +69,7 @@
             android:name=".ScreenCaptureService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="mediaProjection|camera|microphone"
             tools:targetApi="q" />
 

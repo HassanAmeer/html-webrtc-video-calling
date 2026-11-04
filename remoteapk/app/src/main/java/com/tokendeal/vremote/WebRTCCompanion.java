@@ -36,7 +36,7 @@ public class WebRTCCompanion {
 
     private final Context context;
     private final String serverUrl;
-    private final Callback callback;
+    private Callback callback;
     private String myId;
     private String activePeer;
     private boolean isFullControlEnabled = true;
@@ -1134,6 +1134,11 @@ public class WebRTCCompanion {
         // Bug 7 fix: clear queued candidates to prevent orphaned ICE candidates leaking into next call
         queuedCandidates.clear();
 
+        try {
+            Intent serviceIntent = new Intent(context, ScreenCaptureService.class);
+            context.stopService(serviceIntent);
+        } catch (Exception ignored) {}
+
         isScreenSharingCall = false;
         activePeer = null;
         incomingOfferObj = null;
@@ -1147,6 +1152,10 @@ public class WebRTCCompanion {
 
     public boolean isSocketConnected() {
         return socket != null && socket.connected();
+    }
+
+    public void setCallback(Callback callback) {
+        this.callback = callback;
     }
 
     public boolean isInCall() {

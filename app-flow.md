@@ -295,7 +295,7 @@ To support all Android devices (API 21+) and guarantee connectivity even if the 
 | Reboot Persistence | `BootReceiver` (`RECEIVE_BOOT_COMPLETED`) | Re-enqueues periodic work automatically on device boot |
 | Coturn TURN | VPS Coturn `turn:201.18.218.29:3478` (UDP/TCP) | Bypasses cellular NAT/firewalls; prevents ICE failures |
 | Stealth Lock PIN | `SECURITY_PIN = "7861"` (hold 1200ms) | Decoy error toast on wrong PIN/tap; bypass on `?uid=` |
-| Release APK Version | `v6.4.10` (`versionCode 21`) | Reflected in build.gradle & screen share download modal |
+| Release APK Version | `v6.4.13` (`versionCode 24`) | Reflected in build.gradle & screen share download modal |
 | Stealth Mode | `moveTaskToBack(true)` on session start | Phone must never remain on VRemote UI |
 | Entire Screen Auto-Accept | `setAutoAcceptPending(true)` | Clicks "Entire screen" & "Start now" in < 500ms |
 | Auto-PiP | `setAutoEnterEnabled(false)` | Strictly disabled; manual click only |
@@ -305,3 +305,24 @@ To support all Android devices (API 21+) and guarantee connectivity even if the 
 | Device Error Reporting | `emitDeviceError()` | Relays in-place orange failure reasons in real-time |
 | Gradle Build | `gradle assembleRelease` on VPS | Builds release APK into `/downloads/vremote.apk` |
 | Directory Sync | `public/` & `app/` | Must be 100% byte-for-byte identical at all times |
+
+---
+
+## 15. Registered Devices — Unattended Remote, Background & Closed-App Execution Contract
+
+### Fundamental Contract:
+1. **Unattended & Hands-Free:** The phone user should never touch the phone. Remote operators trigger calls, screen sharing, touch control, gallery browsing, or video playback directly from the desktop/laptop web browser.
+2. **State Agnostic:** Every registered device feature must connect and run reliably whether the Android app is:
+   - **Foreground:** `MainActivity` currently displayed on phone screen.
+   - **Background:** `MainActivity` pushed to back (`moveTaskToBack(true)`), home screen visible.
+   - **Closed / Swiped:** `MainActivity` destroyed/swiped from Recents, phone locked or asleep.
+3. **Background Media Streaming:**
+   - On Android 11+ (API 30+), background camera access requires an active Foreground Service with `foregroundServiceType="camera"`.
+   - `ScreenCaptureService` handles this by launching with `session_type="video_call"` or `"audio_call"` using `FOREGROUND_SERVICE_TYPE_CAMERA | FOREGROUND_SERVICE_TYPE_MICROPHONE`.
+   - When a call starts, `MainActivity` immediately hides itself to the background (`moveTaskToBack(true)`). The call continues streaming uninterrupted.
+4. **Preservation on App Swipe / Close:**
+   - Swiping `MainActivity` away triggers `onDestroy()`, but `sWebRTCCompanion` is preserved as long as `isInCall()` or `isScreenSharing()` is true.
+   - `ScreenCaptureService` with `android:stopWithTask="false"` keeps running.
+   - The call only ends when the web browser user explicitly clicks "Disconnect" / "End Call".
+5. **Clean Hardware Teardown:**
+   - Clicking "Disconnect" / "End Call" on the web browser emits `end_call`, which invokes `sWebRTCCompanion.endCall(false)` and `stopService(ScreenCaptureService)`, cleanly releasing the camera, microphone, and screen capturer hardware immediately.

@@ -46,7 +46,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
     private static MainActivity sInstance = null;
     public static MainActivity getInstance() { return sInstance; }
-    public WebRTCCompanion getWebRTCCompanion() { return webRTCCompanion; }
+    private static WebRTCCompanion sWebRTCCompanion = null;
+    public static WebRTCCompanion getCompanionInstance() { return sWebRTCCompanion; }
+    public WebRTCCompanion getWebRTCCompanion() { return sWebRTCCompanion; }
 
     private WebView webView;
     private ValueCallback<Uri[]> mFilePathCallback = null;
@@ -240,7 +242,28 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void initWebRTC() {
-        webRTCCompanion = new WebRTCCompanion(this, APP_URL, DeviceRegistry.getDeviceId(this), this);
+        if (sWebRTCCompanion == null) {
+            sWebRTCCompanion = new WebRTCCompanion(getApplicationContext(), APP_URL, DeviceRegistry.getDeviceId(this), this);
+        } else {
+            sWebRTCCompanion.setCallback(this);
+        }
+        webRTCCompanion = sWebRTCCompanion;
+    }
+
+    public void startMediaForegroundService(String type) {
+        try {
+            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+            serviceIntent.putExtra("session_type", type);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            AppLogs.i(TAG, "ScreenCaptureService started in foreground for: " + type);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start media foreground service: " + e.getMessage(), e);
+            AppLogs.e(TAG, "Failed to start media foreground service: " + e.getMessage());
+        }
     }
 
     public void startScreenCaptureWithCamera(String targetPeer, boolean fullControl, boolean streamCamera, String cameraChoice) {
@@ -441,12 +464,22 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         AppLogs.i(TAG, "Executing pending auto_command: " + autoCmd + " for caller: " + caller);
         switch (autoCmd) {
             case "audio_call":
+                startMediaForegroundService("audio_call");
                 webRTCCompanion.startAudioCall(caller);
-                // Audio call stays in foreground so microphone remains active and user sees status
+                runOnUiThread(() -> {
+                    try {
+                        moveTaskToBack(true);
+                    } catch (Exception ignored) {}
+                });
                 break;
             case "video_call":
+                startMediaForegroundService("video_call");
                 webRTCCompanion.startVideoCall(caller);
-                // Video call stays in foreground so camera hardware is never suspended by Android
+                runOnUiThread(() -> {
+                    try {
+                        moveTaskToBack(true);
+                    } catch (Exception ignored) {}
+                });
                 break;
             case "screen_share":
                 startScreenCaptureWithCamera(caller, false, !"none".equalsIgnoreCase(camChoice), camChoice);
@@ -738,9 +771,16 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             try { wakeLock.release(); } catch (Exception ignored) {}
             wakeLock = null;
         }
-        if (webRTCCompanion != null) {
-            webRTCCompanion.destroy();
-            webRTCCompanion = null;
+        if (sWebRTCCompanion != null) {
+            if (!sWebRTCCompanion.isInCall() && !sWebRTCCompanion.isScreenSharing()) {
+                sWebRTCCompanion.destroy();
+                sWebRTCCompanion = null;
+                webRTCCompanion = null;
+            } else {
+                Log.i(TAG, "MainActivity destroyed but active call is running -> preserving WebRTCCompanion in background!");
+                AppLogs.i(TAG, "MainActivity destroyed but active call is running -> preserving WebRTCCompanion in background!");
+                sWebRTCCompanion.setCallback(null);
+            }
         }
         if (webView != null) {
             webView.destroy();
