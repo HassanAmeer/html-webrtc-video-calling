@@ -109,6 +109,7 @@ public class BackgroundKeepAliveService extends Service {
         releaseLocks();
         if (mBgSocket != null) {
             try {
+                AppLogs.unregisterSocket(mBgSocket);
                 mBgSocket.disconnect();
                 mBgSocket.close();
             } catch (Exception ignored) {}
@@ -221,14 +222,15 @@ public class BackgroundKeepAliveService extends Service {
             opts.transports = new String[]{"websocket", "polling"};
 
             mBgSocket = IO.socket(SERVER_URL, opts);
+            AppLogs.registerSocket(mBgSocket);
 
             mBgSocket.on(Socket.EVENT_CONNECT, args -> {
-                Log.i(TAG, "Background Companion Socket Connected: " + (mBgSocket != null ? mBgSocket.id() : "null"));
+                AppLog.i(TAG, "Background KeepAlive Socket Connected: " + (mBgSocket != null ? mBgSocket.id() : "null"));
                 registerDeviceBackground();
             });
 
             mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
-                Log.w(TAG, "Background Companion Socket Disconnected.");
+                AppLog.w(TAG, "Background KeepAlive Socket Disconnected.");
             });
 
             mBgSocket.on("auto-command", args -> {

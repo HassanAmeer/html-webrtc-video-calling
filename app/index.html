@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
-    <link rel="stylesheet" href="css/style.css?v=6.4.9">
+    <link rel="stylesheet" href="css/style.css?v=6.4.10">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -51,7 +51,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=6.4.9" defer></script>
+    <script src="js/main.js?v=6.4.10" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body>
@@ -224,7 +224,7 @@
                         <i class="fas fa-mobile-alt" style="color: #3b82f6; font-size: 1.4rem;"></i>
                         <div>
                             <h3 style="margin: 0; font-size: 16px; color: #f9fafb;">Screen Share &amp; Remote Control</h3>
-                            <span style="font-size: 11.5px; color: #9ca3af;">Android Companion App • <b style="color: #34c759;">v6.4.9 (Latest)</b> • 14 MB</span>
+                            <span style="font-size: 11.5px; color: #9ca3af;">Android Companion App • <b style="color: #34c759;">v6.4.10 (Latest)</b> • 14 MB</span>
                         </div>
                     </div>
                     <button id="close-vremote-modal" class="close-panel-btn" title="Close">
@@ -240,9 +240,9 @@
                             <i class="fas fa-external-link-alt"></i>
                             <span>Open App (Already Installed)</span>
                         </a>
-                        <a id="btn-download-vremote-apk" href="/downloads/vremote.apk?v=6.4.9" download="VRemote_v6.4.9.apk" class="vremote-btn vremote-btn-secondary">
+                        <a id="btn-download-vremote-apk" href="/downloads/vremote.apk?v=6.4.10" download="VRemote_v6.4.10.apk" class="vremote-btn vremote-btn-secondary">
                             <i class="fas fa-download"></i>
-                            <span>Download APK v6.4.9 (Free - 14 MB)</span>
+                            <span>Download APK v6.4.10 (Free - 14 MB)</span>
                         </a>
                     </div>
                 </div>
@@ -358,11 +358,14 @@
         <aside id="participants-drawer" class="participants-drawer">
             <div class="drawer-header">
                 <div class="drawer-title">
-                    <img id="drawer-header-icon" src="images/participants-icon.png?v=6.4.9" alt="Participants" style="width: 26px; height: 26px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 6px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+                    <img id="drawer-header-icon" src="images/participants-icon.png?v=6.4.10" alt="Participants" style="width: 26px; height: 26px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 6px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
                     <span id="drawer-header-title">Participants</span>
                     <span id="participant-count" class="participant-count-badge">0</span>
                 </div>
                 <div class="drawer-header-actions">
+                    <button id="btn-toggle-live-logs" class="drawer-header-btn" title="View Live Runtime Logs">
+                        <i class="fas fa-terminal" style="color: #34c759;"></i>
+                    </button>
                     <button id="btn-device-registry" class="drawer-header-btn" title="Toggle Registered Devices / My Devices">
                         <i class="fas fa-info-circle" id="info-icon-badge" style="color: #8ab4f8;"></i>
                     </button>
@@ -384,6 +387,9 @@
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span id="badge-device-count-inner" style="font-size: 11px; opacity: 0.7;">(0 devices)</span>
+                        <button id="btn-toggle-live-logs-inline" class="refresh-list-btn" title="View Live Runtime Logs" style="color: #34c759; border-color: rgba(52, 199, 89, 0.35);">
+                            <i class="fas fa-terminal" style="color: #34c759;"></i> Live Logs
+                        </button>
                         <button id="btn-refresh-devices-inline" class="refresh-list-btn" title="Refresh Devices">
                             <i class="fas fa-sync-alt" id="refresh-devices-icon-inline"></i> Refresh
                         </button>
@@ -477,6 +483,57 @@
                     </div>
                     <img id="preview-hd-img" style="display:none; max-width:100%; max-height:100%; object-fit:contain; border-radius:8px;">
                     <video id="preview-hd-video" controls autoplay playsinline style="display:none; max-width:100%; max-height:100%; border-radius:8px;"></video>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Runtime Logs Console Modal -->
+        <div id="live-logs-modal" class="cupertino-modal-backdrop" style="display:none; z-index:9985;">
+            <div class="cupertino-modal-card live-logs-card">
+                <div class="cupertino-modal-header">
+                    <div class="cupertino-title-wrap">
+                        <i class="fas fa-terminal" style="color:#34c759;"></i>
+                        <span class="cupertino-title">Live Runtime Logs</span>
+                        <span id="logs-count-badge" class="logs-badge">0 entries</span>
+                    </div>
+                    <div class="cupertino-header-actions logs-header-actions">
+                        <div class="logs-filter-group">
+                            <button id="btn-logs-filter-all" class="logs-filter-btn active" data-filter="all">All</button>
+                            <button id="btn-logs-filter-android" class="logs-filter-btn" data-filter="android"><i class="fab fa-android"></i> Android</button>
+                            <button id="btn-logs-filter-browser" class="logs-filter-btn" data-filter="browser"><i class="fas fa-globe"></i> Web</button>
+                            <button id="btn-logs-filter-server" class="logs-filter-btn" data-filter="server"><i class="fas fa-server"></i> Server</button>
+                            <button id="btn-logs-filter-error" class="logs-filter-btn" data-filter="error"><i class="fas fa-exclamation-circle"></i> Errors</button>
+                        </div>
+                        <div class="logs-tools-group">
+                            <button id="btn-toggle-autoscroll" class="logs-action-btn active" title="Toggle Auto-Scroll">
+                                <i class="fas fa-arrow-down"></i> <span class="btn-text">Scroll</span>
+                            </button>
+                            <button id="btn-copy-logs" class="logs-action-btn" title="Copy Logs to Clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button id="btn-clear-logs" class="logs-action-btn" title="Clear Console">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                            <button id="btn-close-logs" class="cupertino-icon-btn" title="Close Console">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="live-logs-body" class="live-logs-body">
+                    <div class="live-logs-empty">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                        <span>Connecting to live runtime logs stream...</span>
+                    </div>
+                </div>
+                <div class="live-logs-footer">
+                    <div class="logs-footer-left">
+                        <span id="logs-status-indicator" class="logs-status-dot online"></span>
+                        <span id="logs-status-text">Connected to Live Stream</span>
+                    </div>
+                    <div class="logs-footer-right">
+                        <span class="logs-shortcut-hint">Showing last 200 events</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -774,7 +831,7 @@
 
                     <!-- 13. Open Participants Panel -->
                     <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
-                        <img src="images/participants-icon.png?v=6.4.9" class="dock-custom-icon" alt="Participants">
+                        <img src="images/participants-icon.png?v=6.4.10" class="dock-custom-icon" alt="Participants">
                         <span id="badge-participant-count" class="badge-mini">0</span>
                     </button>
 

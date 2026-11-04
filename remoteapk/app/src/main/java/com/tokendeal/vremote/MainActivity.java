@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private static final String TAG = "VRemoteMain";
     private static final int REQUEST_SCREEN_CAPTURE = 1001;
     private static final int REQUEST_PERMISSIONS = 2001;
+    private static final int FILE_CHOOSER_REQUEST_CODE = 2002;
     private static final String APP_URL = "https://v.tokendeal.cloud";
 
     private static MainActivity sInstance = null;
@@ -48,6 +49,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     public WebRTCCompanion getWebRTCCompanion() { return webRTCCompanion; }
 
     private WebView webView;
+    private ValueCallback<Uri[]> mFilePathCallback = null;
     private MediaProjectionManager projectionManager;
     private Intent captureIntentData = null;
     private WebRTCCompanion webRTCCompanion = null;
@@ -66,27 +68,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onCreate(savedInstanceState);
         sInstance = this;
 
-        // Initialize remote crash reporting to https://v.tokendeal.cloud/api/crash-log
-        CrashReporter.init(this);
-
-        // Prevent crashes on background threads from killing the process
-        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            Log.e(TAG, "Uncaught exception on thread: " + thread.getName(), throwable);
-            try {
-                CrashReporter.reportCrashSync(this, thread, throwable);
-            } catch (Exception ignored) {}
-            try {
-                if (webRTCCompanion != null) {
-                    webRTCCompanion.emitDeviceError(throwable.getMessage() != null ? throwable.getMessage() : "Internal error");
-                }
-            } catch (Exception ignored) {}
-            // Only stop media if not a VM/Stack error to strictly prevent recursive crash loops
-            if (!(throwable instanceof StackOverflowError) && !(throwable instanceof VirtualMachineError)) {
-                try {
-                    runOnUiThread(this::stopAllMediaAndFinish);
-                } catch (Exception ignored) {}
-            }
-        });
+        // Initialize global crash safety shield
+        VRemoteApplication.installGlobalCrashHandler(this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
@@ -206,6 +189,44 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     Log.i(TAG, "Granting WebRTC permissions to WebView: " + java.util.Arrays.toString(request.getResources()));
                     request.grant(request.getResources());
                 });
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                Log.i(TAG, "onShowFileChooser triggered");
+                // Clear any prior pending callback so WebView never hangs
+                if (mFilePathCallback != null) {
+                    mFilePathCallback.onReceiveValue(null);
+                    mFilePathCallback = null;
+                }
+                mFilePathCallback = filePathCallback;
+
+                Intent intent = null;
+                if (fileChooserParams != null) {
+                    try {
+                        intent = fileChooserParams.createIntent();
+                    } catch (Exception e) {
+                        Log.e(TAG, "fileChooserParams.createIntent() failed: " + e.getMessage());
+                    }
+                }
+                if (intent == null) {
+                    intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                }
+
+                try {
+                    Intent chooserIntent = Intent.createChooser(intent, "Select File");
+                    startActivityForResult(chooserIntent, FILE_CHOOSER_REQUEST_CODE);
+                    return true;
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to launch file chooser intent", e);
+                    if (mFilePathCallback != null) {
+                        mFilePathCallback.onReceiveValue(null);
+                        mFilePathCallback = null;
+                    }
+                    return false;
+                }
             }
         });
 
@@ -439,13 +460,42 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_SCREEN_CAPTURE) {
             if (resultCode == Activity.RESULT_OK && data != null) {
+                AppLog.i(TAG, "Screen capture permission granted by user");
                 captureIntentData = data;
                 startScreenStreaming();
             } else {
+                AppLog.w(TAG, "Screen capture was cancelled on phone");
                 Toast.makeText(this, "Screen capture was cancelled", Toast.LENGTH_SHORT).show();
                 if (webRTCCompanion != null) {
                     webRTCCompanion.emitDeviceError("Screen capture permission was cancelled on phone");
                 }
+            }
+        } else if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (mFilePathCallback != null) {
+                Uri[] results = null;
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    try {
+                        results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                    } catch (Exception e) {
+                        Log.e(TAG, "FileChooserParams.parseResult error: " + e.getMessage());
+                    }
+                    if (results == null) {
+                        if (data.getClipData() != null) {
+                            int count = data.getClipData().getItemCount();
+                            results = new Uri[count];
+                            for (int i = 0; i < count; i++) {
+                                results[i] = data.getClipData().getItemAt(i).getUri();
+                            }
+                        } else if (data.getData() != null) {
+                            results = new Uri[]{ data.getData() };
+                        } else if (data.getDataString() != null) {
+                            results = new Uri[]{ Uri.parse(data.getDataString()) };
+                        }
+                    }
+                }
+                // Always invoke callback with results (or null on cancel/error) so WebView unblocks
+                mFilePathCallback.onReceiveValue(results);
+                mFilePathCallback = null;
             }
         }
     }
@@ -674,6 +724,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onDestroy();
         if (sInstance == this) {
             sInstance = null;
+        }
+        if (mFilePathCallback != null) {
+            try {
+                mFilePathCallback.onReceiveValue(null);
+            } catch (Exception ignored) {}
+            mFilePathCallback = null;
         }
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception ignored) {}

@@ -44,6 +44,46 @@ const io = new Server(server, {
     maxHttpBufferSize: 2e7 // 20MB payload limit for file/photo attachments
 });
 
+// =====================================================================
+// Unified Runtime Live Logging Buffer (Max 200 entries)
+// =====================================================================
+const MAX_RUNTIME_LOGS = 200;
+const runtimeLogs = [];
+
+function addRuntimeLog(source, level, tag, msg) {
+    const entry = {
+        time: new Date().toLocaleTimeString(),
+        timestamp: Date.now(),
+        source: source || 'server',
+        level: level || 'info',
+        tag: tag || '',
+        msg: typeof msg === 'object' ? JSON.stringify(msg) : String(msg || '')
+    };
+    runtimeLogs.push(entry);
+    if (runtimeLogs.length > MAX_RUNTIME_LOGS) {
+        runtimeLogs.shift();
+    }
+    if (io) {
+        io.emit("new-log-entry", entry);
+    }
+    return entry;
+}
+
+// HTTP Endpoint for Runtime Logs
+app.get("/api/logs", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.json({
+        total: runtimeLogs.length,
+        logs: runtimeLogs
+    });
+});
+
+app.delete("/api/logs", (req, res) => {
+    runtimeLogs.length = 0;
+    if (io) io.emit("runtime-logs-cleared");
+    res.json({ success: true, message: "Logs cleared" });
+});
+
 // Store connected active users who have entered a name:
 // socketId -> { username, id }
 const usersBySocket = new Map();
@@ -289,6 +329,38 @@ app.get("/", (req, res) => {
 
 io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);
+    addRuntimeLog("server", "info", "Socket", `Socket connected: ${socket.id}`);
+
+    // Unified Live Runtime Logging handlers
+    socket.on("client-log", (data) => {
+        try {
+            if (!data) return;
+            const entry = {
+                time: data.time || new Date().toLocaleTimeString(),
+                timestamp: data.timestamp || Date.now(),
+                source: data.source || "client",
+                level: data.level || "info",
+                tag: data.tag || "",
+                msg: typeof data.msg === "object" ? JSON.stringify(data.msg) : String(data.msg || "")
+            };
+            runtimeLogs.push(entry);
+            if (runtimeLogs.length > MAX_RUNTIME_LOGS) {
+                runtimeLogs.shift();
+            }
+            io.emit("new-log-entry", entry);
+        } catch (e) {
+            console.error("client-log error:", e);
+        }
+    });
+
+    socket.on("get-runtime-logs", () => {
+        socket.emit("runtime-logs-history", runtimeLogs);
+    });
+
+    socket.on("clear-runtime-logs", () => {
+        runtimeLogs.length = 0;
+        io.emit("runtime-logs-cleared");
+    });
 
     // Send currently joined users and registered devices
     socket.emit("joined", getAllUsersPayload());
@@ -385,6 +457,7 @@ io.on("connection", (socket) => {
 
         usersBySocket.set(socket.id, { username: finalName, id: socket.id, device: detectedDevice });
         console.log(`User joined: "${finalName}" (${socket.id}) [Platform: ${detectedDevice.name}]`);
+        addRuntimeLog("server", "info", "Auth", `User joined: "${finalName}" (${socket.id}) [${detectedDevice.name}]`);
 
         socket.emit("name-confirmed", finalName);
         io.emit("joined", getAllUsersPayload());
@@ -426,6 +499,7 @@ io.on("connection", (socket) => {
         const { from, to, offer } = data || {};
         const isScreenShare = Boolean(data.isScreenShare || (offer && offer.isScreenShare));
         console.log(`Call offer: ${from} -> ${to} (isScreenShare=${isScreenShare})`);
+        addRuntimeLog("server", "info", "WebRTC", `Offer routed: ${from} -> ${to} (screen=${isScreenShare})`);
         const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("offer", { ...data, from, to, offer, isScreenShare });
@@ -447,6 +521,7 @@ io.on("connection", (socket) => {
     // WebRTC Answer
     socket.on("answer", ({ from, to, answer }) => {
         console.log(`Call answer: ${from} -> ${to}`);
+        addRuntimeLog("server", "info", "WebRTC", `Answer routed: ${from} -> ${to}`);
         const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
             io.to(targetSocketId).emit("answer", { from, to, answer });
@@ -467,6 +542,7 @@ io.on("connection", (socket) => {
     // End Call & Stop Screen Share
     socket.on("end-call", ({ from, to }) => {
         console.log(`Call ended event: from="${from}" to="${to}" (caller=${socket.id})`);
+        addRuntimeLog("server", "warn", "Call", `Call ended: ${from} -> ${to}`);
         const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
 
         // 1. If to is a deviceId, notify all sockets of that device
@@ -654,6 +730,7 @@ io.on("connection", (socket) => {
             if (platform) existing.platform = platform;
             saveDevices();
             console.log(`Device registered: ${deviceId} (${existing.deviceName}) socket=${socket.id} role=${role || 'unknown'} (active sockets: ${existing.sockets.size})`);
+            addRuntimeLog("server", "info", "DeviceRegistry", `Device registered: ${deviceId} (${existing.deviceName}, ${role || 'companion'})`);
             socket.emit("device-registered", { deviceId, success: true });
             io.emit("device-list-update", getDeviceListPayload());
         } catch (e) {
@@ -719,9 +796,11 @@ io.on("connection", (socket) => {
             if (chosenSocketId) {
                 io.to(chosenSocketId).emit("auto-command", payload);
                 console.log(`Auto-command '${command}' -> device ${targetDeviceId} (single socket: ${chosenSocketId})`);
+                addRuntimeLog("server", "info", "AutoCommand", `Dispatched '${command}' to ${targetDeviceId}`);
                 dispatched = true;
             } else {
                 console.warn(`No active socket found for device ${targetDeviceId} to dispatch '${command}'`);
+                addRuntimeLog("server", "warn", "AutoCommand", `Failed dispatch '${command}' to ${targetDeviceId} (no socket)`);
             }
         }
 
@@ -746,6 +825,7 @@ io.on("connection", (socket) => {
     socket.on("device-error", (data) => {
         try {
             console.warn("device-error relayed from socket:", data);
+            addRuntimeLog("server", "error", "Device", `Device error: ${(data && data.error) || 'Unknown error'}`);
             const targetSocketId = data && data.targetSocketId;
             if (targetSocketId) {
                 io.to(targetSocketId).emit("device-error", data);
@@ -812,6 +892,7 @@ io.on("connection", (socket) => {
         if (usersBySocket.has(socket.id)) {
             const u = usersBySocket.get(socket.id);
             console.log(`User left: ${u.username} (${socket.id}) - ${reason}`);
+            addRuntimeLog("server", "info", "Auth", `User left: ${u.username} (${socket.id})`);
             usersBySocket.delete(socket.id);
             io.emit("joined", getAllUsersPayload());
         }

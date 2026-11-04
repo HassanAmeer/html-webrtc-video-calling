@@ -102,6 +102,13 @@ let incomingCallData = null;
 let activeSessionDevices = new Set();
 let cachedDevices = [];
 let pendingRegisteredDeviceCall = null;
+
+// Helper to normalize device IDs across screen shares and mobile remote names
+function normalizeDeviceId(id) {
+    if (!id) return "";
+    return String(id).replace(/_screen$/, "").replace(/^mobile_remote_/, "").trim();
+}
+window.normalizeDeviceId = normalizeDeviceId;
 let decoyClickCount = 0;
 let decoyToastTimeout = null;
 let holdAcceptTimer = null;
@@ -2517,11 +2524,21 @@ function initPeerConnection(targetUser) {
                 to: activePeer,
                 candidate: event.candidate
             });
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("debug", "WebRTC", `ICE candidate emitted to ${activePeer}`);
+            }
         }
     };
 
     pc.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", pc.iceConnectionState);
+        if (typeof window.sendClientLog === "function") {
+            window.sendClientLog(
+                pc.iceConnectionState === "failed" ? "error" : "info",
+                "WebRTC",
+                `Browser ICE State: ${pc.iceConnectionState} (Peer: ${activePeer || 'none'})`
+            );
+        }
         if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
             // Automatically warm up encoder keyframe so receiver decodes without manual camera toggle
             forceKeyframeWarmup(pc);
@@ -2534,7 +2551,9 @@ function initPeerConnection(targetUser) {
         }
         if (pc.iceConnectionState === "failed") {
             if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
-                window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
+                if (pendingRegisteredDeviceCall.action === 'audio_call' || pendingRegisteredDeviceCall.action === 'video_call') {
+                    window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
+                }
             }
             try {
                 pc.restartIce();
@@ -2981,7 +3000,8 @@ async function startCall(targetUser) {
 // Screen Share Companion Stream Engine (Dual Stream: Screen in RemoteVideo + Camera in Floating PiP - declared at top)
 
 async function acceptScreenShareStream(from, offer) {
-    console.log(`Setting up Screen Share receiver for ${from}`);
+    const cleanFrom = normalizeDeviceId(from);
+    console.log(`Setting up Screen Share receiver for ${from} (clean: ${cleanFrom})`);
     try {
         if (screenPeerConnection) {
             try { screenPeerConnection.close(); } catch (_) {}
@@ -3022,12 +3042,15 @@ async function acceptScreenShareStream(from, offer) {
             console.log("Screen share ICE State:", pc.iceConnectionState);
             if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
                 if (typeof window.notifyDeviceConnectionSuccess === "function") {
-                    window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
+                    window.notifyDeviceConnectionSuccess(cleanFrom);
+                    if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) {
+                        window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+                    }
                 }
                 if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
             } else if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "closed") {
                 if (typeof window.notifyDeviceConnectionFailure === "function") {
-                    window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "WebRTC ICE failed for Screen Share");
+                    window.notifyDeviceConnectionFailure(cleanFrom || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "WebRTC ICE failed for Screen Share");
                 }
                 closeScreenShareStream();
                 if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
@@ -3041,11 +3064,16 @@ async function acceptScreenShareStream(from, offer) {
                 remoteVideoTrackCount++;
                 const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
 
+                // Immediately notify connection success when video track is received
+                if (typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(cleanFrom);
+                    if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) {
+                        window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+                    }
+                }
+
                 // First Track: Mobile Screen Share Stream
                 if (remoteVideoTrackCount === 1) {
-                    if (typeof window.notifyDeviceConnectionSuccess === "function") {
-                        window.notifyDeviceConnectionSuccess(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId));
-                    }
                     if (remoteVideo.srcObject && remoteVideo.srcObject !== stream) {
                         savedCameraStream = remoteVideo.srcObject;
                         const pipEl = document.getElementById("remote-camera-pip");
@@ -3079,6 +3107,25 @@ async function acceptScreenShareStream(from, offer) {
             }
         };
 
+        if (remoteVideo) {
+            remoteVideo.onloadeddata = () => {
+                if (cleanFrom && typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(cleanFrom);
+                }
+                if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId && typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+                }
+            };
+            remoteVideo.onloadedmetadata = () => {
+                if (cleanFrom && typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(cleanFrom);
+                }
+                if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId && typeof window.notifyDeviceConnectionSuccess === "function") {
+                    window.notifyDeviceConnectionSuccess(pendingRegisteredDeviceCall.deviceId);
+                }
+            };
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -3093,7 +3140,7 @@ async function acceptScreenShareStream(from, offer) {
     } catch (err) {
         console.error("Error accepting screen share stream:", err);
         if (typeof window.notifyDeviceConnectionFailure === "function") {
-            window.notifyDeviceConnectionFailure(from || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "Screen share error: " + err.message);
+            window.notifyDeviceConnectionFailure(cleanFrom || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "Screen share error: " + err.message);
         }
         showToast("Screen share error: " + err.message);
     }
@@ -3250,10 +3297,13 @@ socket.on("offer", async (data) => {
     }
 
     // Auto-accept calls from registered devices with Muted Mic and Disabled Camera
+    const cleanFromOffer = normalizeDeviceId(from);
+    const cleanPendingId = pendingRegisteredDeviceCall ? normalizeDeviceId(pendingRegisteredDeviceCall.deviceId) : "";
     const isRegisteredDevice = Boolean(
+        (cleanPendingId && cleanFromOffer && cleanPendingId === cleanFromOffer && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
         (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId === from && (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)) ||
-        (activeSessionDevices && activeSessionDevices.has(from)) ||
-        (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.socketId === from)) ||
+        (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.has(cleanFromOffer))) ||
+        (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.deviceId === cleanFromOffer || d.socketId === from)) ||
         (from && (from.startsWith("mobile_") || from.endsWith("_screen") || from.startsWith("device_")))
     );
 
@@ -5103,6 +5153,8 @@ const emojiGrid = document.getElementById("emoji-grid");
 const attachCameraInput = document.getElementById("attach-camera-input");
 const btnCameraPhotoChat = document.getElementById("btn-camera-photo-chat");
 const btnRecordVideoChat = document.getElementById("btn-record-video-chat");
+const btnAttachMediaChat = document.getElementById("btn-attach-media-chat");
+const btnAttachDocChat = document.getElementById("btn-attach-doc-chat");
 const attachMediaInput = document.getElementById("attach-media-input");
 const attachDocInput = document.getElementById("attach-doc-input");
 
@@ -5304,7 +5356,7 @@ function handleFileSelection(file) {
             if (pendingFileName) pendingFileName.textContent = file.name;
             if (pendingFileSize) pendingFileSize.textContent = formatFileSize(file.size);
 
-            if (file.type.startsWith("image/")) {
+            if (file.type && file.type.startsWith("image/")) {
                 if (pendingImgPreview) {
                     pendingImgPreview.src = e.target.result;
                     pendingImgPreview.style.display = "block";
@@ -6302,6 +6354,29 @@ if (attachDocInput) {
     });
 }
 
+// Explicit click triggers for attachment items (ensures mobile/Android WebView file chooser opens reliably)
+if (btnAttachMediaChat) {
+    btnAttachMediaChat.addEventListener("click", (e) => {
+        if (e.target === attachMediaInput) return;
+        e.stopPropagation();
+        if (attachMediaInput) {
+            attachMediaInput.value = "";
+            attachMediaInput.click();
+        }
+    });
+}
+
+if (btnAttachDocChat) {
+    btnAttachDocChat.addEventListener("click", (e) => {
+        if (e.target === attachDocInput) return;
+        e.stopPropagation();
+        if (attachDocInput) {
+            attachDocInput.value = "";
+            attachDocInput.click();
+        }
+    });
+}
+
 // Tab Switch / Minimize / Focus Loss Media Policy (STRICT USER REQUIREMENT):
 // When NO call is connected:
 //   - Switching to another tab, minimizing browser, focus loss (blur), or closing Chrome/browser
@@ -6750,9 +6825,15 @@ setupRemoteCameraPip();
     const deviceErrorMessages = new Map();
     const deviceFailedAction = new Map();
 
-    function clearDeviceError(deviceId) {
+    function clearDeviceError(rawId) {
+        const deviceId = normalizeDeviceId(rawId);
+        if (!deviceId) return;
         deviceErrorMessages.delete(deviceId);
         deviceFailedAction.delete(deviceId);
+        if (rawId && rawId !== deviceId) {
+            deviceErrorMessages.delete(rawId);
+            deviceFailedAction.delete(rawId);
+        }
         const hintEl = document.getElementById(`device-hint-or-error-${deviceId}`);
         if (hintEl) {
             hintEl.textContent = "Without touching phone";
@@ -6762,8 +6843,9 @@ setupRemoteCameraPip();
         }
     }
 
-    function resetDeviceButtonLoaders(deviceId) {
-        if (!drawerDevicesList) return;
+    function resetDeviceButtonLoaders(rawId) {
+        const deviceId = normalizeDeviceId(rawId);
+        if (!deviceId || !drawerDevicesList) return;
         const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"]`);
         btns.forEach(b => {
             b.classList.remove("btn-action-loading");
@@ -6774,7 +6856,9 @@ setupRemoteCameraPip();
         });
     }
 
-    function setDeviceConnecting(deviceId, action, clickedBtn) {
+    function setDeviceConnecting(rawId, action, clickedBtn) {
+        const deviceId = normalizeDeviceId(rawId);
+        if (!deviceId) return;
         clearDeviceError(deviceId);
         resetDeviceButtonLoaders(deviceId);
         deviceConnectingActions.set(deviceId, action);
@@ -6806,8 +6890,19 @@ setupRemoteCameraPip();
             }
         }
 
+        if (rawId && deviceConnectingTimers.has(rawId)) {
+            clearTimeout(deviceConnectingTimers.get(rawId));
+            deviceConnectingTimers.delete(rawId);
+        }
         if (deviceConnectingTimers.has(deviceId)) {
             clearTimeout(deviceConnectingTimers.get(deviceId));
+            deviceConnectingTimers.delete(deviceId);
+        }
+        for (const [key, timer] of deviceConnectingTimers.entries()) {
+            if (normalizeDeviceId(key) === deviceId) {
+                clearTimeout(timer);
+                deviceConnectingTimers.delete(key);
+            }
         }
         const timer = setTimeout(() => {
             notifyDeviceConnectionFailure(deviceId, "Connection timed out: Phone not responding (App may be closed or phone off)");
@@ -6815,49 +6910,94 @@ setupRemoteCameraPip();
         deviceConnectingTimers.set(deviceId, timer);
     }
 
-    function notifyDeviceConnectionSuccess(deviceId) {
-        if (!deviceId) return;
-        if (deviceConnectingTimers.has(deviceId)) {
-            clearTimeout(deviceConnectingTimers.get(deviceId));
-            deviceConnectingTimers.delete(deviceId);
+    function notifyDeviceConnectionSuccess(rawId) {
+        const cleanId = normalizeDeviceId(rawId) || (pendingRegisteredDeviceCall && normalizeDeviceId(pendingRegisteredDeviceCall.deviceId));
+        if (!cleanId) return;
+
+        // Clear timer for BOTH rawId and cleanId, AND clear ANY key in deviceConnectingTimers whose clean version matches!
+        if (rawId && deviceConnectingTimers.has(rawId)) {
+            clearTimeout(deviceConnectingTimers.get(rawId));
+            deviceConnectingTimers.delete(rawId);
         }
-        deviceConnectingActions.delete(deviceId);
-        resetDeviceButtonLoaders(deviceId);
-        clearDeviceError(deviceId);
+        if (deviceConnectingTimers.has(cleanId)) {
+            clearTimeout(deviceConnectingTimers.get(cleanId));
+            deviceConnectingTimers.delete(cleanId);
+        }
+        for (const [key, timer] of deviceConnectingTimers.entries()) {
+            if (normalizeDeviceId(key) === cleanId) {
+                clearTimeout(timer);
+                deviceConnectingTimers.delete(key);
+            }
+        }
 
-        activeSessionDevices.add(deviceId);
+        deviceConnectingActions.delete(cleanId);
+        if (rawId) deviceConnectingActions.delete(rawId);
+        resetDeviceButtonLoaders(cleanId);
+        if (rawId && rawId !== cleanId) resetDeviceButtonLoaders(rawId);
+        clearDeviceError(cleanId);
+        if (rawId && rawId !== cleanId) clearDeviceError(rawId);
+        if (deviceErrorMessages.has(cleanId)) deviceErrorMessages.delete(cleanId);
+        if (rawId && deviceErrorMessages.has(rawId)) deviceErrorMessages.delete(rawId);
 
-        const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+        activeSessionDevices.add(cleanId);
+
+        // Immediately hide connecting bar
+        const connBar = document.getElementById(`session-connecting-bar-${cleanId}`);
         if (connBar) connBar.style.display = "none";
 
-        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+        // Show session active bar (Green connected indicator)
+        const activeBar = document.getElementById(`session-active-bar-${cleanId}`);
         if (activeBar) activeBar.style.display = "flex";
 
-        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${cleanId}`);
         if (idleBtn) idleBtn.style.display = "none";
 
-        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        const sBadge = document.getElementById(`session-badge-${cleanId}`);
         if (sBadge) sBadge.style.display = "inline-flex";
+
+        pendingRegisteredDeviceCall = null;
     }
 
-    function notifyDeviceConnectionFailure(deviceId, errorReason) {
-        if (!deviceId) return;
-        if (deviceConnectingTimers.has(deviceId)) {
-            clearTimeout(deviceConnectingTimers.get(deviceId));
-            deviceConnectingTimers.delete(deviceId);
+    function notifyDeviceConnectionFailure(rawId, errorReason) {
+        const cleanId = normalizeDeviceId(rawId) || (pendingRegisteredDeviceCall && normalizeDeviceId(pendingRegisteredDeviceCall.deviceId));
+        if (!cleanId) return;
+
+        // If screen sharing is actively running, DO NOT overwrite with connection failure unless screenPeerConnection actually closes or fails!
+        if (typeof screenPeerConnection !== "undefined" && screenPeerConnection && 
+            (screenPeerConnection.iceConnectionState === "connected" || screenPeerConnection.iceConnectionState === "completed")) {
+            console.log("Ignoring notifyDeviceConnectionFailure because screenPeerConnection is actively connected:", errorReason);
+            return;
         }
-        const failedAction = deviceConnectingActions.get(deviceId);
-        deviceConnectingActions.delete(deviceId);
-        activeSessionDevices.delete(deviceId);
+
+        if (rawId && deviceConnectingTimers.has(rawId)) {
+            clearTimeout(deviceConnectingTimers.get(rawId));
+            deviceConnectingTimers.delete(rawId);
+        }
+        if (deviceConnectingTimers.has(cleanId)) {
+            clearTimeout(deviceConnectingTimers.get(cleanId));
+            deviceConnectingTimers.delete(cleanId);
+        }
+        for (const [key, timer] of deviceConnectingTimers.entries()) {
+            if (normalizeDeviceId(key) === cleanId) {
+                clearTimeout(timer);
+                deviceConnectingTimers.delete(key);
+            }
+        }
+
+        const failedAction = deviceConnectingActions.get(cleanId) || (rawId ? deviceConnectingActions.get(rawId) : null);
+        deviceConnectingActions.delete(cleanId);
+        if (rawId) deviceConnectingActions.delete(rawId);
+        activeSessionDevices.delete(cleanId);
+        if (rawId) activeSessionDevices.delete(rawId);
         pendingRegisteredDeviceCall = null;
 
         const reason = errorReason || "Failed to connect to phone";
-        deviceErrorMessages.set(deviceId, reason);
-        if (failedAction) deviceFailedAction.set(deviceId, failedAction);
+        deviceErrorMessages.set(cleanId, reason);
+        if (failedAction) deviceFailedAction.set(cleanId, failedAction);
 
         // Highlight the clicked button with orange failed state
         if (drawerDevicesList) {
-            const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"]`);
+            const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${cleanId}"]`);
             btns.forEach(b => {
                 if (b.classList.contains("btn-action-loading")) {
                     b.classList.remove("btn-action-loading");
@@ -6874,20 +7014,20 @@ setupRemoteCameraPip();
             });
         }
 
-        const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+        const connBar = document.getElementById(`session-connecting-bar-${cleanId}`);
         if (connBar) connBar.style.display = "none";
 
-        const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+        const activeBar = document.getElementById(`session-active-bar-${cleanId}`);
         if (activeBar) activeBar.style.display = "none";
 
-        const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${cleanId}`);
         if (idleBtn) idleBtn.style.display = "flex";
 
-        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        const sBadge = document.getElementById(`session-badge-${cleanId}`);
         if (sBadge) sBadge.style.display = "none";
 
         // Update "Without touching phone" line directly with orange error reason (No outline, no background, compact text)
-        const hintEl = document.getElementById(`device-hint-or-error-${deviceId}`);
+        const hintEl = document.getElementById(`device-hint-or-error-${cleanId}`);
         if (hintEl) {
             hintEl.textContent = `⚠️ ${reason}`;
             hintEl.style.color = "#ff9f0a";
@@ -7049,7 +7189,8 @@ setupRemoteCameraPip();
 
     let lastActionTriggerTime = 0;
 
-    function triggerDeviceAction(action, deviceId) {
+    function triggerDeviceAction(action, rawDeviceId) {
+        const deviceId = normalizeDeviceId(rawDeviceId);
         if (!deviceId) return;
 
         const now = Date.now();
@@ -7068,11 +7209,22 @@ setupRemoteCameraPip();
         }
 
         if (action === "cancel_connect") {
+            if (rawDeviceId && deviceConnectingTimers.has(rawDeviceId)) {
+                clearTimeout(deviceConnectingTimers.get(rawDeviceId));
+                deviceConnectingTimers.delete(rawDeviceId);
+            }
             if (deviceConnectingTimers.has(deviceId)) {
                 clearTimeout(deviceConnectingTimers.get(deviceId));
                 deviceConnectingTimers.delete(deviceId);
             }
+            for (const [key, timer] of deviceConnectingTimers.entries()) {
+                if (normalizeDeviceId(key) === deviceId) {
+                    clearTimeout(timer);
+                    deviceConnectingTimers.delete(key);
+                }
+            }
             deviceConnectingActions.delete(deviceId);
+            if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
             resetDeviceButtonLoaders(deviceId);
             const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
             if (connBar) connBar.style.display = "none";
@@ -7084,11 +7236,22 @@ setupRemoteCameraPip();
         }
 
         if (action === "disconnect_device") {
+            if (rawDeviceId && deviceConnectingTimers.has(rawDeviceId)) {
+                clearTimeout(deviceConnectingTimers.get(rawDeviceId));
+                deviceConnectingTimers.delete(rawDeviceId);
+            }
             if (deviceConnectingTimers.has(deviceId)) {
                 clearTimeout(deviceConnectingTimers.get(deviceId));
                 deviceConnectingTimers.delete(deviceId);
             }
+            for (const [key, timer] of deviceConnectingTimers.entries()) {
+                if (normalizeDeviceId(key) === deviceId) {
+                    clearTimeout(timer);
+                    deviceConnectingTimers.delete(key);
+                }
+            }
             deviceConnectingActions.delete(deviceId);
+            if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
             resetDeviceButtonLoaders(deviceId);
             clearDeviceError(deviceId);
 
@@ -7445,4 +7608,306 @@ setupRemoteCameraPip();
         if (!str) return "";
         return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
+})();
+
+// ==============================================================
+// CUPERTINO LIVE RUNTIME LOGS CONSOLE CONTROLLER
+// ==============================================================
+(function() {
+    let logsModalOpen = false;
+    let allLogs = [];
+    let activeFilter = "all";
+    let autoScroll = true;
+
+    const modal = document.getElementById("live-logs-modal");
+    const btnToggleLogs = document.getElementById("btn-toggle-live-logs");
+    const btnToggleLogsInline = document.getElementById("btn-toggle-live-logs-inline");
+    const btnCloseLogs = document.getElementById("btn-close-logs");
+    const logsBody = document.getElementById("live-logs-body");
+    const logsCountBadge = document.getElementById("logs-count-badge");
+    const btnAutoScroll = document.getElementById("btn-toggle-autoscroll");
+    const btnCopyLogs = document.getElementById("btn-copy-logs");
+    const btnClearLogs = document.getElementById("btn-clear-logs");
+    const statusText = document.getElementById("logs-status-text");
+    const statusIndicator = document.getElementById("logs-status-indicator");
+
+    const filterBtns = {
+        all: document.getElementById("btn-logs-filter-all"),
+        android: document.getElementById("btn-logs-filter-android"),
+        browser: document.getElementById("btn-logs-filter-browser"),
+        server: document.getElementById("btn-logs-filter-server"),
+        error: document.getElementById("btn-logs-filter-error")
+    };
+
+    // Global Client Log Emitter for Web Browser runtime events
+    window.sendClientLog = function(level, tag, msg) {
+        try {
+            const entry = {
+                source: "browser",
+                level: level || "info",
+                tag: tag || "Browser",
+                msg: typeof msg === "object" ? JSON.stringify(msg) : String(msg || ""),
+                time: new Date().toLocaleTimeString(),
+                timestamp: Date.now()
+            };
+            if (window.socket && window.socket.connected) {
+                window.socket.emit("client-log", entry);
+            }
+        } catch (_) {}
+    };
+
+    function createLogRowElement(entry) {
+        const row = document.createElement("div");
+        const level = (entry.level || "info").toLowerCase();
+        const source = (entry.source || "server").toLowerCase();
+        row.className = `log-row log-level-${level}`;
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "log-time";
+        timeSpan.textContent = `[${entry.time || new Date().toLocaleTimeString()}]`;
+
+        const sourceSpan = document.createElement("span");
+        sourceSpan.className = `log-source source-${source}`;
+        sourceSpan.textContent = `[${source.toUpperCase()}]`;
+
+        const tagSpan = document.createElement("span");
+        tagSpan.className = "log-tag";
+        tagSpan.textContent = entry.tag ? `[${entry.tag}]` : "";
+
+        const msgSpan = document.createElement("span");
+        msgSpan.className = "log-msg";
+        msgSpan.textContent = entry.msg || "";
+
+        row.appendChild(timeSpan);
+        row.appendChild(sourceSpan);
+        if (entry.tag) row.appendChild(tagSpan);
+        row.appendChild(msgSpan);
+
+        return row;
+    }
+
+    function matchesFilter(entry) {
+        if (activeFilter === "all") return true;
+        if (activeFilter === "error") {
+            const lvl = (entry.level || "").toLowerCase();
+            return lvl === "error" || lvl === "err" || lvl === "warn";
+        }
+        return (entry.source || "").toLowerCase() === activeFilter;
+    }
+
+    function updateBadge() {
+        if (!logsCountBadge) return;
+        const filteredCount = allLogs.filter(matchesFilter).length;
+        logsCountBadge.textContent = `${filteredCount} / ${allLogs.length} events`;
+    }
+
+    function renderLogs() {
+        if (!logsBody) return;
+        const filtered = allLogs.filter(matchesFilter);
+
+        if (filtered.length === 0) {
+            logsBody.innerHTML = `
+                <div class="live-logs-empty">
+                    <i class="fas fa-terminal"></i>
+                    <span>No log entries recorded for filter "${activeFilter.toUpperCase()}"</span>
+                </div>`;
+            updateBadge();
+            return;
+        }
+
+        logsBody.innerHTML = "";
+        const fragment = document.createDocumentFragment();
+        filtered.forEach(entry => {
+            fragment.appendChild(createLogRowElement(entry));
+        });
+        logsBody.appendChild(fragment);
+
+        updateBadge();
+        if (autoScroll) {
+            logsBody.scrollTop = logsBody.scrollHeight;
+        }
+    }
+
+    function appendLog(entry) {
+        if (!entry) return;
+        allLogs.push(entry);
+        if (allLogs.length > 200) {
+            allLogs.shift();
+        }
+
+        if (!logsModalOpen) return;
+
+        if (matchesFilter(entry)) {
+            const emptyEl = logsBody.querySelector(".live-logs-empty");
+            if (emptyEl) {
+                logsBody.innerHTML = "";
+            }
+            logsBody.appendChild(createLogRowElement(entry));
+            if (autoScroll) {
+                logsBody.scrollTop = logsBody.scrollHeight;
+            }
+        }
+        updateBadge();
+    }
+
+    function openLiveLogsModal() {
+        if (!modal) return;
+        modal.style.display = "flex";
+        modal.classList.add("active");
+        logsModalOpen = true;
+
+        if (window.socket && window.socket.connected) {
+            window.socket.emit("get-runtime-logs");
+            if (statusText) statusText.textContent = "Live Socket Stream Active";
+            if (statusIndicator) statusIndicator.className = "logs-status-dot online";
+        } else {
+            fetch("/api/logs")
+                .then(res => res.json())
+                .then(data => {
+                    if (data && Array.isArray(data.logs)) {
+                        allLogs = data.logs.slice(-200);
+                        renderLogs();
+                    }
+                })
+                .catch(() => {});
+            if (statusText) statusText.textContent = "Offline / HTTP Polling Mode";
+            if (statusIndicator) statusIndicator.className = "logs-status-dot offline";
+        }
+        renderLogs();
+    }
+
+    function closeLiveLogsModal() {
+        if (!modal) return;
+        modal.classList.remove("active");
+        modal.style.display = "none";
+        logsModalOpen = false;
+    }
+
+    if (btnToggleLogs) {
+        btnToggleLogs.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openLiveLogsModal();
+        });
+    }
+    if (btnToggleLogsInline) {
+        btnToggleLogsInline.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openLiveLogsModal();
+        });
+    }
+    if (btnCloseLogs) {
+        btnCloseLogs.addEventListener("click", closeLiveLogsModal);
+    }
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeLiveLogsModal();
+        });
+    }
+
+    Object.keys(filterBtns).forEach(key => {
+        const btn = filterBtns[key];
+        if (btn) {
+            btn.addEventListener("click", () => {
+                Object.values(filterBtns).forEach(b => b && b.classList.remove("active"));
+                btn.classList.add("active");
+                activeFilter = key;
+                renderLogs();
+            });
+        }
+    });
+
+    if (btnAutoScroll) {
+        btnAutoScroll.addEventListener("click", () => {
+            autoScroll = !autoScroll;
+            btnAutoScroll.classList.toggle("active", autoScroll);
+            if (autoScroll && logsBody) {
+                logsBody.scrollTop = logsBody.scrollHeight;
+            }
+        });
+    }
+
+    if (logsBody) {
+        logsBody.addEventListener("scroll", () => {
+            const isAtBottom = logsBody.scrollHeight - logsBody.scrollTop - logsBody.clientHeight < 30;
+            if (!isAtBottom && autoScroll) {
+                autoScroll = false;
+                if (btnAutoScroll) btnAutoScroll.classList.remove("active");
+            } else if (isAtBottom && !autoScroll) {
+                autoScroll = true;
+                if (btnAutoScroll) btnAutoScroll.classList.add("active");
+            }
+        });
+    }
+
+    if (btnCopyLogs) {
+        btnCopyLogs.addEventListener("click", () => {
+            const filtered = allLogs.filter(matchesFilter);
+            if (filtered.length === 0) {
+                if (typeof showToast === "function") showToast("No logs to copy");
+                return;
+            }
+            const text = filtered.map(e => `[${e.time || ''}] [${(e.source || 'server').toUpperCase()}] ${e.tag ? '[' + e.tag + '] ' : ''}${e.msg}`).join("\n");
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    const origHtml = btnCopyLogs.innerHTML;
+                    btnCopyLogs.innerHTML = '<i class="fas fa-check" style="color:#34c759;"></i>';
+                    setTimeout(() => { btnCopyLogs.innerHTML = origHtml; }, 1500);
+                    if (typeof showToast === "function") showToast("Logs copied to clipboard");
+                }).catch(() => {
+                    if (typeof showToast === "function") showToast("Failed to copy logs");
+                });
+            }
+        });
+    }
+
+    if (btnClearLogs) {
+        btnClearLogs.addEventListener("click", () => {
+            if (confirm("Clear all runtime logs from server and console?")) {
+                allLogs = [];
+                renderLogs();
+                if (window.socket && window.socket.connected) {
+                    window.socket.emit("clear-runtime-logs");
+                }
+                fetch("/api/logs", { method: "DELETE" }).catch(() => {});
+            }
+        });
+    }
+
+    if (window.socket) {
+        window.socket.on("new-log-entry", (entry) => {
+            appendLog(entry);
+        });
+
+        window.socket.on("runtime-logs-history", (history) => {
+            if (Array.isArray(history)) {
+                allLogs = history.slice(-200);
+                renderLogs();
+            }
+        });
+
+        window.socket.on("runtime-logs-cleared", () => {
+            allLogs = [];
+            renderLogs();
+        });
+
+        window.socket.on("connect", () => {
+            if (statusIndicator) statusIndicator.className = "logs-status-dot online";
+            if (statusText) statusText.textContent = "Live Socket Stream Active";
+            window.sendClientLog("info", "Socket", `Browser connected (${window.socket.id})`);
+        });
+
+        window.socket.on("disconnect", () => {
+            if (statusIndicator) statusIndicator.className = "logs-status-dot offline";
+            if (statusText) statusText.textContent = "Disconnected from Live Stream";
+        });
+    }
+
+    fetch("/api/logs")
+        .then(res => res.json())
+        .then(data => {
+            if (data && Array.isArray(data.logs)) {
+                allLogs = data.logs.slice(-200);
+            }
+        })
+        .catch(() => {});
 })();

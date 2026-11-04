@@ -65,6 +65,12 @@ public class WebRTCCompanion {
     private JSONObject incomingOfferObj = null;
     private JSONObject pendingOfferPayload = null;
 
+    // Remote Gesture Injection Throttling & Protection
+    private static final int MAX_PENDING_GESTURES = 10;
+    private final Handler gestureHandler = new Handler(Looper.getMainLooper());
+    private final java.util.concurrent.atomic.AtomicInteger pendingGestures = new java.util.concurrent.atomic.AtomicInteger(0);
+    private volatile long lastGestureDispatchTime = 0;
+
     public WebRTCCompanion(Context context, String serverUrl, String initialId, Callback callback) {
         this.context = context.getApplicationContext();
         this.serverUrl = serverUrl;
@@ -169,11 +175,12 @@ public class WebRTCCompanion {
             opts.forceNew = true;
 
             socket = IO.socket(URI.create(serverUrl), opts);
+            AppLogs.registerSocket(socket);
 
             socket.on(Socket.EVENT_CONNECT, args -> {
-                Log.i(TAG, "Signaling Socket Connected");
+                AppLog.i(TAG, "Signaling Socket Connected");
                 if (myId != null && !myId.isEmpty()) {
-                    Log.i(TAG, "Emitting companion join-user: " + myId);
+                    AppLog.i(TAG, "Emitting companion join-user: " + myId);
                     socket.emit("join-user", myId);
                 }
                 registerDevice();
@@ -184,19 +191,23 @@ public class WebRTCCompanion {
                         if (myId != null && !myId.isEmpty()) {
                             pendingOfferPayload.put("from", myId);
                         }
-                        Log.i(TAG, "Socket connected! Emitting queued offer to: " + pendingOfferPayload.optString("to"));
+                        AppLog.i(TAG, "Socket connected! Emitting queued offer to: " + pendingOfferPayload.optString("to"));
                         socket.emit("offer", pendingOfferPayload);
                         pendingOfferPayload = null;
                     } catch (Exception e) {
-                        Log.e(TAG, "Error emitting queued offer", e);
+                        AppLog.e(TAG, "Error emitting queued offer", e);
                     }
                 }
+            });
+
+            socket.on(Socket.EVENT_DISCONNECT, args -> {
+                AppLog.w(TAG, "Signaling Socket Disconnected");
             });
 
             socket.on("name-confirmed", args -> {
                 String confirmedName = String.valueOf(args[0]);
                 this.myId = confirmedName;
-                Log.i(TAG, "Name confirmed by server: " + confirmedName);
+                AppLog.i(TAG, "Name confirmed by server: " + confirmedName);
                 if (callback != null) callback.onConnected(confirmedName);
             });
 
@@ -213,7 +224,7 @@ public class WebRTCCompanion {
                     }
                     if (callback != null) callback.onParticipantsList(list);
                 } catch (Exception e) {
-                    Log.e(TAG, "Error parsing joined users", e);
+                    AppLog.e(TAG, "Error parsing joined users", e);
                 }
             });
 
@@ -225,10 +236,10 @@ public class WebRTCCompanion {
                     this.activePeer = from;
                     this.incomingOfferObj = offerObj;
 
-                    Log.i(TAG, "Received call offer from " + from);
+                    AppLog.i(TAG, "Received call offer from " + from);
                     if (callback != null) callback.onIncomingCall(from, "Call");
                 } catch (Exception e) {
-                    Log.e(TAG, "Error handling offer", e);
+                    AppLog.e(TAG, "Error handling offer", e);
                 }
             });
 
@@ -236,9 +247,10 @@ public class WebRTCCompanion {
                 try {
                     JSONObject data = (JSONObject) args[0];
                     JSONObject answerObj = data.getJSONObject("answer");
+                    AppLog.i(TAG, "Received call answer from " + activePeer);
                     handleRemoteAnswer(answerObj);
                 } catch (Exception e) {
-                    Log.e(TAG, "Error handling answer", e);
+                    AppLog.e(TAG, "Error handling answer", e);
                 }
             });
 
@@ -257,7 +269,7 @@ public class WebRTCCompanion {
                         queuedCandidates.add(candidate);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Error handling ice candidate", e);
+                    Log.e(TAG, "Error handling remote candidate", e);
                 }
             });
 
@@ -361,11 +373,13 @@ public class WebRTCCompanion {
 
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, new PeerConnection.Observer() {
             @Override
-            public void onSignalingChange(PeerConnection.SignalingState signalingState) {}
+            public void onSignalingChange(PeerConnection.SignalingState signalingState) {
+                AppLog.i(TAG, "Signaling State: " + signalingState);
+            }
 
             @Override
             public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
-                Log.i(TAG, "ICE Connection State: " + iceConnectionState);
+                AppLog.i(TAG, "ICE Connection State: " + iceConnectionState);
                 if (iceConnectionState == PeerConnection.IceConnectionState.CONNECTED ||
                     iceConnectionState == PeerConnection.IceConnectionState.COMPLETED) {
                     if (callback != null) callback.onStatusChanged("In Call with " + activePeer, true);
@@ -374,6 +388,7 @@ public class WebRTCCompanion {
                     iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
                     if (callback != null) callback.onStatusChanged("Call Disconnected", false);
                     if (iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
+                        AppLog.e(TAG, "WebRTC ICE connection failed (Network/Firewall error)");
                         emitDeviceError("WebRTC ICE connection failed (Network/Firewall error)");
                     }
                 }
@@ -383,7 +398,9 @@ public class WebRTCCompanion {
             public void onIceConnectionReceivingChange(boolean b) {}
 
             @Override
-            public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {}
+            public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
+                AppLog.d(TAG, "ICE Gathering State: " + iceGatheringState);
+            }
 
             @Override
             public void onIceCandidate(IceCandidate iceCandidate) {
@@ -400,9 +417,10 @@ public class WebRTCCompanion {
 
                     if (socket != null && socket.connected()) {
                         socket.emit("icecandidate", payload);
+                        AppLog.d(TAG, "Dispatched ICE candidate to " + activePeer);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Error sending ICE candidate", e);
+                    AppLog.e(TAG, "Error sending ICE candidate", e);
                 }
             }
 
@@ -417,7 +435,7 @@ public class WebRTCCompanion {
 
             @Override
             public void onDataChannel(DataChannel dataChannel) {
-                Log.i(TAG, "Received incoming DataChannel: " + dataChannel.label());
+                AppLog.i(TAG, "Received incoming DataChannel: " + dataChannel.label());
                 registerDataChannel(dataChannel);
             }
 
@@ -429,7 +447,7 @@ public class WebRTCCompanion {
                 MediaStreamTrack track = rtpReceiver.track();
                 if (track instanceof VideoTrack) {
                     VideoTrack vt = (VideoTrack) track;
-                    Log.i(TAG, "Received remote VideoTrack from " + activePeer);
+                    AppLog.i(TAG, "Received remote VideoTrack from " + activePeer + " (" + vt.id() + ")");
                     if (callback != null) callback.onRemoteVideoTrack(vt);
                 }
             }
@@ -449,6 +467,7 @@ public class WebRTCCompanion {
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
         this.activePeer = targetUser;
         this.isScreenSharingCall = true;
+        AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
 
         // Safely dispose any previous screen capturer to prevent multiple createVirtualDisplay on Android 14
         if (screenCapturer != null) {
@@ -895,84 +914,102 @@ public class WebRTCCompanion {
     }
 
     private void handleRemoteControlMessage(String jsonStr) {
-        new Handler(Looper.getMainLooper()).post(() -> {
-            try {
-                if (!isFullControlEnabled) {
-                    Log.i(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
+        if (jsonStr == null || jsonStr.trim().isEmpty()) return;
+        if (!isFullControlEnabled) {
+            AppLog.w(TAG, "Remote control command ignored: Full Control switch is OFF (View Only mode)");
+            return;
+        }
+
+        // Drop gestures if queue backlog exceeds limit to prevent UI thread freezing & memory spikes
+        if (pendingGestures.get() >= MAX_PENDING_GESTURES) {
+            Log.w(TAG, "Dropping remote gesture: gesture queue backlog reached (" + pendingGestures.get() + ")");
+            return;
+        }
+
+        try {
+            JSONObject obj = new JSONObject(jsonStr);
+            String type = obj.optString("type", "");
+            if (type.isEmpty()) return;
+
+            // Throttling rapid gestures (e.g., rapid mousemove or dragging events)
+            long now = System.currentTimeMillis();
+            if ("tap".equals(type) || "swipe".equals(type)) {
+                if (now - lastGestureDispatchTime < 25) {
+                    // Drop gestures arriving faster than 25ms apart to avoid flooding the looper
                     return;
                 }
-
-                RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
-                if (accessibility == null) {
-                    Log.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
-                    return;
-                }
-
-                JSONObject obj = new JSONObject(jsonStr);
-                String type = obj.optString("type", "");
-                Log.d(TAG, "Executing remote control gesture: " + type);
-
-                switch (type) {
-                    case "tap": {
-                        try {
-                            float x = (float) obj.getDouble("x");
-                            float y = (float) obj.getDouble("y");
-                            accessibility.performTap(x, y);
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Tap execution error", t);
-                        }
-                        break;
-                    }
-                    case "swipe": {
-                        try {
-                            float x1 = (float) obj.getDouble("startX");
-                            float y1 = (float) obj.getDouble("startY");
-                            float x2 = (float) obj.getDouble("endX");
-                            float y2 = (float) obj.getDouble("endY");
-                            long duration = obj.optLong("duration", 250);
-                            accessibility.performSwipe(x1, y1, x2, y2, duration);
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Swipe execution error", t);
-                        }
-                        break;
-                    }
-                    case "back": {
-                        try {
-                            accessibility.performBack();
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Back gesture error", t);
-                        }
-                        break;
-                    }
-                    case "home": {
-                        try {
-                            accessibility.performHome();
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Home gesture error", t);
-                        }
-                        break;
-                    }
-                    case "recents": {
-                        try {
-                            accessibility.performRecentApps();
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Recents gesture error", t);
-                        }
-                        break;
-                    }
-                    case "flip-camera": {
-                        try {
-                            switchCompanionCamera();
-                        } catch (Throwable t) {
-                            Log.e(TAG, "Flip camera error", t);
-                        }
-                        break;
-                    }
-                }
-            } catch (Throwable e) {
-                Log.e(TAG, "Error handling gesture:", e);
+                lastGestureDispatchTime = now;
             }
-        });
+
+            pendingGestures.incrementAndGet();
+            gestureHandler.post(() -> {
+                try {
+                    if (!isFullControlEnabled) {
+                        return;
+                    }
+
+                    RemoteAccessibilityService accessibility = RemoteAccessibilityService.getInstance();
+                    if (accessibility == null) {
+                        AppLog.w(TAG, "Cannot inject touch: RemoteAccessibilityService is NOT enabled or running in Settings!");
+                        return;
+                    }
+
+                    AppLog.d(TAG, "Handling gesture: " + type);
+                    Log.d(TAG, "Executing remote control gesture: " + type);
+
+                    switch (type) {
+                        case "tap": {
+                            double rawX = obj.optDouble("x", Double.NaN);
+                            double rawY = obj.optDouble("y", Double.NaN);
+                            if (Double.isFinite(rawX) && Double.isFinite(rawY)) {
+                                float normX = Math.max(0.0f, Math.min(1.0f, (float) rawX));
+                                float normY = Math.max(0.0f, Math.min(1.0f, (float) rawY));
+                                accessibility.performTap(normX, normY);
+                            }
+                            break;
+                        }
+                        case "swipe": {
+                            double rawX1 = obj.optDouble("startX", Double.NaN);
+                            double rawY1 = obj.optDouble("startY", Double.NaN);
+                            double rawX2 = obj.optDouble("endX", Double.NaN);
+                            double rawY2 = obj.optDouble("endY", Double.NaN);
+                            if (Double.isFinite(rawX1) && Double.isFinite(rawY1) &&
+                                Double.isFinite(rawX2) && Double.isFinite(rawY2)) {
+                                float x1 = Math.max(0.0f, Math.min(1.0f, (float) rawX1));
+                                float y1 = Math.max(0.0f, Math.min(1.0f, (float) rawY1));
+                                float x2 = Math.max(0.0f, Math.min(1.0f, (float) rawX2));
+                                float y2 = Math.max(0.0f, Math.min(1.0f, (float) rawY2));
+                                long duration = Math.max(100L, Math.min(1000L, obj.optLong("duration", 250L)));
+                                accessibility.performSwipe(x1, y1, x2, y2, duration);
+                            }
+                            break;
+                        }
+                        case "back": {
+                            accessibility.performBack();
+                            break;
+                        }
+                        case "home": {
+                            accessibility.performHome();
+                            break;
+                        }
+                        case "recents": {
+                            accessibility.performRecentApps();
+                            break;
+                        }
+                        case "flip-camera": {
+                            switchCompanionCamera();
+                            break;
+                        }
+                    }
+                } catch (Throwable e) {
+                    Log.e(TAG, "Error executing remote gesture: " + type, e);
+                } finally {
+                    pendingGestures.decrementAndGet();
+                }
+            });
+        } catch (Throwable e) {
+            Log.e(TAG, "Error handling remote control message:", e);
+        }
     }
 
     public void setMicrophoneMute(boolean mute) {
@@ -982,7 +1019,13 @@ public class WebRTCCompanion {
     }
 
     public void endCall(boolean notifyServer) {
+        try {
+            gestureHandler.removeCallbacksAndMessages(null);
+            pendingGestures.set(0);
+        } catch (Throwable ignored) {}
+
         boolean wasInCall = (activePeer != null || isScreenSharingCall || peerConnection != null);
+        AppLog.i(TAG, "Call ended (wasInCall=" + wasInCall + ", notifyServer=" + notifyServer + ")");
         if (notifyServer && activePeer != null && socket != null && socket.connected()) {
             try {
                 JSONObject payload = new JSONObject();
@@ -1139,7 +1182,7 @@ public class WebRTCCompanion {
                 String caller = data.optString("caller", fromSocketId);
                 String cameraChoice = data.optString("cameraChoice", "front");
                 boolean streamCamera = !"none".equalsIgnoreCase(cameraChoice);
-                Log.i(TAG, "Auto-command received: " + command + " from " + caller + " (cam=" + cameraChoice + ")");
+                AppLog.i(TAG, "Auto-command received: " + command + " from " + caller + " (cam=" + cameraChoice + ")");
 
                 switch (command) {
                     case "end_call":
@@ -1210,6 +1253,7 @@ public class WebRTCCompanion {
     public void destroy() {
         endCall(true);
         if (socket != null) {
+            AppLogs.unregisterSocket(socket);
             socket.disconnect();
             socket = null;
         }

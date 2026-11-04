@@ -221,3 +221,18 @@ After any change affecting the Android APK or backend:
 - **Point 15: Crash-Proof Remote Control Touch Injection & Main Thread Dispatch:**
   - In `WebRTCCompanion.java`, `handleRemoteControlMessage` receives gesture commands from WebRTC DataChannels or socket threads. It MUST ALWAYS dispatch gestures via `new Handler(Looper.getMainLooper()).post(...)`.
   - In `RemoteAccessibilityService.java`, `performTap()` and `performSwipe()` must validate against `NaN` and `Infinite` coordinates, clamp between 0.0f and 1.0f, pass `new Handler(Looper.getMainLooper())` as the third parameter to `dispatchGesture()`, and wrap all dispatching and global actions (`performBack()`, `performHome()`, `performRecentApps()`) in `try { ... } catch (Throwable t) { ... }` so gesture injection can never throw unhandled exceptions or crash the process.
+
+- **Point 16: Device ID Normalization & Strict Connection State Parity (v6.4.10):**
+  - Phone endpoints register with base `deviceId` (e.g. `67230CDFC011DF4A`), while WebRTC offers arrive under `[deviceId]_screen` or `mobile_remote_...`.
+  - All UI state timers (`deviceConnectingTimers`), action spinners, DOM card selectors (`session-connecting-bar-...`, `session-active-bar-...`), and error trackers MUST use normalized device IDs via `normalizeDeviceId(id) = id.replace(/_screen$/, '').replace(/^mobile_remote_/, '').trim()`.
+  - As soon as the first video track arrives, or ICE reaches `connected`/`completed`, or `remoteVideo` fires `onloadedmetadata`/`onloadeddata`, the connection timeout timer MUST be cancelled immediately and the UI transitioned to green "Connected".
+  - Standard audio/video `peerConnection` ICE failures MUST NEVER overwrite the screen share session status with false `WebRTC ICE connection failed` notices while `screenPeerConnection` is active.
+
+- **Point 17: Infinite Recursion Guard (`stack size 8188KB` Prevention) & Looper Throttling (v6.4.10):**
+  - In `RemoteAccessibilityService.java`, all accessibility node tree traversals (`clickEntireScreenOption`, `clickSingleAppSpinner`, `findAndClickStartButton`) MUST enforce a maximum depth limit (`depth <= 12`) and recycle child nodes inside `try ... finally { child.recycle(); }` blocks to prevent `StackOverflowError (stack size 8188KB)`.
+  - In `WebRTCCompanion.java`, incoming remote control gestures MUST use a single reusable looper handler with queue depth limiting (`MAX_PENDING_GESTURES = 10`) and minimum dispatch interval (25ms) to prevent UI thread looper flooding and memory exhaustion.
+  - Process-wide crash protection is anchored by `VRemoteApplication` using `Thread.setDefaultUncaughtExceptionHandler`.
+
+- **Point 18: WebView File Chooser & Unified Real-Time Runtime Logging (v6.4.10):**
+  - In `MainActivity.java`, `WebChromeClient.onShowFileChooser()` MUST be implemented to forward `<input type="file">` to Android's native system file chooser / gallery, returning picked URIs in `onActivityResult` (`FILE_CHOOSER_REQUEST_CODE = 2002`). Chat attachment action items are wired with explicit click dispatchers.
+  - Both Android (`AppLog`), Web Browser (`window.sendClientLog`), and Server (`server.js`) emit runtime diagnostics to a shared circular buffer (200 entries), accessible live inside the UI terminal modal (`#live-logs-modal`) and via `GET /api/logs`.
