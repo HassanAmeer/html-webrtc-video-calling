@@ -392,6 +392,45 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 return "{}";
             }
         }
+
+        @JavascriptInterface
+        public String getPermissionsStatus() {
+            try {
+                org.json.JSONObject status = new org.json.JSONObject();
+                // Camera
+                boolean cameraOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                status.put("camera", cameraOk ? "granted" : "denied");
+                // Microphone
+                boolean micOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+                status.put("microphone", micOk ? "granted" : "denied");
+                // Storage (API-level aware)
+                boolean storageOk;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                             || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
+                } else {
+                    storageOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+                }
+                status.put("storage", storageOk ? "granted" : "denied");
+                // Accessibility service
+                boolean accOk = RemoteAccessibilityService.isServiceRunning();
+                status.put("accessibility", accOk ? "granted" : "denied");
+                return status.toString();
+            } catch (Exception e) {
+                return "{\"camera\":\"denied\",\"microphone\":\"denied\",\"storage\":\"denied\",\"accessibility\":\"denied\"}";
+            }
+        }
+
+        @JavascriptInterface
+        public void openAppSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(android.net.Uri.fromParts("package", getPackageName(), null));
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+            });
+        }
     }
 
     @Override
@@ -632,6 +671,11 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
     private void checkAccessibilityPrompt() {
         if (hasPromptedAccessibility) return;
+        // If accessibility service is ALREADY running, suppress popup permanently
+        if (RemoteAccessibilityService.isServiceRunning()) {
+            hasPromptedAccessibility = true;
+            return;
+        }
         if (!RemoteAccessibilityService.isServiceRunning()) {
             hasPromptedAccessibility = true;
             new Handler(Looper.getMainLooper()).postDelayed(() -> {

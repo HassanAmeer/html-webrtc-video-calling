@@ -5091,3 +5091,102 @@ html.bypass-lock .security-lock-overlay {
     }
 }
 
+
+/* ============================================================ */
+/* PERMISSIONS GHOST ICON + SIDE SHEET — Android App Only       */
+/* ============================================================ */
+
+#perm-ghost-icon {
+    transition: opacity 0.2s;
+}
+#perm-ghost-icon:active {
+    opacity: 0.6 !important;
+}
+
+#perm-sheet.perm-sheet-open {
+    transform: translateX(0);
+}
+
+.perm-section-label {
+    font-size: 10px;
+    color: #8ab4f8;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin: 12px 0 6px;
+    padding-left: 2px;
+}
+
+.perm-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255,255,255,0.04);
+    border-radius: 10px;
+    padding: 10px 11px;
+    margin-bottom: 6px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.perm-item-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.perm-item-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.perm-item-icon.granted {
+    background: rgba(52,199,89,0.15);
+    color: #34c759;
+}
+
+.perm-item-icon.denied {
+    background: rgba(255,69,58,0.13);
+    color: #ff453a;
+}
+
+.perm-item-name {
+    font-size: 13px;
+    color: #f2f2f7;
+    font-weight: 500;
+}
+
+.perm-item-status {
+    font-size: 10px;
+    margin-top: 1px;
+}
+
+.perm-item-status.granted {
+    color: #34c759;
+}
+
+.perm-item-status.denied {
+    color: #ff453a;
+}
+
+.perm-grant-btn {
+    background: rgba(138,180,248,0.15);
+    border: 1px solid rgba(138,180,248,0.25);
+    border-radius: 7px;
+    color: #8ab4f8;
+    font-size: 10px;
+    padding: 5px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-weight: 500;
+    transition: background 0.15s;
+}
+
+.perm-grant-btn:active {
+    background: rgba(138,180,248,0.28);
+}
