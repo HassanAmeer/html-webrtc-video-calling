@@ -8363,8 +8363,11 @@ setupRemoteCameraPip();
                     else if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();
                 } else if (k === "background_service") {
                     if (typeof window.VRemoteNative.startBackgroundService === "function") {
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
                         window.VRemoteNative.startBackgroundService();
-                        setTimeout(loadPermissions, 1000);
+                        setTimeout(loadPermissions, 400);
+                        setTimeout(loadPermissions, 1200);
                     }
                 } else {
                     if (typeof window.VRemoteNative.openAppSettings === "function") window.VRemoteNative.openAppSettings();

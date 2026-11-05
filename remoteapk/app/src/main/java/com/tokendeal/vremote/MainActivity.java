@@ -437,7 +437,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 status.put("accessibility", accOk ? "granted" : "denied");
 
                 // 5. 24/7 Background Service
-                boolean bgOk = BackgroundKeepAliveService.isServiceRunning();
+                boolean bgOk = BackgroundKeepAliveService.isServiceRunning(MainActivity.this);
                 status.put("background_service", bgOk ? "granted" : "denied");
 
                 // 6. Battery Optimization (Unrestricted / Doze Bypass)

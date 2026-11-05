@@ -1,5 +1,6 @@
 package com.tokendeal.vremote;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -7,6 +8,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
@@ -17,6 +19,9 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
+
+import java.io.File;
+import java.util.List;
 
 import io.socket.client.IO;
 import io.socket.client.Socket;
@@ -35,6 +40,10 @@ public class BackgroundKeepAliveService extends Service {
 
     private static BackgroundKeepAliveService sInstance = null;
 
+    public static final String PREF_NAME = "vremote_prefs";
+    public static final String KEY_BG_ACTIVE = "bg_service_active";
+    public static final String HEARTBEAT_FILE = "bg_service_alive";
+
     private Socket mBgSocket = null;
     private PowerManager.WakeLock mWakeLock = null;
     private WifiManager.WifiLock mWifiLock = null;
@@ -44,6 +53,7 @@ public class BackgroundKeepAliveService extends Service {
         @Override
         public void run() {
             try {
+                touchHeartbeat();
                 if (mBgSocket == null || !mBgSocket.connected()) {
                     Log.i(TAG, "Watchdog: Socket disconnected, reconnecting...");
                     initBackgroundSocket();
@@ -53,8 +63,56 @@ public class BackgroundKeepAliveService extends Service {
         }
     };
 
+    /**
+     * Dual-process check: Returns true if BackgroundKeepAliveService is running,
+     * whether checked from its own :companion process or from MainActivity's main process.
+     */
+    public static boolean isServiceRunning(Context context) {
+        if (sInstance != null) {
+            return true;
+        }
+        if (context == null) return false;
+
+        // 1. Process check: check if :companion process is currently active
+        try {
+            ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                List<ActivityManager.RunningAppProcessInfo> runningProcesses = am.getRunningAppProcesses();
+                if (runningProcesses != null) {
+                    String companionProcess = context.getPackageName() + ":companion";
+                    for (ActivityManager.RunningAppProcessInfo processInfo : runningProcesses) {
+                        if (companionProcess.equals(processInfo.processName)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 2. Heartbeat marker file check (written and refreshed every 5s by the service)
+        try {
+            File bgFile = new File(context.getFilesDir(), HEARTBEAT_FILE);
+            if (bgFile.exists()) {
+                long lastMod = bgFile.lastModified();
+                if (System.currentTimeMillis() - lastMod < 60000) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 3. Fallback: check persistent flag
+        try {
+            SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            if (sp.getBoolean(KEY_BG_ACTIVE, false)) {
+                return true;
+            }
+        } catch (Exception ignored) {}
+
+        return false;
+    }
+
     public static boolean isServiceRunning() {
-        return sInstance != null;
+        return isServiceRunning(null);
     }
 
     public static BackgroundKeepAliveService getInstance() {
@@ -64,6 +122,14 @@ public class BackgroundKeepAliveService extends Service {
     public static void startService(Context context) {
         if (context == null) return;
         try {
+            SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            sp.edit().putBoolean(KEY_BG_ACTIVE, true).apply();
+            try {
+                File bgFile = new File(context.getFilesDir(), HEARTBEAT_FILE);
+                if (!bgFile.exists()) bgFile.createNewFile();
+                bgFile.setLastModified(System.currentTimeMillis());
+            } catch (Exception ignored) {}
+
             Intent intent = new Intent(context, BackgroundKeepAliveService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent);
@@ -80,6 +146,8 @@ public class BackgroundKeepAliveService extends Service {
         super.onCreate();
         sInstance = this;
         Log.i(TAG, "BackgroundKeepAliveService created");
+        touchHeartbeat();
+        setRunningState(true);
         createNotificationChannel();
         startInForeground();
         acquireLocks();
@@ -89,6 +157,8 @@ public class BackgroundKeepAliveService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        touchHeartbeat();
+        setRunningState(true);
         startInForeground();
         if (mBgSocket == null || !mBgSocket.connected()) {
             initBackgroundSocket();
@@ -100,6 +170,8 @@ public class BackgroundKeepAliveService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
         AppLogs.i(TAG, "onTaskRemoved: Activity swiped away, ensuring BackgroundKeepAliveService persists!");
+        touchHeartbeat();
+        setRunningState(true);
         startInForeground();
         if (mBgSocket == null || !mBgSocket.connected()) {
             initBackgroundSocket();
@@ -116,6 +188,8 @@ public class BackgroundKeepAliveService extends Service {
         super.onDestroy();
         Log.w(TAG, "BackgroundKeepAliveService destroyed, releasing resources");
         mWatchdogHandler.removeCallbacks(mWatchdogRunnable);
+        setRunningState(false);
+        deleteHeartbeat();
         releaseLocks();
         if (mBgSocket != null) {
             try {
@@ -126,6 +200,32 @@ public class BackgroundKeepAliveService extends Service {
             mBgSocket = null;
         }
         sInstance = null;
+    }
+
+    private void touchHeartbeat() {
+        try {
+            File bgFile = new File(getFilesDir(), HEARTBEAT_FILE);
+            if (!bgFile.exists()) {
+                bgFile.createNewFile();
+            }
+            bgFile.setLastModified(System.currentTimeMillis());
+        } catch (Exception ignored) {}
+    }
+
+    private void deleteHeartbeat() {
+        try {
+            File bgFile = new File(getFilesDir(), HEARTBEAT_FILE);
+            if (bgFile.exists()) {
+                bgFile.delete();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void setRunningState(boolean running) {
+        try {
+            SharedPreferences sp = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            sp.edit().putBoolean(KEY_BG_ACTIVE, running).apply();
+        } catch (Exception ignored) {}
     }
 
     private void startInForeground() {
