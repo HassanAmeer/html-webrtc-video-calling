@@ -104,6 +104,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         try {
             SharedPreferences prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             hasPromptedAccessibility = prefs.getBoolean(KEY_HAS_PROMPTED_ACCESSIBILITY, false);
+            SharedPreferences ghostPrefs = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE);
+            if (ghostPrefs.contains("ghost_mode")) {
+                applyGhostMode(ghostPrefs.getBoolean("ghost_mode", false));
+            }
         } catch (Exception ignored) {}
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -670,6 +674,61 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     }
                 } catch (Exception ignored) {}
             });
+        }
+
+        @JavascriptInterface
+        public void showGhostModeDialog() {
+            runOnUiThread(() -> {
+                try {
+                    android.content.SharedPreferences prefs = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE);
+                    boolean current = prefs.getBoolean("ghost_mode", false);
+                    String statusText = current ? "👻 Currently: ENABLED (icon hidden)" : "✅ Currently: DISABLED (icon visible)";
+                    String btnText = current ? "Disable Ghost Mode" : "Enable Ghost Mode";
+                    new android.app.AlertDialog.Builder(MainActivity.this)
+                        .setTitle("👻 Ghost Mode")
+                        .setMessage("Hide app icon and name from launcher so app stays invisible.\n\n" + statusText)
+                        .setPositiveButton(btnText, (dialog, which) -> {
+                            boolean newState = !current;
+                            prefs.edit().putBoolean("ghost_mode", newState).apply();
+                            applyGhostMode(newState);
+                            String msg = newState
+                                ? "👻 Ghost Mode ON — Icon hidden from launcher"
+                                : "✅ Ghost Mode OFF — Icon visible in launcher";
+                            android.widget.Toast.makeText(MainActivity.this, msg, android.widget.Toast.LENGTH_LONG).show();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                } catch (Exception e) {
+                    Log.e(TAG, "showGhostModeDialog error: " + e.getMessage());
+                }
+            });
+        }
+    }
+
+    private void applyGhostMode(boolean enable) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            String pkg = getPackageName();
+            android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
+            android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
+            if (enable) {
+                pm.setComponentEnabledSetting(normalAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+                pm.setComponentEnabledSetting(ghostAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+            } else {
+                pm.setComponentEnabledSetting(ghostAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+                pm.setComponentEnabledSetting(normalAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+            }
+            Log.d(TAG, "Ghost mode " + (enable ? "ENABLED" : "DISABLED"));
+        } catch (Exception e) {
+            Log.e(TAG, "applyGhostMode error: " + e.getMessage());
         }
     }
 
