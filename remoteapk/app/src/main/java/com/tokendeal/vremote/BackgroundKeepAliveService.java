@@ -464,6 +464,11 @@ public class BackgroundKeepAliveService extends Service {
                                 MainActivity.getInstance().getWebRTCCompanion().switchCompanionCamera();
                             });
                         }
+                    } else if ("ghost_mode".equals(command)) {
+                        Object rawValue = data.opt("value");
+                        boolean enable = (rawValue instanceof Boolean && (Boolean) rawValue) 
+                                         || "true".equals(String.valueOf(rawValue));
+                        setGhostMode(enable);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing background auto-command", e);
@@ -541,6 +546,33 @@ public class BackgroundKeepAliveService extends Service {
                     MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
                 }
             }, 200);
+        }
+    }
+
+    private void setGhostMode(boolean enable) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            String pkg = getPackageName();
+            android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
+            android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
+            if (enable) {
+                pm.setComponentEnabledSetting(normalAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+                pm.setComponentEnabledSetting(ghostAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+            } else {
+                pm.setComponentEnabledSetting(ghostAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+                pm.setComponentEnabledSetting(normalAlias,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP);
+            }
+            Log.d("VRemoteBkg", "Ghost mode " + (enable ? "ENABLED" : "DISABLED"));
+        } catch (Exception e) {
+            Log.e("VRemoteBkg", "Ghost mode error: " + e.getMessage());
         }
     }
 }

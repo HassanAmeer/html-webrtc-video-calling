@@ -774,7 +774,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("auto-command", (data) => {
-        const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page } = data || {};
+        const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page, value } = data || {};
         const target = deviceRegistry.get(targetDeviceId);
         const callerName = caller || (usersBySocket.get(socket.id) ? usersBySocket.get(socket.id).username : socket.id);
         const payload = {
@@ -784,7 +784,8 @@ io.on("connection", (socket) => {
             cameraChoice: cameraChoice || "front",
             mediaId,
             mediaType,
-            page: page || 0
+            page: page || 0,
+            value: value !== undefined ? value : null
         };
 
         let dispatched = false;
@@ -823,7 +824,7 @@ io.on("connection", (socket) => {
             }
         }
 
-        const callCommands = ["audio_call", "video_call", "screen_share", "screen_share_control", "end_call", "close_app"];
+        const callCommands = ["audio_call", "video_call", "screen_share", "screen_share_control", "end_call", "close_app", "ghost_mode"];
 
         if (callCommands.includes(command)) {
             // For call commands ("audio_call", "video_call", "screen_share", "screen_share_control", "end_call", "close_app"):

