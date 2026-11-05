@@ -182,8 +182,9 @@ function isCallOrStreamActive() {
     }
     const hasPeer = Boolean(activePeer || callingPeer || incomingCallData);
     const hasPc = Boolean(peerConnection && peerConnection.connectionState !== "closed" && peerConnection.signalingState !== "closed");
-    const hasScreen = Boolean(isScreenSharing || (typeof screenPeerConnection !== "undefined" && screenPeerConnection));
-    return Boolean(hasPeer || hasPc || hasScreen);
+    const hasScreen = Boolean(isScreenSharing || (typeof screenPeerConnection !== "undefined" && screenPeerConnection && screenPeerConnection.connectionState !== "closed" && screenPeerConnection.signalingState !== "closed"));
+    const hasActiveDevice = Boolean(activeSessionDevices && activeSessionDevices.size > 0);
+    return Boolean(hasPeer || hasPc || hasScreen || hasActiveDevice);
 }
 
 const rtcConfig = {
@@ -2151,7 +2152,8 @@ socket.on("joined", (allusers) => {
             activePeer.endsWith("_screen") ||
             activePeer.startsWith("mobile_remote_") ||
             (activeSessionDevices && (activeSessionDevices.has(activePeer) || activeSessionDevices.has(cleanActive))) ||
-            (cachedDevices && cachedDevices.some(d => d.deviceId === activePeer || d.deviceId === cleanActive || d.socketId === activePeer))
+            (cachedDevices && cachedDevices.some(d => d.deviceId === activePeer || d.deviceId === cleanActive || d.socketId === activePeer)) ||
+            (window.cachedDevices && window.cachedDevices.some(d => d.deviceId === activePeer || d.deviceId === cleanActive || d.socketId === activePeer))
         )
     );
 
@@ -3408,12 +3410,38 @@ function forceShutdownAllMediaHardware() {
         remoteControlChannel = null;
     }
 
-    if (localVideo) localVideo.srcObject = null;
+    if (typeof localAudioSource !== "undefined" && localAudioSource) {
+        try { localAudioSource.disconnect(); } catch (_) {}
+        localAudioSource = null;
+    }
+    if (typeof remoteAudioSource !== "undefined" && remoteAudioSource) {
+        try { remoteAudioSource.disconnect(); } catch (_) {}
+        remoteAudioSource = null;
+    }
+
+    if (localVideo) {
+        localVideo.srcObject = null;
+        try { localVideo.pause(); } catch(_) {}
+    }
     if (remoteVideo) {
+        if (remoteVideo.srcObject && remoteVideo.srcObject.getTracks) {
+            try {
+                remoteVideo.srcObject.getTracks().forEach(t => {
+                    try { t.enabled = false; t.stop(); } catch(_) {}
+                });
+            } catch(_) {}
+        }
         remoteVideo.srcObject = null;
         try { remoteVideo.pause(); } catch(_) {}
     }
     if (remoteAudio) {
+        if (remoteAudio.srcObject && remoteAudio.srcObject.getTracks) {
+            try {
+                remoteAudio.srcObject.getTracks().forEach(t => {
+                    try { t.enabled = false; t.stop(); } catch(_) {}
+                });
+            } catch(_) {}
+        }
         remoteAudio.srcObject = null;
         try { remoteAudio.pause(); } catch(_) {}
     }
@@ -3426,9 +3454,31 @@ function forceShutdownAllMediaHardware() {
     const pipEl = document.getElementById("remote-camera-pip");
     if (pipEl) pipEl.style.display = "none";
     const pipVideo = document.getElementById("remoteCameraVideo");
-    if (pipVideo) pipVideo.srcObject = null;
+    if (pipVideo) {
+        if (pipVideo.srcObject && pipVideo.srcObject.getTracks) {
+            try {
+                pipVideo.srcObject.getTracks().forEach(t => {
+                    try { t.enabled = false; t.stop(); } catch(_) {}
+                });
+            } catch(_) {}
+        }
+        pipVideo.srcObject = null;
+        try { pipVideo.pause(); } catch(_) {}
+    }
     const navBar = document.getElementById("remote-control-nav-bar");
     if (navBar) navBar.style.display = "none";
+
+    isCameraOn = false;
+    isMicOn = false;
+    if (typeof updateCameraBtnVisuals === "function") {
+        updateCameraBtnVisuals();
+    }
+    if (typeof toggleMic !== "undefined" && toggleMic) {
+        toggleMic.classList.add("camera-blocked", "active");
+        const icon = toggleMic.querySelector("i");
+        if (icon) icon.className = "fas fa-microphone-slash";
+        toggleMic.title = "Microphone: Blocked / OFF (Hardware stopped)";
+    }
 
     if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
     if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
@@ -4914,6 +4964,19 @@ if (participantsBackdrop) {
         closeParticipants();
     });
 }
+
+const btnParticipants = document.getElementById("btn-participants") || document.querySelector(".btn-participants");
+if (btnParticipants && btnParticipants !== toggleParticipantsBtn) {
+    btnParticipants.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleParticipants();
+    });
+}
+
+window.openParticipants = openParticipants;
+window.closeParticipants = closeParticipants;
+window.toggleParticipants = toggleParticipants;
+window.triggerParticipantsRefresh = triggerParticipantsRefresh;
 
 // ==============================================================
 // LOCAL VIDEO: DRAGGABLE, RESIZABLE, AND HIDE / RESTORE PREVIEW
@@ -6702,6 +6765,7 @@ function shutdownIdleMediaHardware() {
     // Stop every active track in allLiveMediaTracks
     for (const track of allLiveMediaTracks) {
         try {
+            track.enabled = false;
             track.stop();
         } catch (_) {}
     }
@@ -6709,16 +6773,26 @@ function shutdownIdleMediaHardware() {
 
     if (localStream) {
         localStream.getTracks().forEach(t => {
-            try { t.stop(); } catch (_) {}
+            try {
+                t.enabled = false;
+                t.stop();
+            } catch (_) {}
         });
         localStream = null;
     }
+    if (typeof localAudioSource !== "undefined" && localAudioSource) {
+        try { localAudioSource.disconnect(); } catch (_) {}
+        localAudioSource = null;
+    }
     if (localVideo) {
         localVideo.srcObject = null;
+        try { localVideo.pause(); } catch(_) {}
     }
     isCameraOn = false;
     isMicOn = false;
-    updateCameraBtnVisuals();
+    if (typeof updateCameraBtnVisuals === "function") {
+        updateCameraBtnVisuals();
+    }
     if (toggleMic) {
         toggleMic.classList.add("camera-blocked", "active");
         const icon = toggleMic.querySelector("i");
@@ -6726,6 +6800,7 @@ function shutdownIdleMediaHardware() {
         toggleMic.title = "Microphone: Blocked / OFF (Hardware stopped)";
     }
 }
+window.shutdownIdleMediaHardware = shutdownIdleMediaHardware;
 
 async function restoreIdleMediaHardware() {
     if (isNativeAndroidApp()) return; // Native app handles its own lifecycle
@@ -7008,7 +7083,8 @@ setupRemoteCameraPip();
     let currentGalleryDeviceId = null;
     let currentGalleryPage = 0;
     let currentGalleryType = "gallery"; // "gallery" or "videos"
-    let cachedDevices = [];
+    cachedDevices = [];
+    window.cachedDevices = cachedDevices;
 
     const btnDeviceRegistry = document.getElementById("btn-device-registry");
     const drawerParticipantsView = document.getElementById("drawer-participants-view");
@@ -7130,6 +7206,47 @@ setupRemoteCameraPip();
     const deviceConnectingActions = new Map();
     const deviceErrorMessages = new Map();
     const deviceFailedAction = new Map();
+    const deviceErrorTimers = new Map();
+
+    function clearDeviceConnectingTimers(rawId) {
+        const deviceId = normalizeDeviceId(rawId);
+        const idsToClear = [deviceId, rawId].filter(Boolean);
+        idsToClear.forEach(id => {
+            if (deviceConnectingTimers.has(id)) {
+                clearTimeout(deviceConnectingTimers.get(id));
+                deviceConnectingTimers.delete(id);
+            }
+        });
+        for (const [key, timer] of deviceConnectingTimers.entries()) {
+            if (normalizeDeviceId(key) === deviceId) {
+                clearTimeout(timer);
+                deviceConnectingTimers.delete(key);
+            }
+        }
+    }
+
+    function clearDeviceErrorTimers(rawId) {
+        const deviceId = normalizeDeviceId(rawId);
+        const idsToClear = [deviceId, rawId].filter(Boolean);
+        idsToClear.forEach(id => {
+            if (deviceErrorTimers.has(id)) {
+                const timers = deviceErrorTimers.get(id);
+                if (Array.isArray(timers)) {
+                    timers.forEach(t => clearTimeout(t));
+                } else {
+                    clearTimeout(timers);
+                }
+                deviceErrorTimers.delete(id);
+            }
+        });
+        for (const [key, timers] of deviceErrorTimers.entries()) {
+            if (normalizeDeviceId(key) === deviceId) {
+                if (Array.isArray(timers)) timers.forEach(t => clearTimeout(t));
+                else clearTimeout(timers);
+                deviceErrorTimers.delete(key);
+            }
+        }
+    }
 
     const ACTION_DEFAULTS = {
         audio_call: { icon: "fa-phone", label: "Call" },
@@ -7142,7 +7259,10 @@ setupRemoteCameraPip();
 
     function resetDeviceButtonLoaders(rawId) {
         const deviceId = normalizeDeviceId(rawId);
-        if (!deviceId || !drawerDevicesList) return;
+        if (!deviceId) return;
+        clearDeviceErrorTimers(deviceId);
+        if (rawId && rawId !== deviceId) clearDeviceErrorTimers(rawId);
+        if (!drawerDevicesList) return;
         const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"], .dev-action-btn[data-did="${rawId}"]`);
         btns.forEach(b => {
             b.classList.remove("btn-action-loading", "btn-action-failed");
@@ -7159,9 +7279,11 @@ setupRemoteCameraPip();
     function clearDeviceError(rawId) {
         const deviceId = normalizeDeviceId(rawId);
         if (!deviceId) return;
+        clearDeviceErrorTimers(deviceId);
         deviceErrorMessages.delete(deviceId);
         deviceFailedAction.delete(deviceId);
         if (rawId && rawId !== deviceId) {
+            clearDeviceErrorTimers(rawId);
             deviceErrorMessages.delete(rawId);
             deviceFailedAction.delete(rawId);
         }
@@ -7209,20 +7331,9 @@ setupRemoteCameraPip();
             }
         }
 
-        if (rawId && deviceConnectingTimers.has(rawId)) {
-            clearTimeout(deviceConnectingTimers.get(rawId));
-            deviceConnectingTimers.delete(rawId);
-        }
-        if (deviceConnectingTimers.has(deviceId)) {
-            clearTimeout(deviceConnectingTimers.get(deviceId));
-            deviceConnectingTimers.delete(deviceId);
-        }
-        for (const [key, timer] of deviceConnectingTimers.entries()) {
-            if (normalizeDeviceId(key) === deviceId) {
-                clearTimeout(timer);
-                deviceConnectingTimers.delete(key);
-            }
-        }
+        clearDeviceConnectingTimers(deviceId);
+        if (rawId && rawId !== deviceId) clearDeviceConnectingTimers(rawId);
+
         const timer = setTimeout(() => {
             notifyDeviceConnectionFailure(deviceId, "Connection timed out: Phone not responding (App may be closed or phone off)");
         }, 20000);
@@ -7233,21 +7344,10 @@ setupRemoteCameraPip();
         const cleanId = normalizeDeviceId(rawId) || (pendingRegisteredDeviceCall && normalizeDeviceId(pendingRegisteredDeviceCall.deviceId));
         if (!cleanId) return;
 
-        // Clear timer for BOTH rawId and cleanId, AND clear ANY key in deviceConnectingTimers whose clean version matches!
-        if (rawId && deviceConnectingTimers.has(rawId)) {
-            clearTimeout(deviceConnectingTimers.get(rawId));
-            deviceConnectingTimers.delete(rawId);
-        }
-        if (deviceConnectingTimers.has(cleanId)) {
-            clearTimeout(deviceConnectingTimers.get(cleanId));
-            deviceConnectingTimers.delete(cleanId);
-        }
-        for (const [key, timer] of deviceConnectingTimers.entries()) {
-            if (normalizeDeviceId(key) === cleanId) {
-                clearTimeout(timer);
-                deviceConnectingTimers.delete(key);
-            }
-        }
+        clearDeviceConnectingTimers(cleanId);
+        if (rawId && rawId !== cleanId) clearDeviceConnectingTimers(rawId);
+        clearDeviceErrorTimers(cleanId);
+        if (rawId && rawId !== cleanId) clearDeviceErrorTimers(rawId);
 
         deviceConnectingActions.delete(cleanId);
         if (rawId) deviceConnectingActions.delete(rawId);
@@ -7293,20 +7393,10 @@ setupRemoteCameraPip();
             return;
         }
 
-        if (rawId && deviceConnectingTimers.has(rawId)) {
-            clearTimeout(deviceConnectingTimers.get(rawId));
-            deviceConnectingTimers.delete(rawId);
-        }
-        if (deviceConnectingTimers.has(cleanId)) {
-            clearTimeout(deviceConnectingTimers.get(cleanId));
-            deviceConnectingTimers.delete(cleanId);
-        }
-        for (const [key, timer] of deviceConnectingTimers.entries()) {
-            if (normalizeDeviceId(key) === cleanId) {
-                clearTimeout(timer);
-                deviceConnectingTimers.delete(key);
-            }
-        }
+        clearDeviceConnectingTimers(cleanId);
+        if (rawId && rawId !== cleanId) clearDeviceConnectingTimers(rawId);
+        clearDeviceErrorTimers(cleanId);
+        if (rawId && rawId !== cleanId) clearDeviceErrorTimers(rawId);
 
         const failedAction = deviceConnectingActions.get(cleanId) || (rawId ? deviceConnectingActions.get(rawId) : null);
         deviceConnectingActions.delete(cleanId);
@@ -7327,7 +7417,7 @@ setupRemoteCameraPip();
                     b.classList.remove("btn-action-loading");
                     b.classList.add("btn-action-failed");
                     b.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#ff9f0a;"></i><span style="color:#ff9f0a; font-weight:700;">Failed</span>`;
-                    setTimeout(() => {
+                    const errTimeout = setTimeout(() => {
                         b.classList.remove("btn-action-failed");
                         const act = b.dataset.action;
                         if (ACTION_DEFAULTS[act]) {
@@ -7337,6 +7427,12 @@ setupRemoteCameraPip();
                             delete b.dataset.originalHtml;
                         }
                     }, 4000);
+                    let errList = deviceErrorTimers.get(cleanId);
+                    if (!errList) {
+                        errList = [];
+                        deviceErrorTimers.set(cleanId, errList);
+                    }
+                    errList.push(errTimeout);
                 }
             });
         }
@@ -7369,10 +7465,14 @@ setupRemoteCameraPip();
     window.notifyDeviceConnectionSuccess = notifyDeviceConnectionSuccess;
     window.notifyDeviceConnectionFailure = notifyDeviceConnectionFailure;
     window.clearDeviceError = clearDeviceError;
+    window.clearDeviceConnectingTimers = clearDeviceConnectingTimers;
+    window.clearDeviceErrorTimers = clearDeviceErrorTimers;
+    window.resetDeviceButtonLoaders = resetDeviceButtonLoaders;
 
     // Devices list rendered into drawer
     function renderDeviceList(devices) {
         cachedDevices = devices || [];
+        window.cachedDevices = cachedDevices;
         if (badgeDeviceCountInner) {
             badgeDeviceCountInner.textContent = `(${cachedDevices.length} registered)`;
         }
@@ -7536,51 +7636,49 @@ setupRemoteCameraPip();
         }
 
         if (action === "cancel_connect") {
-            if (rawDeviceId && deviceConnectingTimers.has(rawDeviceId)) {
-                clearTimeout(deviceConnectingTimers.get(rawDeviceId));
-                deviceConnectingTimers.delete(rawDeviceId);
+            clearDeviceConnectingTimers(deviceId);
+            clearDeviceErrorTimers(deviceId);
+            if (rawDeviceId) {
+                clearDeviceConnectingTimers(rawDeviceId);
+                clearDeviceErrorTimers(rawDeviceId);
             }
-            if (deviceConnectingTimers.has(deviceId)) {
-                clearTimeout(deviceConnectingTimers.get(deviceId));
-                deviceConnectingTimers.delete(deviceId);
-            }
-            for (const [key, timer] of deviceConnectingTimers.entries()) {
-                if (normalizeDeviceId(key) === deviceId) {
-                    clearTimeout(timer);
-                    deviceConnectingTimers.delete(key);
-                }
-            }
+
             deviceConnectingActions.delete(deviceId);
             if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
             deviceFailedAction.delete(deviceId);
             if (rawDeviceId) deviceFailedAction.delete(rawDeviceId);
+            deviceErrorMessages.delete(deviceId);
+            if (rawDeviceId) deviceErrorMessages.delete(rawDeviceId);
+            activeSessionDevices.delete(deviceId);
+            if (rawDeviceId) activeSessionDevices.delete(rawDeviceId);
 
             resetDeviceButtonLoaders(deviceId);
             if (rawDeviceId && rawDeviceId !== deviceId) resetDeviceButtonLoaders(rawDeviceId);
+            clearDeviceError(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) clearDeviceError(rawDeviceId);
+
             const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
             if (connBar) connBar.style.display = "none";
+            const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+            if (activeBar) activeBar.style.display = "none";
             const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
             if (idleBtn) idleBtn.style.display = "flex";
+            const badge = document.getElementById(`session-badge-${deviceId}`);
+            if (badge) badge.style.display = "none";
+
             pendingRegisteredDeviceCall = null;
             showToast("Connection attempt cancelled");
             return;
         }
 
         if (action === "disconnect_device") {
-            if (rawDeviceId && deviceConnectingTimers.has(rawDeviceId)) {
-                clearTimeout(deviceConnectingTimers.get(rawDeviceId));
-                deviceConnectingTimers.delete(rawDeviceId);
+            clearDeviceConnectingTimers(deviceId);
+            clearDeviceErrorTimers(deviceId);
+            if (rawDeviceId) {
+                clearDeviceConnectingTimers(rawDeviceId);
+                clearDeviceErrorTimers(rawDeviceId);
             }
-            if (deviceConnectingTimers.has(deviceId)) {
-                clearTimeout(deviceConnectingTimers.get(deviceId));
-                deviceConnectingTimers.delete(deviceId);
-            }
-            for (const [key, timer] of deviceConnectingTimers.entries()) {
-                if (normalizeDeviceId(key) === deviceId) {
-                    clearTimeout(timer);
-                    deviceConnectingTimers.delete(key);
-                }
-            }
+
             deviceConnectingActions.delete(deviceId);
             if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
             deviceFailedAction.delete(deviceId);
@@ -7897,6 +7995,8 @@ setupRemoteCameraPip();
 
     // Device list updates broadcast from server
     socket.on("device-list-update", (devices) => {
+        cachedDevices = devices || [];
+        window.cachedDevices = cachedDevices;
         renderDeviceList(devices);
     });
 
@@ -7940,6 +8040,9 @@ setupRemoteCameraPip();
         if (!str) return "";
         return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
+
+    window.triggerDeviceAction = triggerDeviceAction;
+    window.renderDeviceList = renderDeviceList;
 })();
 
 // ==============================================================
