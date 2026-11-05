@@ -117,7 +117,10 @@ public class ScreenCaptureService extends Service {
         if (sForegroundListener != null) {
             OnForegroundStartedListener listener = sForegroundListener;
             sForegroundListener = null;
+            AppLogs.i(TAG, "ScreenCaptureService foreground ready, dispatching callback to listener");
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(listener::onForegroundStarted, 250);
+        } else {
+            AppLogs.i(TAG, "ScreenCaptureService foreground active (no listener queued)");
         }
 
         return START_STICKY;
@@ -147,7 +150,6 @@ public class ScreenCaptureService extends Service {
         super.onDestroy();
         sIsRunning = false;
         sForegroundReady = false;
-        sForegroundListener = null;
         try {
             stopForeground(true);
         } catch (Exception ignored) {}

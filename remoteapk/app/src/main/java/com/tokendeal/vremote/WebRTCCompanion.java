@@ -945,27 +945,27 @@ public class WebRTCCompanion {
                     offerPayload.put("isScreenShare", sharing);
 
                     if (socket != null && socket.connected()) {
-                        Log.i(TAG, "Sending call offer: " + myId + " -> " + targetUser);
+                        AppLogs.i(TAG, "Sending call offer: " + myId + " -> " + targetUser + " (screenShare=" + sharing + ")");
                         socket.emit("offer", offerPayload);
                     } else {
-                        Log.i(TAG, "Socket not connected yet, queuing offer payload for " + targetUser);
+                        AppLogs.w(TAG, "Signaling socket not connected yet, queuing offer payload for " + targetUser);
                         pendingOfferPayload = offerPayload;
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Error sending offer", e);
+                    AppLogs.e(TAG, "Error sending offer: " + e.getMessage(), e);
                 }
             }
 
             @Override
             public void onCreateFailure(String error) {
-                Log.e(TAG, "Create offer failed: " + error);
+                AppLogs.e(TAG, "Create offer failed: " + error);
                 emitDeviceError("Phone WebRTC Offer failed: " + error);
                 if (callback != null) callback.onError("WebRTC Offer failed: " + error);
             }
 
             @Override
             public void onSetFailure(String error) {
-                Log.e(TAG, "Set local SDP failed: " + error);
+                AppLogs.e(TAG, "Set local SDP failed: " + error);
                 emitDeviceError("Phone WebRTC Local SDP failed: " + error);
                 if (callback != null) callback.onError("WebRTC SDP failed: " + error);
             }
@@ -1255,8 +1255,7 @@ public class WebRTCCompanion {
                                 try {
                                     MainActivity current = MainActivity.getInstance();
                                     if (current != null) {
-                                        current.stopAllMediaAndFinish();
-                                        current.finishAndRemoveTask();
+                                        current.closeAppCompletely();
                                     }
                                 } catch (Throwable t) {
                                     try { actClose.finishAffinity(); } catch (Throwable ignored) {}

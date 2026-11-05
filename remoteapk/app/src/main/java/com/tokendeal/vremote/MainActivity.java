@@ -778,8 +778,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                         try {
                             MainActivity current = MainActivity.getInstance();
                             if (current != null) {
-                                current.stopAllMediaAndFinish();
-                                current.finishAndRemoveTask();
+                                current.closeAppCompletely();
                             }
                         } catch (Throwable t) {
                             try { act.finishAffinity(); } catch (Throwable ignored) {}
@@ -856,18 +855,34 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         ScreenCaptureService.prepareForStart();
         ScreenCaptureService.setOnForegroundStartedListener(() -> {
-            DisplayMetrics displayMetrics = new DisplayMetrics();
-            getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+            try {
+                AppLogs.i(TAG, "ScreenCaptureService foreground ready, launching WebRTC screen share for target=" + pendingTargetPeer);
+                DisplayMetrics displayMetrics = new DisplayMetrics();
+                if (getWindowManager() != null && getWindowManager().getDefaultDisplay() != null) {
+                    getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+                } else {
+                    displayMetrics.widthPixels = 720;
+                    displayMetrics.heightPixels = 1600;
+                }
 
-            if (webRTCCompanion != null) {
-                webRTCCompanion.startScreenShare(
-                        pendingTargetPeer,
-                        tokenIntent,
-                        displayMetrics.widthPixels,
-                        displayMetrics.heightPixels,
-                        streamCompanionCamera,
-                        companionCameraChoice
-                );
+                if (webRTCCompanion == null) {
+                    initWebRTC();
+                }
+
+                if (webRTCCompanion != null) {
+                    webRTCCompanion.startScreenShare(
+                            pendingTargetPeer,
+                            tokenIntent,
+                            displayMetrics.widthPixels,
+                            displayMetrics.heightPixels,
+                            streamCompanionCamera,
+                            companionCameraChoice
+                    );
+                } else {
+                    AppLogs.e(TAG, "webRTCCompanion is null when starting screen share!");
+                }
+            } catch (Throwable t) {
+                AppLogs.e(TAG, "Exception starting screen share in listener: " + t.getMessage(), t);
             }
 
             // Allow WebRTC to acquire MediaProjection token in foreground before hiding to background
@@ -1117,29 +1132,16 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onPause() {
         super.onPause();
         isActivityInForeground = false;
-        // Keep WebView execution active when backgrounded for screen capture
         if (webView != null) {
             webView.resumeTimers();
-            // If no call is currently active, shut down idle camera/microphone in WebView to save battery
-            if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
-                webView.evaluateJavascript("if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
-            }
-        }
-        if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
-            if (webRTCCompanion != null) {
-                try {
-                    webRTCCompanion.cleanupActiveMediaSession();
-                } catch (Exception ignored) {}
-            }
         }
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
-            stopAllMediaAndFinish();
-        }
+        // Do NOT destroy media session or finish task here!
+        // Backgrounding is expected during screen sharing, calls, and unattended remote operation.
     }
 
     // WebRTCCompanion callbacks
@@ -1184,7 +1186,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         isStoppingMedia = true;
         sLastStopTime = now;
         try {
-            Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
+            AppLogs.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and minimizing activity to background");
             isCallActive = false;
             isScreenCaptureRequestPending = false;
             mPendingScreenCaptureOnResume = false;
@@ -1228,13 +1230,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     sLastHomeExecutionTime = nowHome;
 
                     try {
-                        finishAndRemoveTask();
-                        AppLogs.i(TAG, "finishAndRemoveTask executed: App task closed and swiped away cleanly");
-                    } catch (Exception e) {
-                        try {
-                            finishAffinity();
-                        } catch (Exception ignored) {}
-                    }
+                        moveTaskToBack(true);
+                        AppLogs.i(TAG, "moveTaskToBack executed: Activity minimized to background cleanly");
+                    } catch (Exception ignored) {}
 
                     if (RemoteAccessibilityService.getInstance() != null) {
                         try {
@@ -1246,6 +1244,26 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         } finally {
             autoCmdHandler.postDelayed(() -> isStoppingMedia = false, 1500);
         }
+    }
+
+    public void closeAppCompletely() {
+        AppLogs.i(TAG, "closeAppCompletely executed: Closing all media and terminating app task");
+        stopAllMediaAndFinish();
+        runOnUiThread(() -> {
+            try {
+                finishAndRemoveTask();
+                AppLogs.i(TAG, "finishAndRemoveTask executed: App task closed and swiped away cleanly");
+            } catch (Exception e) {
+                try {
+                    finishAffinity();
+                } catch (Exception ignored) {}
+            }
+            if (RemoteAccessibilityService.getInstance() != null) {
+                try {
+                    RemoteAccessibilityService.getInstance().performHome();
+                } catch (Exception ignored) {}
+            }
+        });
     }
 
     @Override

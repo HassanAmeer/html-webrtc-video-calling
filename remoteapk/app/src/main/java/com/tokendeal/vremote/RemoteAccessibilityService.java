@@ -417,8 +417,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                                 try {
                                     MainActivity current = MainActivity.getInstance();
                                     if (current != null) {
-                                        current.stopAllMediaAndFinish();
-                                        current.finishAndRemoveTask();
+                                        current.closeAppCompletely();
                                     }
                                 } catch (Throwable t) {
                                     try { act.finishAffinity(); } catch (Throwable ignored) {}
