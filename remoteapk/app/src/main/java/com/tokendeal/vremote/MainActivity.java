@@ -235,7 +235,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
-                    Log.i(TAG, "Granting WebRTC permissions to WebView: " + java.util.Arrays.toString(request.getResources()));
+                    AppLogs.i(TAG, "Granting WebRTC permissions to WebView: " + java.util.Arrays.toString(request.getResources()));
                     request.grant(request.getResources());
                 });
             }

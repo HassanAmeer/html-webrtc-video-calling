@@ -1490,11 +1490,6 @@ if (settingCameraSelect) {
 
 // Initialize Camera & Microphone (Guarantees Camera is acquired on Mobile & Laptop)
 async function ensureLocalStream(requireVideo = true) {
-    if (isNativeAndroidApp()) {
-        // Native Android Companion handles hardware media natively via WebRTCCompanion.java!
-        // WebView MUST NEVER acquire or hold camera or microphone hardware to protect privacy and battery!
-        return null;
-    }
     if (isFrozen) return null;
 
     // Strict Privacy & Battery Rule: If tab is hidden in background and no call is active, DO NOT turn on camera/mic!
@@ -3534,13 +3529,24 @@ function silenceAndDisableLocalMedia() {
 async function acceptRegisteredDeviceCall(from, offer) {
     console.log(`Auto-accepting registered device call from ${from}`);
     try {
-        silenceAndDisableLocalMedia();
-
         if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.action === "audio_call") {
             isAudioCallMode = true;
         } else {
             isAudioCallMode = false;
         }
+
+        // For audio_call or video_call, acquire local mic so two-way voice works
+        try {
+            const stream = await ensureLocalStream(!isAudioCallMode);
+            if (stream && stream.getAudioTracks().length > 0) {
+                isMicOn = true;
+                if (toggleMic) {
+                    toggleMic.classList.remove("camera-blocked", "active");
+                    const icon = toggleMic.querySelector("i");
+                    if (icon) icon.className = "fas fa-microphone";
+                }
+            }
+        } catch (_) {}
 
         const pc = initPeerConnection(from);
 
@@ -4131,7 +4137,13 @@ async function acceptIncomingCall() {
         window.sendClientLog("info", "Call", `Call accepted from "${from}"`);
     }
     try {
+        isMicOn = true;
         await ensureLocalStream();
+        if (toggleMic) {
+            toggleMic.classList.remove("camera-blocked", "active");
+            const icon = toggleMic.querySelector("i");
+            if (icon) icon.className = "fas fa-microphone";
+        }
         const pc = initPeerConnection(from);
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -4164,94 +4176,18 @@ async function acceptIncomingCall() {
     }
 }
 
-// Setup Hold-to-Accept Incoming Call Handlers (450ms Hold Required)
-const HOLD_ACCEPT_MS = 450;
-let holdTriggered = false;
-let isHoldingAccept = false;
-
+// Setup Incoming Call Handlers (Instant Single Click / Tap to Accept or Decline)
 function setupIncomingCallHandlers() {
     const btnIncomingAccept = document.getElementById("btn-incoming-accept");
     const btnIncomingDecline = document.getElementById("btn-incoming-decline");
 
     if (!btnIncomingAccept) return;
 
-    const startHolding = (e) => {
-        if (!incomingCallData || isHoldingAccept) return;
-        if (e.cancelable && e.type !== "mousedown") {
-            e.preventDefault();
-        }
-        isHoldingAccept = true;
-        holdTriggered = false;
-        holdStartTime = Date.now();
-        btnIncomingAccept.classList.add("holding");
-        btnIncomingAccept.classList.remove("shake-error");
-
-        if (navigator.vibrate) {
-            try { navigator.vibrate(30); } catch (_) {}
-        }
-
-        if (holdAcceptTimer) {
-            clearTimeout(holdAcceptTimer);
-            holdAcceptTimer = null;
-        }
-
-        holdAcceptTimer = setTimeout(() => {
-            isHoldingAccept = false;
-            holdTriggered = true;
-            btnIncomingAccept.classList.remove("holding");
-            if (navigator.vibrate) {
-                try { navigator.vibrate([40, 60, 40]); } catch (_) {}
-            }
-            if (incomingCallData) {
-                acceptIncomingCall();
-            }
-        }, HOLD_ACCEPT_MS);
-    };
-
-    const cancelHolding = (e) => {
-        if (!isHoldingAccept) return;
-        isHoldingAccept = false;
-        const duration = Date.now() - holdStartTime;
-        holdStartTime = 0;
-        btnIncomingAccept.classList.remove("holding");
-
-        if (holdAcceptTimer) {
-            clearTimeout(holdAcceptTimer);
-            holdAcceptTimer = null;
-        }
-
-        // Released before hold duration -> Trigger shake error and decoy message
-        if (!holdTriggered && duration < HOLD_ACCEPT_MS && incomingCallData) {
-            btnIncomingAccept.classList.remove("shake-error");
-            void btnIncomingAccept.offsetWidth; // Force DOM reflow to re-run CSS shake animation
-            btnIncomingAccept.classList.add("shake-error");
-            if (navigator.vibrate) {
-                try { navigator.vibrate(50); } catch (_) {}
-            }
-            showToast("error: try after 10 minutes");
-        }
-    };
-
-    // Pointer events (Desktop mouse + Touch devices)
-    btnIncomingAccept.addEventListener("pointerdown", startHolding);
-    btnIncomingAccept.addEventListener("pointerup", cancelHolding);
-    btnIncomingAccept.addEventListener("pointercancel", cancelHolding);
-    btnIncomingAccept.addEventListener("pointerleave", cancelHolding);
-
-    // Touch events for older mobile WebViews
-    btnIncomingAccept.addEventListener("touchstart", startHolding, { passive: false });
-    btnIncomingAccept.addEventListener("touchend", cancelHolding);
-    btnIncomingAccept.addEventListener("touchcancel", cancelHolding);
-
-    // Prevent immediate click from accepting & show decoy error if clicked directly
     btnIncomingAccept.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (incomingCallData && !holdTriggered) {
-            btnIncomingAccept.classList.remove("shake-error");
-            void btnIncomingAccept.offsetWidth;
-            btnIncomingAccept.classList.add("shake-error");
-            showToast("error: try after 10 minutes");
+        if (incomingCallData) {
+            acceptIncomingCall();
         }
     });
 
