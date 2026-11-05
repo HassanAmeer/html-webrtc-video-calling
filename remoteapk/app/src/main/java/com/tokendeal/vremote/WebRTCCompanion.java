@@ -568,10 +568,6 @@ public class WebRTCCompanion {
     }
 
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
-        this.activePeer = targetUser;
-        this.isScreenSharingCall = true;
-        AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
-
         if (captureIntentData == null) {
             Log.e(TAG, "startScreenShare: captureIntentData is null! Cannot initialize ScreenCapturerAndroid");
             AppLog.e(TAG, "Screen capture failed: Permission token intent was null");
@@ -579,8 +575,13 @@ public class WebRTCCompanion {
             return;
         }
 
-        // Cleanly release any prior media session (hardware camera, old PeerConnection, EGL contexts)
+        // Cleanly release any prior media session FIRST before setting activePeer & call state
         cleanupActiveMediaSession();
+
+        this.activePeer = targetUser;
+        this.isScreenSharingCall = true;
+        AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
+
         setupPeerConnection();
 
         try {
@@ -726,6 +727,26 @@ public class WebRTCCompanion {
     }
 
     public void switchCompanionCamera() {
+        switchCompanionCameraFacing(!isCompanionCamFront);
+    }
+
+    public void setCompanionCameraEnabled(boolean enabled) {
+        if (companionCameraTrack != null) {
+            companionCameraTrack.setEnabled(enabled);
+            Log.i(TAG, "Companion camera track enabled=" + enabled);
+        }
+    }
+
+    public void setCompanionCameraFacing(boolean wantFront) {
+        setCompanionCameraEnabled(true);
+        if (isCompanionCamFront == wantFront) {
+            Log.i(TAG, "Companion camera already facing: " + (wantFront ? "front" : "back"));
+            return;
+        }
+        switchCompanionCameraFacing(wantFront);
+    }
+
+    private void switchCompanionCameraFacing(boolean wantFront) {
         CameraVideoCapturer capturer = companionCameraCapturer != null ? companionCameraCapturer : cameraCapturer;
         if (capturer == null) {
             Log.w(TAG, "switchCompanionCamera: No active camera capturer to switch");
@@ -745,13 +766,12 @@ public class WebRTCCompanion {
 
         String[] deviceNames = enumerator.getDeviceNames();
         String targetCam = null;
-        boolean wantBack = isCompanionCamFront; // If currently front, switch to back!
 
         for (String name : deviceNames) {
-            if (wantBack && enumerator.isBackFacing(name)) {
+            if (!wantFront && enumerator.isBackFacing(name)) {
                 targetCam = name;
                 break;
-            } else if (!wantBack && enumerator.isFrontFacing(name)) {
+            } else if (wantFront && enumerator.isFrontFacing(name)) {
                 targetCam = name;
                 break;
             }
@@ -777,18 +797,18 @@ public class WebRTCCompanion {
         };
 
         if (targetCam != null) {
-            Log.i(TAG, "Switching camera to target: " + targetCam + " (wantBack=" + wantBack + ")");
+            Log.i(TAG, "Switching camera to target: " + targetCam + " (wantFront=" + wantFront + ")");
             capturer.switchCamera(handler, targetCam);
         } else {
-            Log.i(TAG, "Switching camera via cycle switch (wantBack=" + wantBack + ")");
+            Log.i(TAG, "Switching camera via cycle switch (wantFront=" + wantFront + ")");
             capturer.switchCamera(handler);
         }
     }
 
     public void startVideoCall(String targetUser) {
+        cleanupActiveMediaSession();
         this.activePeer = targetUser;
         this.isScreenSharingCall = false;
-        cleanupActiveMediaSession();
         setupPeerConnection();
 
         try {
@@ -824,9 +844,9 @@ public class WebRTCCompanion {
     }
 
     public void startAudioCall(String targetUser) {
+        cleanupActiveMediaSession();
         this.activePeer = targetUser;
         this.isScreenSharingCall = false;
-        cleanupActiveMediaSession();
         setupPeerConnection();
         ensureAudioTrack();
         if (localAudioTrack != null) {
@@ -838,7 +858,9 @@ public class WebRTCCompanion {
 
     public void acceptIncomingCall() {
         if (incomingOfferObj == null || activePeer == null) return;
+        String peer = activePeer;
         cleanupActiveMediaSession();
+        this.activePeer = peer;
         setupPeerConnection();
         ensureAudioTrack();
         if (localAudioTrack != null) {
@@ -1207,9 +1229,19 @@ public class WebRTCCompanion {
                         }
                         break;
                     case "flip_camera":
-                    case "switch_camera":
-                        switchCompanionCamera();
+                    case "switch_camera": {
+                        String camChoice = data.optString("cameraChoice", "");
+                        if ("front".equalsIgnoreCase(camChoice)) {
+                            setCompanionCameraFacing(true);
+                        } else if ("back".equalsIgnoreCase(camChoice)) {
+                            setCompanionCameraFacing(false);
+                        } else if ("none".equalsIgnoreCase(camChoice) || "off".equalsIgnoreCase(camChoice)) {
+                            setCompanionCameraEnabled(false);
+                        } else {
+                            switchCompanionCamera();
+                        }
                         break;
+                    }
                     case "get_media_detail": {
                         long mediaId = data.optLong("mediaId", 0);
                         String mediaType = data.optString("mediaType", "image");

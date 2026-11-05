@@ -36,6 +36,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     private static volatile RemoteAccessibilityService sInstance = null;
     private static volatile boolean sAutoAcceptPending = false;
+    private static long sLastEndCallTime = 0;
 
     private final BroadcastReceiver mAutoAcceptReceiver = new BroadcastReceiver() {
         @Override
@@ -364,6 +365,13 @@ public class RemoteAccessibilityService extends AccessibilityService {
                                "screen_share".equals(command) || "screen_share_control".equals(command)) {
                         wakeUpAndLaunch(command, caller, cameraChoice);
                     } else if ("end_call".equals(command)) {
+                        long now = System.currentTimeMillis();
+                        if (now - sLastEndCallTime < 2500) {
+                            Log.w(TAG, "Ignoring duplicate end_call command in accessibility service");
+                            return;
+                        }
+                        sLastEndCallTime = now;
+
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
                         sendBroadcast(new Intent(ACTION_END_CALL));
@@ -434,16 +442,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
             triggerAutoAccept(this);
         }
 
-        // 1. If MainActivity instance is running (even in background), execute directly and return!
-        if (MainActivity.getInstance() != null) {
-            MainActivity.getInstance().runOnUiThread(() -> {
-                MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
-            });
-            return;
-        }
-
+        // Android 14 (API 34) strictly forbids background activities from calling startActivityForResult(createScreenCaptureIntent).
+        // Always fire Intent with REORDER_TO_FRONT | SINGLE_TOP to bring MainActivity to foreground.
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
@@ -458,6 +460,16 @@ public class RemoteAccessibilityService extends AccessibilityService {
             }
         } catch (Exception e) {
             Log.e(TAG, "startActivity failed: " + e.getMessage());
+        }
+
+        // If MainActivity is already running, also schedule direct handling after a short delay
+        // as a backup if onNewIntent is delayed or already delivered.
+        if (MainActivity.getInstance() != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (MainActivity.getInstance() != null) {
+                    MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
+                }
+            }, 200);
         }
     }
 

