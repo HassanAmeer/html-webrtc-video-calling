@@ -2844,7 +2844,7 @@ function sendRemoteControlCommand(cmd) {
             console.warn("DataChannel send failed, using socket fallback:", e);
         }
     }
-    const target = activePeer || callingPeer || (incomingCallData && incomingCallData.from);
+    const target = activePeer || callingPeer || (incomingCallData && incomingCallData.from) || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId);
     if (!sent && socket && socket.connected && target) {
         socket.emit("remote-control", { ...cmd, to: target });
         sent = true;
@@ -2972,6 +2972,87 @@ if (remoteVideo) {
             }
         }
     });
+
+    // Touch support on remote video for tablets/mobile browsers
+    let isTouchDownOnRemote = false;
+    let touchStartPos = { x: 0, y: 0, clientX: 0, clientY: 0, time: 0 };
+
+    remoteVideo.addEventListener("touchstart", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const coords = getNormalizedVideoCoords(touch, remoteVideo);
+        if (!coords) return;
+        isTouchDownOnRemote = true;
+        touchStartPos = {
+            x: coords.x,
+            y: coords.y,
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            time: Date.now()
+        };
+    }, { passive: true });
+
+    remoteVideo.addEventListener("touchend", (e) => {
+        if (!isTouchDownOnRemote) return;
+        isTouchDownOnRemote = false;
+
+        const duration = Date.now() - touchStartPos.time;
+        const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+        if (!touch) return;
+
+        const deltaX = Math.abs(touch.clientX - touchStartPos.clientX);
+        const deltaY = Math.abs(touch.clientY - touchStartPos.clientY);
+
+        const endCoords = getNormalizedVideoCoords(touch, remoteVideo) || {
+            x: Math.max(0, Math.min(1, touchStartPos.x + (touch.clientX - touchStartPos.clientX) / Math.max(1, remoteVideo.clientWidth))),
+            y: Math.max(0, Math.min(1, touchStartPos.y + (touch.clientY - touchStartPos.clientY) / Math.max(1, remoteVideo.clientHeight)))
+        };
+
+        if (deltaX < 15 && deltaY < 15 && duration < 500) {
+            sendRemoteControlCommand({
+                type: "tap",
+                x: touchStartPos.x,
+                y: touchStartPos.y
+            });
+            showClickRipple(touchStartPos.clientX, touchStartPos.clientY);
+        } else {
+            sendRemoteControlCommand({
+                type: "swipe",
+                startX: touchStartPos.x,
+                startY: touchStartPos.y,
+                endX: endCoords.x,
+                endY: endCoords.y,
+                duration: Math.max(120, Math.min(duration, 700))
+            });
+            showClickRipple(touch.clientX, touch.clientY);
+        }
+    }, { passive: true });
+}
+
+// Remote Control Floating Android Navigation Buttons
+const btnRemoteNavBack = document.getElementById("btn-remote-nav-back");
+if (btnRemoteNavBack) {
+    btnRemoteNavBack.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendRemoteControlCommand({ type: "back" });
+        showToast("◀️ Injected Back on phone");
+    });
+}
+const btnRemoteNavHome = document.getElementById("btn-remote-nav-home");
+if (btnRemoteNavHome) {
+    btnRemoteNavHome.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendRemoteControlCommand({ type: "home" });
+        showToast("⭕ Injected Home on phone");
+    });
+}
+const btnRemoteNavRecents = document.getElementById("btn-remote-nav-recents");
+if (btnRemoteNavRecents) {
+    btnRemoteNavRecents.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendRemoteControlCommand({ type: "recents" });
+        showToast("⏹️ Injected Recents on phone");
+    });
 }
 
 function showClickRipple(clientX, clientY) {
@@ -3082,6 +3163,9 @@ async function startCall(targetUser) {
 async function acceptScreenShareStream(from, offer) {
     const cleanFrom = normalizeDeviceId(from);
     console.log(`Setting up Screen Share receiver for ${from} (clean: ${cleanFrom})`);
+    activePeer = from;
+    const navBar = document.getElementById("remote-control-nav-bar");
+    if (navBar) navBar.style.display = "flex";
     try {
         if (screenPeerConnection) {
             try { screenPeerConnection.close(); } catch (_) {}
@@ -3239,6 +3323,11 @@ function closeScreenShareStream() {
     if (typeof remoteControlChannel !== "undefined" && remoteControlChannel) {
         try { remoteControlChannel.close(); } catch (_) {}
         remoteControlChannel = null;
+    }
+    const navBar = document.getElementById("remote-control-nav-bar");
+    if (navBar) navBar.style.display = "none";
+    if (activePeer && activePeer.endsWith("_screen")) {
+        activePeer = null;
     }
     // Restore camera stream to main video if it was moved to PiP
     if (savedCameraStream) {

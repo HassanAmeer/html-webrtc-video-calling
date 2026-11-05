@@ -5242,3 +5242,50 @@ html.bypass-lock .security-lock-overlay {
 .perm-grant-btn:active {
     background: rgba(138,180,248,0.28);
 }
+
+/* Floating Android Remote Navigation Bar */
+.remote-control-nav-bar {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(18, 19, 22, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 28px;
+    padding: 6px 14px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+    z-index: 45;
+    pointer-events: auto;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.remote-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    color: #f2f2f7;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.remote-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.remote-nav-btn:active {
+    transform: scale(0.95);
+    background: rgba(10, 132, 255, 0.45);
+}

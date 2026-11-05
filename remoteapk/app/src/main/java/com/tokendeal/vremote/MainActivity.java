@@ -686,6 +686,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             case "screen_share_control":
                 startScreenCaptureWithCamera(caller, true, !"none".equalsIgnoreCase(camChoice), camChoice);
                 break;
+            case "end_call":
+                stopAllMediaAndFinish();
+                break;
         }
     }
 
@@ -768,6 +771,17 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 try {
                     moveTaskToBack(true);
                 } catch (Exception ignored) {}
+                try {
+                    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                    homeIntent.addCategory(Intent.CATEGORY_HOME);
+                    homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(homeIntent);
+                } catch (Exception ignored) {}
+                if (RemoteAccessibilityService.getInstance() != null) {
+                    try {
+                        RemoteAccessibilityService.getInstance().performHome();
+                    } catch (Exception ignored) {}
+                }
             });
         });
 
@@ -1032,6 +1046,17 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 try {
                     moveTaskToBack(true);
                 } catch (Exception ignored) {}
+                try {
+                    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+                    homeIntent.addCategory(Intent.CATEGORY_HOME);
+                    homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(homeIntent);
+                } catch (Exception ignored) {}
+                if (RemoteAccessibilityService.getInstance() != null) {
+                    try {
+                        RemoteAccessibilityService.getInstance().performHome();
+                    } catch (Exception ignored) {}
+                }
             });
         } finally {
             isStoppingMedia = false;

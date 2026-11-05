@@ -313,6 +313,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
                                 MainActivity.getInstance().stopAllMediaAndFinish();
                             });
                         }
+                        try {
+                            performHome();
+                        } catch (Exception ignored) {}
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
                         if (MainActivity.getCompanionInstance() != null) {
                             MainActivity.getCompanionInstance().switchCompanionCamera();
