@@ -1203,16 +1203,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 long nowHome = System.currentTimeMillis();
                 if (nowHome - sLastHomeExecutionTime > 2000) {
                     sLastHomeExecutionTime = nowHome;
-                    try {
-                        moveTaskToBack(true);
-                    } catch (Exception ignored) {}
 
                     try {
-                        Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-                        homeIntent.addCategory(Intent.CATEGORY_HOME);
-                        homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(homeIntent);
-                    } catch (Exception ignored) {}
+                        finishAndRemoveTask();
+                        AppLogs.i(TAG, "finishAndRemoveTask executed: App task closed and swiped away cleanly");
+                    } catch (Exception e) {
+                        try {
+                            finishAffinity();
+                        } catch (Exception ignored) {}
+                    }
 
                     if (RemoteAccessibilityService.getInstance() != null) {
                         try {
