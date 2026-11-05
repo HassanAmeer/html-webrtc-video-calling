@@ -36,7 +36,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void scheduleAutoAcceptCheck(int attempt) {
-        if (!sAutoAcceptPending || attempt > 25) return;
+        if (!sAutoAcceptPending || attempt > 30) {
+            if (attempt > 30) sAutoAcceptPending = false;
+            return;
+        }
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (!sAutoAcceptPending) return;
             android.view.accessibility.AccessibilityNodeInfo root = null;
@@ -56,7 +59,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
             if (sAutoAcceptPending) {
                 scheduleAutoAcceptCheck(attempt + 1);
             }
-        }, 250);
+        }, 350);
     }
 
     public static RemoteAccessibilityService getInstance() {
@@ -384,6 +387,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
         }
     }
 
+    private static long sLastDialogCheckTime = 0;
+    private static final java.util.concurrent.atomic.AtomicBoolean sIsProcessingDialog = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (!sAutoAcceptPending || event == null) return;
@@ -393,6 +399,12 @@ public class RemoteAccessibilityService extends AccessibilityService {
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
 
+                long now = System.currentTimeMillis();
+                if (now - sLastDialogCheckTime < 350) {
+                    return;
+                }
+                sLastDialogCheckTime = now;
+
                 android.view.accessibility.AccessibilityNodeInfo root = null;
                 try {
                     root = getRootInActiveWindow();
@@ -400,7 +412,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         processMediaProjectionDialog(root);
                     }
                 } catch (Throwable t) {
-                    Log.e(TAG, "Error inspecting root in onAccessibilityEvent", t);
+                    Log.e(TAG, "Error inspecting root in onAccessibilityEvent: " + t.getMessage());
                 } finally {
                     if (root != null) {
                         try {
@@ -410,20 +422,25 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 }
             }
         } catch (Throwable t) {
-            Log.e(TAG, "onAccessibilityEvent error", t);
+            Log.e(TAG, "onAccessibilityEvent error: " + t.getMessage());
         }
     }
 
     private void processMediaProjectionDialog(android.view.accessibility.AccessibilityNodeInfo root) {
         if (root == null || !sAutoAcceptPending) return;
 
+        // Re-entrancy protection: only one inspection/click flow at a time
+        if (!sIsProcessingDialog.compareAndSet(false, true)) {
+            return;
+        }
+
         try {
             // Step 1: If there is an option or radio for "Entire screen", select it!
-            boolean entireScreenFound = clickEntireScreenOption(root, 0);
+            boolean entireScreenFound = clickEntireScreenOption(root);
 
             // Step 2: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
             if (!entireScreenFound) {
-                boolean opened = clickSingleAppSpinner(root, 0);
+                boolean opened = clickSingleAppSpinner(root);
                 if (opened) {
                     // Dropdown will trigger next window event where Entire Screen item will be selected
                     return;
@@ -431,165 +448,160 @@ public class RemoteAccessibilityService extends AccessibilityService {
             }
 
             // Step 3: Click "Start now" button
-            boolean started = findAndClickStartButton(root, 0);
+            boolean started = findAndClickStartButton(root);
             if (started) {
                 sAutoAcceptPending = false;
                 Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+                AppLog.i(TAG, "Successfully auto-accepted entire screen share dialog!");
             }
         } catch (Throwable t) {
-            Log.e(TAG, "processMediaProjectionDialog error", t);
+            Log.e(TAG, "processMediaProjectionDialog error: " + t.getMessage(), t);
+        } finally {
+            sIsProcessingDialog.set(false);
         }
     }
 
-    private boolean clickEntireScreenOption(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 12) return false;
+    // Iterative Breadth-First-Search (BFS) traversal - ZERO recursion, stack depth is strictly 1
+    private boolean clickEntireScreenOption(android.view.accessibility.AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        java.util.Queue<android.view.accessibility.AccessibilityNodeInfo> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        int visited = 0;
 
-        try {
-            CharSequence text = node.getText();
-            CharSequence desc = node.getContentDescription();
-            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+        while (!queue.isEmpty() && visited < 120) {
+            android.view.accessibility.AccessibilityNodeInfo node = queue.poll();
+            visited++;
 
-            if (!candidate.isEmpty()) {
-                if (candidate.contains("entire screen") || candidate.contains("whole screen") || candidate.contains("full screen") || candidate.contains("all screen") || candidate.equals("entire")) {
-                    if (node.isClickable()) {
-                        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                        Log.i(TAG, "Selected 'Entire screen' option!");
-                        return true;
-                    } else if (node.getParent() != null && node.getParent().isClickable()) {
-                        node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                        Log.i(TAG, "Selected 'Entire screen' option via parent!");
-                        return true;
+            try {
+                CharSequence text = node.getText();
+                CharSequence desc = node.getContentDescription();
+                String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+                if (!candidate.isEmpty()) {
+                    if (candidate.contains("entire screen") || candidate.contains("whole screen") ||
+                        candidate.contains("full screen") || candidate.contains("all screen") || candidate.equals("entire")) {
+                        if (node.isClickable()) {
+                            node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                            Log.i(TAG, "Selected 'Entire screen' option!");
+                            return true;
+                        } else if (node.getParent() != null && node.getParent().isClickable()) {
+                            node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                            Log.i(TAG, "Selected 'Entire screen' option via parent!");
+                            return true;
+                        }
                     }
                 }
-            }
 
-            int count = node.getChildCount();
-            for (int i = 0; i < count; i++) {
-                android.view.accessibility.AccessibilityNodeInfo child = null;
-                try {
-                    child = node.getChild(i);
+                int count = node.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
                     if (child != null) {
-                        boolean clicked = clickEntireScreenOption(child, depth + 1);
-                        if (clicked) return true;
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "Error in clickEntireScreenOption child", t);
-                } finally {
-                    if (child != null) {
-                        try {
-                            child.recycle();
-                        } catch (Throwable ignored) {}
+                        queue.add(child);
                     }
                 }
+            } catch (Throwable t) {
+                Log.w(TAG, "Error in clickEntireScreenOption node: " + t.getMessage());
             }
-        } catch (Throwable t) {
-            Log.e(TAG, "clickEntireScreenOption error at depth " + depth, t);
-        }
-        return false;
-    }
-
-    private boolean clickSingleAppSpinner(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 12) return false;
-
-        try {
-            CharSequence text = node.getText();
-            CharSequence desc = node.getContentDescription();
-            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
-
-            if (!candidate.isEmpty()) {
-                if (candidate.contains("single app") || candidate.contains("a single app") || candidate.contains("an app")) {
-                    if (node.isClickable()) {
-                        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                        Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
-                        return true;
-                    } else if (node.getParent() != null && node.getParent().isClickable()) {
-                        node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                        Log.i(TAG, "Clicked single app spinner via parent!");
-                        return true;
-                    }
-                }
-            }
-
-            String viewId = node.getViewIdResourceName();
-            if (viewId != null && (viewId.contains("screen_share_mode_spinner") || viewId.contains("spinner"))) {
-                if (node.isClickable()) {
-                    node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    return true;
-                }
-            }
-
-            int count = node.getChildCount();
-            for (int i = 0; i < count; i++) {
-                android.view.accessibility.AccessibilityNodeInfo child = null;
-                try {
-                    child = node.getChild(i);
-                    if (child != null) {
-                        boolean clicked = clickSingleAppSpinner(child, depth + 1);
-                        if (clicked) return true;
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "Error in clickSingleAppSpinner child", t);
-                } finally {
-                    if (child != null) {
-                        try {
-                            child.recycle();
-                        } catch (Throwable ignored) {}
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            Log.e(TAG, "clickSingleAppSpinner error at depth " + depth, t);
         }
         return false;
     }
 
-    private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo node, int depth) {
-        if (node == null || depth > 12) return false;
+    // Iterative Breadth-First-Search (BFS) traversal - ZERO recursion, stack depth is strictly 1
+    private boolean clickSingleAppSpinner(android.view.accessibility.AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        java.util.Queue<android.view.accessibility.AccessibilityNodeInfo> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        int visited = 0;
 
-        try {
-            CharSequence text = node.getText();
-            CharSequence desc = node.getContentDescription();
-            String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+        while (!queue.isEmpty() && visited < 120) {
+            android.view.accessibility.AccessibilityNodeInfo node = queue.poll();
+            visited++;
 
-            if (!candidate.isEmpty()) {
-                if (candidate.equals("start now") || candidate.equals("start") || candidate.equals("start recording") ||
-                    candidate.equals("allow") || candidate.contains("start now") || candidate.contains("start recording")) {
+            try {
+                CharSequence text = node.getText();
+                CharSequence desc = node.getContentDescription();
+                String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+                if (!candidate.isEmpty()) {
+                    if (candidate.contains("single app") || candidate.contains("a single app") || candidate.contains("an app")) {
+                        if (node.isClickable()) {
+                            node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                            Log.i(TAG, "Clicked single app spinner to show Entire screen option!");
+                            return true;
+                        } else if (node.getParent() != null && node.getParent().isClickable()) {
+                            node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                            Log.i(TAG, "Clicked single app spinner via parent!");
+                            return true;
+                        }
+                    }
+                }
+
+                String viewId = node.getViewIdResourceName();
+                if (viewId != null && (viewId.contains("screen_share_mode_spinner") || viewId.contains("spinner"))) {
+                    if (node.isClickable()) {
+                        node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        return true;
+                    }
+                }
+
+                int count = node.getChildCount();
+                for (int i = 0; i < count; i++) {
+                    android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+                    if (child != null) {
+                        queue.add(child);
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Error in clickSingleAppSpinner node: " + t.getMessage());
+            }
+        }
+        return false;
+    }
+
+    // Iterative Breadth-First-Search (BFS) traversal - ZERO recursion, stack depth is strictly 1
+    private boolean findAndClickStartButton(android.view.accessibility.AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        java.util.Queue<android.view.accessibility.AccessibilityNodeInfo> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        int visited = 0;
+
+        while (!queue.isEmpty() && visited < 120) {
+            android.view.accessibility.AccessibilityNodeInfo node = queue.poll();
+            visited++;
+
+            try {
+                CharSequence text = node.getText();
+                CharSequence desc = node.getContentDescription();
+                String candidate = ((text != null ? text.toString() : "") + " " + (desc != null ? desc.toString() : "")).toLowerCase().trim();
+
+                if (!candidate.isEmpty()) {
+                    if (candidate.equals("start now") || candidate.equals("start") || candidate.equals("start recording") ||
+                        candidate.equals("allow") || candidate.contains("start now") || candidate.contains("start recording")) {
+                        if (node.isClickable()) {
+                            return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        } else if (node.getParent() != null && node.getParent().isClickable()) {
+                            return node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        }
+                    }
+                }
+
+                String viewId = node.getViewIdResourceName();
+                if (viewId != null && (viewId.endsWith("button1") || viewId.endsWith("confirm"))) {
                     if (node.isClickable()) {
                         return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                    } else if (node.getParent() != null && node.getParent().isClickable()) {
-                        return node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
                     }
                 }
-            }
 
-            String viewId = node.getViewIdResourceName();
-            if (viewId != null && (viewId.endsWith("button1") || viewId.endsWith("confirm"))) {
-                if (node.isClickable()) {
-                    return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
-                }
-            }
-
-            int childCount = node.getChildCount();
-            for (int i = 0; i < childCount; i++) {
-                android.view.accessibility.AccessibilityNodeInfo child = null;
-                try {
-                    child = node.getChild(i);
+                int childCount = node.getChildCount();
+                for (int i = 0; i < childCount; i++) {
+                    android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
                     if (child != null) {
-                        boolean clicked = findAndClickStartButton(child, depth + 1);
-                        if (clicked) return true;
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "Error in findAndClickStartButton child", t);
-                } finally {
-                    if (child != null) {
-                        try {
-                            child.recycle();
-                        } catch (Throwable ignored) {}
+                        queue.add(child);
                     }
                 }
+            } catch (Throwable t) {
+                Log.w(TAG, "Error in findAndClickStartButton node: " + t.getMessage());
             }
-        } catch (Throwable t) {
-            Log.e(TAG, "findAndClickStartButton error at depth " + depth, t);
         }
         return false;
     }
