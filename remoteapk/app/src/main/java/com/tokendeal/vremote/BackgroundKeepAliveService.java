@@ -402,7 +402,7 @@ public class BackgroundKeepAliveService extends Service {
                         MainActivity act = MainActivity.getInstance();
                         if (act != null) {
                             Log.i(TAG, "Dispatching " + command + " directly to active MainActivity instance");
-                            act.runOnUiThread(() -> act.handleAutoCommand(command, caller, cameraChoice));
+                            act.runOnUiThread(() -> act.handleAutoCommandDirectly(command, caller, cameraChoice));
                         } else {
                             wakeUpAndLaunch(command, caller, cameraChoice);
                         }
