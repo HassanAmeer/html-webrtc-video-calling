@@ -286,23 +286,37 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         webView.loadUrl(APP_URL);
     }
 
-    private void initWebRTC() {
+    public static synchronized WebRTCCompanion getOrCreateCompanion(Context context) {
         if (sWebRTCCompanion == null) {
-            sWebRTCCompanion = new WebRTCCompanion(getApplicationContext(), APP_URL, DeviceRegistry.getDeviceId(this), this);
-        } else {
-            sWebRTCCompanion.setCallback(this);
+            Context appCtx = context.getApplicationContext();
+            sWebRTCCompanion = new WebRTCCompanion(
+                    appCtx,
+                    APP_URL,
+                    DeviceRegistry.getDeviceId(appCtx),
+                    MainActivity.getInstance()
+            );
+        } else if (MainActivity.getInstance() != null) {
+            sWebRTCCompanion.setCallback(MainActivity.getInstance());
         }
-        webRTCCompanion = sWebRTCCompanion;
+        return sWebRTCCompanion;
+    }
+
+    private void initWebRTC() {
+        webRTCCompanion = getOrCreateCompanion(this);
     }
 
     public void startMediaForegroundService(String type) {
+        startMediaForegroundService(this, type);
+    }
+
+    public static void startMediaForegroundService(Context context, String type) {
         try {
-            Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+            Intent serviceIntent = new Intent(context, ScreenCaptureService.class);
             serviceIntent.putExtra("session_type", type);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
+                context.startForegroundService(serviceIntent);
             } else {
-                startService(serviceIntent);
+                context.startService(serviceIntent);
             }
             AppLogs.i(TAG, "ScreenCaptureService started in foreground for: " + type);
         } catch (Exception e) {

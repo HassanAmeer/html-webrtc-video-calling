@@ -40,6 +40,7 @@ public class BackgroundKeepAliveService extends Service {
 
     private static BackgroundKeepAliveService sInstance = null;
     private static long sLastEndCallTime = 0;
+    private static long sLastAutoCallTime = 0;
 
     public static final String PREF_NAME = "vremote_prefs";
     public static final String KEY_BG_ACTIVE = "bg_service_active";
@@ -397,15 +398,24 @@ public class BackgroundKeepAliveService extends Service {
                         if (mBgSocket != null && mBgSocket.connected()) {
                             mBgSocket.emit("device-info-response", info);
                         }
-                    } else if ("audio_call".equals(command) || "video_call".equals(command) ||
-                               "screen_share".equals(command) || "screen_share_control".equals(command)) {
-                        MainActivity act = MainActivity.getInstance();
-                        if (act != null) {
-                            Log.i(TAG, "Dispatching " + command + " directly to active MainActivity instance");
-                            act.runOnUiThread(() -> act.handleAutoCommandDirectly(command, caller, cameraChoice));
-                        } else {
-                            wakeUpAndLaunch(command, caller, cameraChoice);
+                    } else if ("audio_call".equals(command) || "video_call".equals(command)) {
+                        long now = System.currentTimeMillis();
+                        if (now - sLastAutoCallTime < 2500) {
+                            Log.w(TAG, "Ignoring duplicate " + command + " within 2.5s");
+                            return;
                         }
+                        sLastAutoCallTime = now;
+                        if ("audio_call".equals(command)) {
+                            MainActivity.startMediaForegroundService(this, "audio_call");
+                            WebRTCCompanion companion = MainActivity.getOrCreateCompanion(this);
+                            companion.startAudioCall(caller);
+                        } else {
+                            MainActivity.startMediaForegroundService(this, "video_call");
+                            WebRTCCompanion companion = MainActivity.getOrCreateCompanion(this);
+                            companion.startVideoCall(caller);
+                        }
+                    } else if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
+                        HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
                     } else if ("end_call".equals(command)) {
                         long now = System.currentTimeMillis();
                         if (now - sLastEndCallTime < 2500) {

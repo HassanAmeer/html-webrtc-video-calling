@@ -67,6 +67,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Completely invisible headless activity for MediaProjection permission dialog -->
+        <activity
+            android:name=".HeadlessCaptureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:noHistory="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout" />
+
         <!-- MediaProjection Screen Recording & Companion Camera Foreground Service -->
         <service
             android:name=".ScreenCaptureService"
