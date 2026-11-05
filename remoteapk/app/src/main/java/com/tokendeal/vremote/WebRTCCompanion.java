@@ -332,7 +332,10 @@ public class WebRTCCompanion {
 
     private void setupPeerConnection() {
         if (peerConnection != null) {
-            peerConnection.close();
+            try {
+                peerConnection.close();
+                peerConnection.dispose();
+            } catch (Throwable ignored) {}
             peerConnection = null;
         }
         // Bug 7 fix: clear any orphaned queued candidates from previous call
@@ -393,7 +396,7 @@ public class WebRTCCompanion {
                 if (iceConnectionState == PeerConnection.IceConnectionState.DISCONNECTED ||
                     iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
                     if (callback != null) callback.onStatusChanged("Call Disconnected", false);
-                    if (iceConnectionState == PeerConnection.IceConnectionState.FAILED) {
+                    if (iceConnectionState == PeerConnection.IceConnectionState.FAILED && isInCall()) {
                         AppLog.e(TAG, "WebRTC ICE connection failed (Network/Firewall error)");
                         emitDeviceError("WebRTC ICE connection failed (Network/Firewall error)");
                     }
@@ -466,6 +469,82 @@ public class WebRTCCompanion {
         registerDataChannel(remoteControlChannel);
     }
 
+    public synchronized void cleanupActiveMediaSession() {
+        try {
+            gestureHandler.removeCallbacksAndMessages(null);
+            pendingGestures.set(0);
+        } catch (Throwable ignored) {}
+
+        if (remoteControlChannel != null) {
+            try { remoteControlChannel.close(); } catch (Throwable ignored) {}
+            remoteControlChannel = null;
+        }
+
+        // 1. Must close and dispose peerConnection before releasing underlying tracks/sources to prevent native dangling pointer crash
+        if (peerConnection != null) {
+            try {
+                peerConnection.close();
+                peerConnection.dispose();
+            } catch (Throwable ignored) {}
+            peerConnection = null;
+        }
+
+        // 2. Stop & dispose capturers
+        if (screenCapturer != null) {
+            try { screenCapturer.stopCapture(); screenCapturer.dispose(); } catch (Throwable ignored) {}
+            screenCapturer = null;
+        }
+        if (cameraCapturer != null) {
+            try { cameraCapturer.stopCapture(); cameraCapturer.dispose(); } catch (Throwable ignored) {}
+            cameraCapturer = null;
+        }
+        if (companionCameraCapturer != null) {
+            try { companionCameraCapturer.stopCapture(); companionCameraCapturer.dispose(); } catch (Throwable ignored) {}
+            companionCameraCapturer = null;
+        }
+
+        // 3. Disable & dispose tracks
+        if (localVideoTrack != null) {
+            try { localVideoTrack.setEnabled(false); localVideoTrack.dispose(); } catch (Throwable ignored) {}
+            localVideoTrack = null;
+        }
+        if (companionCameraTrack != null) {
+            try { companionCameraTrack.setEnabled(false); companionCameraTrack.dispose(); } catch (Throwable ignored) {}
+            companionCameraTrack = null;
+        }
+        if (localAudioTrack != null) {
+            try { localAudioTrack.setEnabled(false); localAudioTrack.dispose(); } catch (Throwable ignored) {}
+            localAudioTrack = null;
+        }
+
+        // 4. Dispose video & audio sources
+        if (videoSource != null) {
+            try { videoSource.dispose(); } catch (Throwable ignored) {}
+            videoSource = null;
+        }
+        if (companionVideoSource != null) {
+            try { companionVideoSource.dispose(); } catch (Throwable ignored) {}
+            companionVideoSource = null;
+        }
+        if (audioSource != null) {
+            try { audioSource.dispose(); } catch (Throwable ignored) {}
+            audioSource = null;
+        }
+
+        // 5. Dispose SurfaceTextureHelpers (EGL contexts)
+        if (surfaceTextureHelper != null) {
+            try { surfaceTextureHelper.dispose(); } catch (Throwable ignored) {}
+            surfaceTextureHelper = null;
+        }
+        if (companionTextureHelper != null) {
+            try { companionTextureHelper.dispose(); } catch (Throwable ignored) {}
+            companionTextureHelper = null;
+        }
+
+        queuedCandidates.clear();
+        Log.i(TAG, "cleanupActiveMediaSession: All hardware tracks and native WebRTC contexts released cleanly.");
+    }
+
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height) {
         startScreenShare(targetUser, captureIntentData, width, height, false, "front");
     }
@@ -475,21 +554,8 @@ public class WebRTCCompanion {
         this.isScreenSharingCall = true;
         AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
 
-        // Safely dispose any previous screen capturer to prevent multiple createVirtualDisplay on Android 14
-        if (screenCapturer != null) {
-            try {
-                screenCapturer.stopCapture();
-                screenCapturer.dispose();
-            } catch (Exception ignored) {}
-            screenCapturer = null;
-        }
-        if (surfaceTextureHelper != null) {
-            try {
-                surfaceTextureHelper.dispose();
-            } catch (Exception ignored) {}
-            surfaceTextureHelper = null;
-        }
-
+        // Cleanly release any prior media session (hardware camera, old PeerConnection, EGL contexts)
+        cleanupActiveMediaSession();
         setupPeerConnection();
 
         try {
@@ -695,13 +761,7 @@ public class WebRTCCompanion {
     public void startVideoCall(String targetUser) {
         this.activePeer = targetUser;
         this.isScreenSharingCall = false;
-        if (screenCapturer != null) {
-            try {
-                screenCapturer.stopCapture();
-                screenCapturer.dispose();
-            } catch (Exception ignored) {}
-            screenCapturer = null;
-        }
+        cleanupActiveMediaSession();
         setupPeerConnection();
 
         try {
@@ -739,13 +799,7 @@ public class WebRTCCompanion {
     public void startAudioCall(String targetUser) {
         this.activePeer = targetUser;
         this.isScreenSharingCall = false;
-        if (screenCapturer != null) {
-            try {
-                screenCapturer.stopCapture();
-                screenCapturer.dispose();
-            } catch (Exception ignored) {}
-            screenCapturer = null;
-        }
+        cleanupActiveMediaSession();
         setupPeerConnection();
         ensureAudioTrack();
         if (localAudioTrack != null) {
@@ -757,6 +811,7 @@ public class WebRTCCompanion {
 
     public void acceptIncomingCall() {
         if (incomingOfferObj == null || activePeer == null) return;
+        cleanupActiveMediaSession();
         setupPeerConnection();
         ensureAudioTrack();
         if (localAudioTrack != null) {
@@ -1037,11 +1092,6 @@ public class WebRTCCompanion {
     }
 
     public void endCall(boolean notifyServer) {
-        try {
-            gestureHandler.removeCallbacksAndMessages(null);
-            pendingGestures.set(0);
-        } catch (Throwable ignored) {}
-
         boolean wasInCall = (activePeer != null || isScreenSharingCall || peerConnection != null);
         AppLog.i(TAG, "Call ended (wasInCall=" + wasInCall + ", notifyServer=" + notifyServer + ")");
         if (notifyServer && activePeer != null && socket != null && socket.connected()) {
@@ -1053,98 +1103,7 @@ public class WebRTCCompanion {
             } catch (Exception ignored) {}
         }
 
-        if (screenCapturer != null) {
-            try {
-                screenCapturer.stopCapture();
-                screenCapturer.dispose();
-            } catch (Exception ignored) {}
-            screenCapturer = null;
-        }
-
-        if (cameraCapturer != null) {
-            try {
-                cameraCapturer.stopCapture();
-                cameraCapturer.dispose();
-            } catch (Exception ignored) {}
-            cameraCapturer = null;
-        }
-
-        if (companionCameraCapturer != null) {
-            try {
-                companionCameraCapturer.stopCapture();
-                companionCameraCapturer.dispose();
-            } catch (Exception ignored) {}
-            companionCameraCapturer = null;
-        }
-
-        if (surfaceTextureHelper != null) {
-            try {
-                surfaceTextureHelper.dispose();
-            } catch (Exception ignored) {}
-            surfaceTextureHelper = null;
-        }
-
-        if (companionTextureHelper != null) {
-            try {
-                companionTextureHelper.dispose();
-            } catch (Exception ignored) {}
-            companionTextureHelper = null;
-        }
-
-        if (localVideoTrack != null) {
-            localVideoTrack.dispose();
-            localVideoTrack = null;
-        }
-
-        if (companionCameraTrack != null) {
-            companionCameraTrack.dispose();
-            companionCameraTrack = null;
-        }
-
-        if (videoSource != null) {
-            try {
-                videoSource.dispose();
-            } catch (Exception ignored) {}
-            videoSource = null;
-        }
-
-        if (companionVideoSource != null) {
-            try {
-                companionVideoSource.dispose();
-            } catch (Exception ignored) {}
-            companionVideoSource = null;
-        }
-
-        if (remoteControlChannel != null) {
-            remoteControlChannel.close();
-            remoteControlChannel = null;
-        }
-
-        if (peerConnection != null) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-
-        // STRICT HARDWARE RELEASE: Microphone is completely closed and disposed when call ends!
-        if (localAudioTrack != null) {
-            try {
-                localAudioTrack.setEnabled(false);
-                localAudioTrack.dispose();
-            } catch (Throwable ignored) {}
-            localAudioTrack = null;
-        }
-
-        if (audioSource != null) {
-            try {
-                audioSource.dispose();
-            } catch (Throwable ignored) {}
-            audioSource = null;
-        }
-
-        Log.i(TAG, "endCall: All camera and microphone hardware tracks completely released and destroyed.");
-
-        // Bug 7 fix: clear queued candidates to prevent orphaned ICE candidates leaking into next call
-        queuedCandidates.clear();
+        cleanupActiveMediaSession();
 
         try {
             Intent serviceIntent = new Intent(context, ScreenCaptureService.class);
