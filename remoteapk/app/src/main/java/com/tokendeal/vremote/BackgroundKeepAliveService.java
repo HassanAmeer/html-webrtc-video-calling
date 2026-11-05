@@ -108,6 +108,11 @@ public class BackgroundKeepAliveService extends Service {
             }
         } catch (Exception ignored) {}
 
+        // 4. Remote Accessibility Service fallback (if accessibility is running, background communication is guaranteed active)
+        if (RemoteAccessibilityService.isServiceRunningOrEnabled(context)) {
+            return true;
+        }
+
         return false;
     }
 

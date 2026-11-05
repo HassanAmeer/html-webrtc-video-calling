@@ -2144,8 +2144,18 @@ socket.on("joined", (allusers) => {
     console.log("Participants update:", allusers);
     latestUsers = allusers || {};
 
-    // Gracefully clean up if active call peer disconnected / closed browser
-    if (activePeer && !latestUsers[activePeer]) {
+    // Gracefully clean up if active call peer disconnected / closed browser (excluding registered background companion devices)
+    const cleanActive = activePeer ? normalizeDeviceId(activePeer) : "";
+    const isCompanionDevice = Boolean(
+        activePeer && (
+            activePeer.endsWith("_screen") ||
+            activePeer.startsWith("mobile_remote_") ||
+            (activeSessionDevices && (activeSessionDevices.has(activePeer) || activeSessionDevices.has(cleanActive))) ||
+            (cachedDevices && cachedDevices.some(d => d.deviceId === activePeer || d.deviceId === cleanActive || d.socketId === activePeer))
+        )
+    );
+
+    if (activePeer && !isCompanionDevice && !latestUsers[activePeer]) {
         console.log(`Active peer ${activePeer} left the meeting`);
         showToast(`${activePeer} disconnected`);
         endCall(false);
@@ -7121,6 +7131,31 @@ setupRemoteCameraPip();
     const deviceErrorMessages = new Map();
     const deviceFailedAction = new Map();
 
+    const ACTION_DEFAULTS = {
+        audio_call: { icon: "fa-phone", label: "Call" },
+        video_call: { icon: "fa-video", label: "Video" },
+        screen_share: { icon: "fa-desktop", label: "Share" },
+        screen_share_control: { icon: "fa-hand-pointer", label: "Control" },
+        get_gallery: { icon: "fa-images", label: "Gallery" },
+        get_videos: { icon: "fa-film", label: "Videos" }
+    };
+
+    function resetDeviceButtonLoaders(rawId) {
+        const deviceId = normalizeDeviceId(rawId);
+        if (!deviceId || !drawerDevicesList) return;
+        const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"], .dev-action-btn[data-did="${rawId}"]`);
+        btns.forEach(b => {
+            b.classList.remove("btn-action-loading", "btn-action-failed");
+            const act = b.dataset.action;
+            if (ACTION_DEFAULTS[act]) {
+                b.innerHTML = `<i class="fas ${ACTION_DEFAULTS[act].icon}"></i><span>${ACTION_DEFAULTS[act].label}</span>`;
+            } else if (b.dataset.originalHtml) {
+                b.innerHTML = b.dataset.originalHtml;
+            }
+            delete b.dataset.originalHtml;
+        });
+    }
+
     function clearDeviceError(rawId) {
         const deviceId = normalizeDeviceId(rawId);
         if (!deviceId) return;
@@ -7137,19 +7172,7 @@ setupRemoteCameraPip();
             hintEl.style.fontWeight = "500";
             hintEl.style.fontSize = "10.5px";
         }
-    }
-
-    function resetDeviceButtonLoaders(rawId) {
-        const deviceId = normalizeDeviceId(rawId);
-        if (!deviceId || !drawerDevicesList) return;
-        const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${deviceId}"]`);
-        btns.forEach(b => {
-            b.classList.remove("btn-action-loading");
-            if (b.dataset.originalHtml) {
-                b.innerHTML = b.dataset.originalHtml;
-                delete b.dataset.originalHtml;
-            }
-        });
+        resetDeviceButtonLoaders(deviceId);
     }
 
     function setDeviceConnecting(rawId, action, clickedBtn) {
@@ -7298,7 +7321,7 @@ setupRemoteCameraPip();
 
         // Highlight the clicked button with orange failed state
         if (drawerDevicesList) {
-            const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${cleanId}"]`);
+            const btns = drawerDevicesList.querySelectorAll(`.dev-action-btn[data-did="${cleanId}"], .dev-action-btn[data-did="${rawId}"]`);
             btns.forEach(b => {
                 if (b.classList.contains("btn-action-loading")) {
                     b.classList.remove("btn-action-loading");
@@ -7306,11 +7329,14 @@ setupRemoteCameraPip();
                     b.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#ff9f0a;"></i><span style="color:#ff9f0a; font-weight:700;">Failed</span>`;
                     setTimeout(() => {
                         b.classList.remove("btn-action-failed");
-                        if (b.dataset.originalHtml) {
+                        const act = b.dataset.action;
+                        if (ACTION_DEFAULTS[act]) {
+                            b.innerHTML = `<i class="fas ${ACTION_DEFAULTS[act].icon}"></i><span>${ACTION_DEFAULTS[act].label}</span>`;
+                        } else if (b.dataset.originalHtml) {
                             b.innerHTML = b.dataset.originalHtml;
                             delete b.dataset.originalHtml;
                         }
-                    }, 6000);
+                    }, 4000);
                 }
             });
         }
@@ -7526,7 +7552,11 @@ setupRemoteCameraPip();
             }
             deviceConnectingActions.delete(deviceId);
             if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
+            deviceFailedAction.delete(deviceId);
+            if (rawDeviceId) deviceFailedAction.delete(rawDeviceId);
+
             resetDeviceButtonLoaders(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) resetDeviceButtonLoaders(rawDeviceId);
             const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
             if (connBar) connBar.style.display = "none";
             const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
@@ -7553,10 +7583,18 @@ setupRemoteCameraPip();
             }
             deviceConnectingActions.delete(deviceId);
             if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
+            deviceFailedAction.delete(deviceId);
+            if (rawDeviceId) deviceFailedAction.delete(rawDeviceId);
+            deviceErrorMessages.delete(deviceId);
+            if (rawDeviceId) deviceErrorMessages.delete(rawDeviceId);
+
             resetDeviceButtonLoaders(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) resetDeviceButtonLoaders(rawDeviceId);
             clearDeviceError(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) clearDeviceError(rawDeviceId);
 
             activeSessionDevices.delete(deviceId);
+            if (rawDeviceId) activeSessionDevices.delete(rawDeviceId);
             const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
             if (activeBar) activeBar.style.display = "none";
             const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);

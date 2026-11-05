@@ -315,14 +315,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         runOnUiThread(() -> {
             // Android 14 strictly forbids reusing MediaProjection resultData Intent tokens.
-            // If already actively sharing or permission request in flight, ignore duplicate request
             if (webRTCCompanion != null && webRTCCompanion.isScreenSharing()) {
-                Log.w(TAG, "Screen sharing is already actively running, ignoring duplicate request");
-                return;
-            }
-            if (isScreenCaptureRequestPending) {
-                Log.w(TAG, "Screen capture permission request already in flight, ignoring duplicate");
-                return;
+                Log.w(TAG, "Previous screen sharing session detected; resetting prior session before new request");
+                try {
+                    webRTCCompanion.endCall(false);
+                    webRTCCompanion.cleanupActiveMediaSession();
+                } catch (Exception ignored) {}
             }
 
             isScreenCaptureRequestPending = true;
@@ -545,9 +543,26 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         public void startBackgroundService() {
             runOnUiThread(() -> {
                 try {
+                    try {
+                        getSharedPreferences(BackgroundKeepAliveService.PREF_NAME, Context.MODE_PRIVATE)
+                                .edit().putBoolean(BackgroundKeepAliveService.KEY_BG_ACTIVE, true).apply();
+                        File bgFile = new File(getFilesDir(), BackgroundKeepAliveService.HEARTBEAT_FILE);
+                        if (!bgFile.exists()) bgFile.createNewFile();
+                        bgFile.setLastModified(System.currentTimeMillis());
+                    } catch (Exception ignored) {}
+
                     BackgroundKeepAliveService.startService(MainActivity.this);
                     KeepAliveScheduler.schedulePeriodicWork(MainActivity.this);
                     Toast.makeText(MainActivity.this, "Background Service Started", Toast.LENGTH_SHORT).show();
+
+                    // Immediately re-trigger loadPermissions in WebView so the UI reflects "✓ Active & Allowed"
+                    if (webView != null) {
+                        webView.postDelayed(() -> {
+                            try {
+                                webView.evaluateJavascript("if (typeof loadPermissions === 'function') loadPermissions(); else if (typeof window.loadPermissions === 'function') window.loadPermissions();", null);
+                            } catch (Exception ignored) {}
+                        }, 400);
+                    }
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to start Background Service", e);
                 }
