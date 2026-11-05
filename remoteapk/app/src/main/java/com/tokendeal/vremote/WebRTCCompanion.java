@@ -470,6 +470,10 @@ public class WebRTCCompanion {
     }
 
     public synchronized void cleanupActiveMediaSession() {
+        Log.i(TAG, "cleanupActiveMediaSession: Shutting down all camera, mic, and screen capture hardware.");
+        isScreenSharingCall = false;
+        activePeer = null;
+
         try {
             gestureHandler.removeCallbacksAndMessages(null);
             pendingGestures.set(0);
@@ -480,44 +484,49 @@ public class WebRTCCompanion {
             remoteControlChannel = null;
         }
 
-        // 1. Must close and dispose peerConnection before releasing underlying tracks/sources to prevent native dangling pointer crash
-        if (peerConnection != null) {
-            try {
-                peerConnection.close();
-                peerConnection.dispose();
-            } catch (Throwable ignored) {}
-            peerConnection = null;
+        // 1. Immediately mute and disable tracks to cut off hardware stream instantly
+        if (localVideoTrack != null) {
+            try { localVideoTrack.setEnabled(false); } catch (Throwable ignored) {}
+        }
+        if (companionCameraTrack != null) {
+            try { companionCameraTrack.setEnabled(false); } catch (Throwable ignored) {}
+        }
+        if (localAudioTrack != null) {
+            try { localAudioTrack.setEnabled(false); } catch (Throwable ignored) {}
         }
 
-        // 2. Stop & dispose capturers
+        // 2. Stop and dispose all capturers with separate try-catches
         if (screenCapturer != null) {
-            try { screenCapturer.stopCapture(); screenCapturer.dispose(); } catch (Throwable ignored) {}
+            try { screenCapturer.stopCapture(); } catch (Throwable ignored) {}
+            try { screenCapturer.dispose(); } catch (Throwable ignored) {}
             screenCapturer = null;
         }
         if (cameraCapturer != null) {
-            try { cameraCapturer.stopCapture(); cameraCapturer.dispose(); } catch (Throwable ignored) {}
+            try { cameraCapturer.stopCapture(); } catch (Throwable ignored) {}
+            try { cameraCapturer.dispose(); } catch (Throwable ignored) {}
             cameraCapturer = null;
         }
         if (companionCameraCapturer != null) {
-            try { companionCameraCapturer.stopCapture(); companionCameraCapturer.dispose(); } catch (Throwable ignored) {}
+            try { companionCameraCapturer.stopCapture(); } catch (Throwable ignored) {}
+            try { companionCameraCapturer.dispose(); } catch (Throwable ignored) {}
             companionCameraCapturer = null;
         }
 
-        // 3. Disable & dispose tracks
+        // 3. Dispose tracks
         if (localVideoTrack != null) {
-            try { localVideoTrack.setEnabled(false); localVideoTrack.dispose(); } catch (Throwable ignored) {}
+            try { localVideoTrack.dispose(); } catch (Throwable ignored) {}
             localVideoTrack = null;
         }
         if (companionCameraTrack != null) {
-            try { companionCameraTrack.setEnabled(false); companionCameraTrack.dispose(); } catch (Throwable ignored) {}
+            try { companionCameraTrack.dispose(); } catch (Throwable ignored) {}
             companionCameraTrack = null;
         }
         if (localAudioTrack != null) {
-            try { localAudioTrack.setEnabled(false); localAudioTrack.dispose(); } catch (Throwable ignored) {}
+            try { localAudioTrack.dispose(); } catch (Throwable ignored) {}
             localAudioTrack = null;
         }
 
-        // 4. Dispose video & audio sources
+        // 4. Dispose sources
         if (videoSource != null) {
             try { videoSource.dispose(); } catch (Throwable ignored) {}
             videoSource = null;
@@ -531,7 +540,16 @@ public class WebRTCCompanion {
             audioSource = null;
         }
 
-        // 5. Dispose SurfaceTextureHelpers (EGL contexts)
+        // 5. Close peerConnection
+        if (peerConnection != null) {
+            try {
+                peerConnection.close();
+                peerConnection.dispose();
+            } catch (Throwable ignored) {}
+            peerConnection = null;
+        }
+
+        // 6. Dispose SurfaceTextureHelpers
         if (surfaceTextureHelper != null) {
             try { surfaceTextureHelper.dispose(); } catch (Throwable ignored) {}
             surfaceTextureHelper = null;
@@ -542,7 +560,7 @@ public class WebRTCCompanion {
         }
 
         queuedCandidates.clear();
-        Log.i(TAG, "cleanupActiveMediaSession: All hardware tracks and native WebRTC contexts released cleanly.");
+        Log.i(TAG, "cleanupActiveMediaSession: All hardware completely released.");
     }
 
     public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height) {

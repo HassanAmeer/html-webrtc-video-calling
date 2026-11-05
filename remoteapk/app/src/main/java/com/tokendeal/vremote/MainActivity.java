@@ -50,7 +50,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private static final String KEY_HAS_PROMPTED_ACCESSIBILITY = "has_prompted_accessibility";
 
     private static MainActivity sInstance = null;
-    public static MainActivity getInstance() { return sInstance; }
+    public static MainActivity getInstance() {
+        if (sInstance != null && (sInstance.isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && sInstance.isDestroyed()))) {
+            return null;
+        }
+        return sInstance;
+    }
     private static WebRTCCompanion sWebRTCCompanion = null;
     public static WebRTCCompanion getCompanionInstance() { return sWebRTCCompanion; }
     public WebRTCCompanion getWebRTCCompanion() { return sWebRTCCompanion; }
@@ -704,10 +709,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 });
                 break;
             case "screen_share":
-                startScreenCaptureWithCamera(caller, false, !"none".equalsIgnoreCase(camChoice), camChoice);
+                startScreenCaptureWithCamera(caller, false, false, "none");
                 break;
             case "screen_share_control":
-                startScreenCaptureWithCamera(caller, true, !"none".equalsIgnoreCase(camChoice), camChoice);
+                startScreenCaptureWithCamera(caller, true, false, "none");
                 break;
             case "end_call":
                 stopAllMediaAndFinish();
@@ -1065,7 +1070,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             if (webView != null) {
                 runOnUiThread(() -> {
                     try {
-                        webView.evaluateJavascript("if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
+                        webView.evaluateJavascript("if (typeof forceShutdownAllMediaHardware === 'function') forceShutdownAllMediaHardware(); else if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
                     } catch (Exception ignored) {}
                 });
             }
@@ -1105,14 +1110,6 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 if (RemoteAccessibilityService.getInstance() != null) {
                     try {
                         RemoteAccessibilityService.getInstance().performHome();
-                    } catch (Exception ignored) {}
-                }
-
-                try {
-                    finishAndRemoveTask();
-                } catch (Exception e) {
-                    try {
-                        finish();
                     } catch (Exception ignored) {}
                 }
             });

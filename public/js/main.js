@@ -3340,14 +3340,21 @@ function closeScreenShareStream() {
     if (activePeer && activePeer.endsWith("_screen")) {
         activePeer = null;
     }
-    // Restore camera stream to main video if it was moved to PiP
+    // Restore camera stream to main video if it was moved to PiP, otherwise blank it
     if (savedCameraStream) {
         if (remoteVideo) {
             remoteVideo.srcObject = savedCameraStream;
             remoteVideo.play().catch(() => {});
         }
         savedCameraStream = null;
+    } else {
+        if (remoteVideo) {
+            remoteVideo.srcObject = null;
+            try { remoteVideo.pause(); } catch(_) {}
+        }
     }
+    const watermark = document.getElementById("remote-camera-watermark");
+    if (watermark) watermark.style.display = "none";
     const pipEl = document.getElementById("remote-camera-pip");
     const pipVideo = document.getElementById("remoteCameraVideo");
     if (pipEl) pipEl.style.display = "none";
@@ -3357,6 +3364,66 @@ function closeScreenShareStream() {
         clearFloatingStreamBtn();
     }
 }
+
+function forceShutdownAllMediaHardware() {
+    console.log("forceShutdownAllMediaHardware: Shutting down all cameras, mics, and stream video elements");
+    activePeer = null;
+    callingPeer = null;
+    incomingCallData = null;
+    pendingRegisteredDeviceCall = null;
+
+    if (localStream) {
+        try {
+            localStream.getTracks().forEach(t => {
+                try { t.enabled = false; t.stop(); } catch(_) {}
+            });
+        } catch (_) {}
+        localStream = null;
+    }
+    for (const track of allLiveMediaTracks) {
+        try { track.enabled = false; track.stop(); } catch (_) {}
+    }
+    allLiveMediaTracks.clear();
+
+    if (peerConnection) {
+        try { peerConnection.close(); } catch (_) {}
+        peerConnection = null;
+    }
+    if (screenPeerConnection) {
+        try { screenPeerConnection.close(); } catch (_) {}
+        screenPeerConnection = null;
+    }
+    if (typeof remoteControlChannel !== "undefined" && remoteControlChannel) {
+        try { remoteControlChannel.close(); } catch (_) {}
+        remoteControlChannel = null;
+    }
+
+    if (localVideo) localVideo.srcObject = null;
+    if (remoteVideo) {
+        remoteVideo.srcObject = null;
+        try { remoteVideo.pause(); } catch(_) {}
+    }
+    if (remoteAudio) {
+        remoteAudio.srcObject = null;
+        try { remoteAudio.pause(); } catch(_) {}
+    }
+
+    savedCameraStream = null;
+    const watermark = document.getElementById("remote-camera-watermark");
+    if (watermark) watermark.style.display = "none";
+    const rsc = document.getElementById("remote-screen-container");
+    if (rsc) rsc.style.display = "none";
+    const pipEl = document.getElementById("remote-camera-pip");
+    if (pipEl) pipEl.style.display = "none";
+    const pipVideo = document.getElementById("remoteCameraVideo");
+    if (pipVideo) pipVideo.srcObject = null;
+    const navBar = document.getElementById("remote-control-nav-bar");
+    if (navBar) navBar.style.display = "none";
+
+    if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
+    if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
+}
+window.forceShutdownAllMediaHardware = forceShutdownAllMediaHardware;
 
 // Strictly Mute Mic & Disable Camera on Browser when calling Registered Devices
 function silenceAndDisableLocalMedia() {
@@ -3677,6 +3744,7 @@ if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
 
 socket.on("end-call", ({ from, to }) => {
     console.log(`Call ended event received: from=${from}, to=${to}`);
+    forceShutdownAllMediaHardware();
     closeScreenShareStream();
     if (incomingCallData) {
         stopIncomingCallAlert();
@@ -7512,30 +7580,8 @@ setupRemoteCameraPip();
             if (typeof activePeer !== "undefined" && activePeer) {
                 socket.emit("end-call", { from: myUsername, to: activePeer });
             }
-            if (peerConnection) {
-                try { peerConnection.close(); } catch(e){}
-                peerConnection = null;
-            }
-            if (screenPeerConnection) {
-                try { screenPeerConnection.close(); } catch(e){}
-                screenPeerConnection = null;
-            }
-            if (remoteControlChannel) {
-                try { remoteControlChannel.close(); } catch(e){}
-                remoteControlChannel = null;
-            }
-            if (localStream) {
-                try { localStream.getTracks().forEach(t => t.stop()); } catch(e){}
-                localStream = null;
-            }
-            activePeer = null;
-            callingPeer = null;
-            if (typeof updateFloatingEndCallBtn === "function") {
-                updateFloatingEndCallBtn();
-            }
-            if (typeof clearFloatingStreamBtn === "function") clearFloatingStreamBtn();
-            const rsc = document.getElementById("remote-screen-container");
-            if (rsc) rsc.style.display = "none";
+
+            forceShutdownAllMediaHardware();
             closeGallery();
             showToast("Application disconnected & camera/stream stopped on " + deviceId);
             return;

