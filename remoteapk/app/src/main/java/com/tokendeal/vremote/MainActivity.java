@@ -132,7 +132,6 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             permList.add(Manifest.permission.READ_MEDIA_IMAGES);
             permList.add(Manifest.permission.READ_MEDIA_VIDEO);
             permList.add(Manifest.permission.READ_MEDIA_AUDIO);
-            permList.add(Manifest.permission.POST_NOTIFICATIONS);
         } else {
             permList.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
@@ -450,15 +449,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 status.put("overlay", overlayOk ? "granted" : "denied");
                 status.put("screen_sharing", overlayOk ? "granted" : "denied");
 
-                // 8. Notifications
-                boolean notifOk;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notifOk = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-                            && androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
-                } else {
-                    notifOk = androidx.core.app.NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
-                }
-                status.put("notifications", notifOk ? "granted" : "denied");
+                // 8. Notifications - suppressed / not used
+                status.put("notifications", "granted");
 
                 return status.toString();
             } catch (Exception e) {
@@ -571,11 +563,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                             ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_PERMISSIONS);
                         }
                     } else if ("notifications".equalsIgnoreCase(key)) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_PERMISSIONS);
-                        } else {
-                            openNotificationSettings();
-                        }
+                        // Notifications disabled by design - no prompt
                     } else {
                         openAppSettings();
                     }
