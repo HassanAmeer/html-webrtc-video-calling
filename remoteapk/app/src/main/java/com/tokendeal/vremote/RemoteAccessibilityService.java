@@ -36,25 +36,31 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     private static volatile RemoteAccessibilityService sInstance = null;
     private static volatile boolean sAutoAcceptPending = false;
+    private static volatile long sAutoAcceptStartTime = 0;
     private static long sLastEndCallTime = 0;
 
     private final BroadcastReceiver mAutoAcceptReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             sAutoAcceptPending = true;
+            sAutoAcceptStartTime = System.currentTimeMillis();
             scheduleAutoAcceptCheck(0);
         }
     };
 
     public static void setAutoAcceptPending(boolean pending) {
         sAutoAcceptPending = pending;
-        if (pending && sInstance != null) {
-            sInstance.scheduleAutoAcceptCheck(0);
+        if (pending) {
+            sAutoAcceptStartTime = System.currentTimeMillis();
+            if (sInstance != null) {
+                sInstance.scheduleAutoAcceptCheck(0);
+            }
         }
     }
 
     public static void triggerAutoAccept(Context context) {
         sAutoAcceptPending = true;
+        sAutoAcceptStartTime = System.currentTimeMillis();
         if (sInstance != null) {
             sInstance.scheduleAutoAcceptCheck(0);
         }
@@ -84,8 +90,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private void scheduleAutoAcceptCheck(int attempt) {
-        if (!isAutoAcceptActive(this) || attempt > 30) {
-            if (attempt > 30) {
+        boolean timedOut = (sAutoAcceptStartTime > 0 && System.currentTimeMillis() - sAutoAcceptStartTime > 5000);
+        if (!isAutoAcceptActive(this) || attempt > 15 || timedOut) {
+            if (attempt > 15 || timedOut) {
                 sAutoAcceptPending = false;
                 try {
                     SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
@@ -458,6 +465,8 @@ public class RemoteAccessibilityService extends AccessibilityService {
             } else {
                 startActivity(intent);
             }
+            // Reset sAutoAcceptStartTime and ensure 5000ms max timeout when activity was launched
+            sAutoAcceptStartTime = System.currentTimeMillis();
         } catch (Exception e) {
             Log.e(TAG, "startActivity failed: " + e.getMessage());
         }
@@ -480,8 +489,30 @@ public class RemoteAccessibilityService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (!sAutoAcceptPending || event == null) return;
 
+        // Prevent IPC deadlock / scanner timeout: ensure 5000ms max timeout
+        if (sAutoAcceptStartTime > 0 && (System.currentTimeMillis() - sAutoAcceptStartTime > 5000)) {
+            sAutoAcceptPending = false;
+            return;
+        }
+
         try {
+            CharSequence pkgChar = event.getPackageName();
+            String pkg = (pkgChar != null) ? pkgChar.toString() : "";
+
+            // Only call getRootInActiveWindow() if event.getPackageName() matches system UI / permission packages
+            // (e.g. com.android.systemui, com.google.android.permissioncontroller, android), or if event is TYPE_WINDOW_STATE_CHANGED.
+            // Never spam scan when user is just browsing regular apps.
+            boolean isSystemOrPermissionPkg = pkg.equals("com.android.systemui")
+                    || pkg.equals("com.google.android.permissioncontroller")
+                    || pkg.equals("android")
+                    || pkg.contains("permissioncontroller")
+                    || pkg.contains("systemui");
+
             int eventType = event.getEventType();
+            if (!isSystemOrPermissionPkg && eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                return;
+            }
+
             if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
                 eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
 
@@ -527,6 +558,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 boolean s = findAndClickStartButton(root);
                 if (s) {
                     sAutoAcceptPending = false;
+                    sAutoAcceptStartTime = 0;
                     try {
                         SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
                         sp.edit().remove("auto_accept_until").apply();
@@ -548,6 +580,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
             boolean started = findAndClickStartButton(root);
             if (started) {
                 sAutoAcceptPending = false;
+                sAutoAcceptStartTime = 0;
                 try {
                     SharedPreferences sp = getSharedPreferences("vremote_prefs", Context.MODE_PRIVATE);
                     sp.edit().remove("auto_accept_until").apply();

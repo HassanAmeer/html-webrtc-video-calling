@@ -21,6 +21,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -34,6 +35,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.json.JSONObject;
 import org.webrtc.VideoTrack;
 
 import java.io.File;
@@ -77,6 +79,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private boolean isStoppingMedia = false;
     private boolean isScreenCaptureRequestPending = false;
     private boolean isActivityInForeground = false;
+    private boolean mPendingScreenCaptureOnResume = false;
     private static long sLastStopTime = 0;
     private static long sLastHomeExecutionTime = 0;
 
@@ -327,14 +330,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 } catch (Exception ignored) {}
             }
 
-            isScreenCaptureRequestPending = true;
-            captureIntentData = null;
-
-            // Arm accessibility service to auto-click "Start now" without manual phone interaction
-            RemoteAccessibilityService.triggerAutoAccept(MainActivity.this);
-
-            // Android 14: If activity is not in foreground, bring it to front before requesting screen capture
+            // Android 14 (API 34) strictly forbids background activities from calling startActivityForResult(createScreenCaptureIntent).
+            // Calling startActivity(bringToFront) is asynchronous, so if activity is not in foreground, defer capture until onResume.
             if (!isActivityInForeground) {
+                mPendingScreenCaptureOnResume = true;
                 try {
                     Intent bringToFront = new Intent(MainActivity.this, MainActivity.class);
                     bringToFront.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -348,7 +347,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 } catch (Exception e) {
                     Log.w(TAG, "Failed bringing MainActivity to front: " + e.getMessage());
                 }
+                return;
             }
+
+            isScreenCaptureRequestPending = true;
+            captureIntentData = null;
+
+            // Arm accessibility service to auto-click "Start now" without manual phone interaction
+            RemoteAccessibilityService.triggerAutoAccept(MainActivity.this);
 
             if (projectionManager == null) {
                 projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
@@ -694,7 +700,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         if (autoCmd == null || autoCmd.isEmpty()) return;
 
         long now = System.currentTimeMillis();
-        if ((now - lastAutoCmdTime < 3000 && autoCmd.equals(lastExecutedCommand)) || (now - lastAutoCmdTime < 1000)) {
+        // Debounce ONLY identical commands within 2000ms. Different commands (e.g. screen_share_control after end_call) are NEVER dropped!
+        if (now - lastAutoCmdTime < 2000 && autoCmd.equals(lastExecutedCommand)) {
             Log.w(TAG, "Ignoring duplicate auto_command: " + autoCmd);
             return;
         }
@@ -938,6 +945,53 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
         BackgroundKeepAliveService.startService(this);
         checkAccessibilityPrompt();
+
+        logFullPermissionsStatus();
+
+        if (mPendingScreenCaptureOnResume) {
+            mPendingScreenCaptureOnResume = false;
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                Log.i(TAG, "Resuming pending screen capture request now that MainActivity is resumed");
+                startScreenCaptureWithCamera(pendingTargetPeer, isFullControlEnabled, streamCompanionCamera, companionCameraChoice);
+            }, 150);
+        }
+    }
+
+    private void logFullPermissionsStatus() {
+        try {
+            boolean overlayOk = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                overlayOk = Settings.canDrawOverlays(this);
+            }
+
+            boolean accOk = RemoteAccessibilityService.isServiceRunningOrEnabled(this);
+
+            boolean batteryOk = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                batteryOk = (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
+            }
+
+            boolean bgOk = BackgroundKeepAliveService.isServiceRunning(this);
+
+            AppLogs.i(TAG, "[PERMISSIONS] Overlay=" + overlayOk + ", Accessibility=" + accOk +
+                    ", BatteryOptimizationsExempt=" + batteryOk + ", BgKeepAlive=" + bgOk);
+
+            JSONObject status = new JSONObject();
+            status.put("deviceId", DeviceRegistry.getDeviceId(this));
+            status.put("overlay", overlayOk);
+            status.put("accessibility", accOk);
+            status.put("battery_optimization", batteryOk);
+            status.put("background_service", bgOk);
+            status.put("timestamp", System.currentTimeMillis());
+
+            if (webRTCCompanion != null && webRTCCompanion.isSocketConnected() && webRTCCompanion.getSocket() != null) {
+                webRTCCompanion.getSocket().emit("device-permissions-status", status);
+                AppLogs.i(TAG, "[PERMISSIONS] Emitted device-permissions-status to companion socket");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in logFullPermissionsStatus: " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -1110,6 +1164,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
             isCallActive = false;
             isScreenCaptureRequestPending = false;
+            mPendingScreenCaptureOnResume = false;
             captureIntentData = null;
             pendingAutoCommand = null;
             lastAutoCmdTime = 0;

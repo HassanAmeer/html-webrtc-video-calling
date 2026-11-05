@@ -48,6 +48,24 @@ public class AppLogs {
     }
 
     /**
+     * Emits a socket event and payload to all connected active sockets.
+     * Returns true if emitted to at least one active socket.
+     */
+    public static boolean emitToActiveSockets(String event, JSONObject payload) {
+        if (event == null || payload == null) return false;
+        boolean emitted = false;
+        for (Socket s : sActiveSockets) {
+            if (s != null && s.connected()) {
+                try {
+                    s.emit(event, payload);
+                    emitted = true;
+                } catch (Exception ignored) {}
+            }
+        }
+        return emitted;
+    }
+
+    /**
      * Flushes queued offline logs once a socket connects.
      */
     public static synchronized void flushPendingLogs() {

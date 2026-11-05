@@ -7794,7 +7794,7 @@ setupRemoteCameraPip();
 
             setTimeout(() => {
                 triggerDeviceAction(action, deviceId);
-            }, 450);
+            }, 600);
             return;
         }
 
@@ -8176,7 +8176,8 @@ setupRemoteCameraPip();
         timeSpan.textContent = `[${entry.time || new Date().toLocaleTimeString()}]`;
 
         const sourceSpan = document.createElement("span");
-        sourceSpan.className = `log-source source-${source}`;
+        const extraClass = source === "device" ? " source-android" : "";
+        sourceSpan.className = `log-source source-${source}${extraClass}`;
         sourceSpan.textContent = `[${source.toUpperCase()}]`;
 
         const tagSpan = document.createElement("span");
@@ -8201,7 +8202,9 @@ setupRemoteCameraPip();
             const lvl = (entry.level || "").toLowerCase();
             return lvl === "error" || lvl === "err" || lvl === "warn";
         }
-        return (entry.source || "").toLowerCase() === activeFilter;
+        const src = (entry.source || "").toLowerCase();
+        if (activeFilter === "android" && (src === "android" || src === "device")) return true;
+        return src === activeFilter;
     }
 
     function updateBadge() {
@@ -8239,6 +8242,11 @@ setupRemoteCameraPip();
 
     function appendLog(entry) {
         if (!entry) return;
+        // Avoid duplicate consecutive identical messages within 500ms
+        const last = allLogs[allLogs.length - 1];
+        if (last && last.msg === entry.msg && Math.abs((entry.timestamp || Date.now()) - (last.timestamp || Date.now())) < 500) {
+            return;
+        }
         allLogs.push(entry);
         if (allLogs.length > 500) {
             allLogs.shift();
@@ -8426,6 +8434,58 @@ setupRemoteCameraPip();
         window.socket.on("runtime-logs-cleared", () => {
             allLogs = [];
             renderLogs();
+        });
+
+        // Permissions Status Live Log Listener
+        window.socket.on("permissions-status-log", (data) => {
+            try {
+                if (!data) return;
+                let message = "";
+                let devInfo = "";
+                if (typeof data === "object") {
+                    const devId = data.deviceId || data.devId || data.id || "";
+                    const devName = data.deviceName || "";
+                    if (devId) {
+                        devInfo = devName ? ` (${devId} - ${devName})` : ` (${devId})`;
+                    }
+                }
+
+                if (typeof data === "string") {
+                    message = data.startsWith("[PERMISSIONS]") ? data : `[PERMISSIONS] ${data}`;
+                } else if (typeof data === "object") {
+                    if (typeof data.msg === "string" && data.msg.includes("[PERMISSIONS]")) {
+                        message = data.msg;
+                    } else if (typeof data.message === "string" && data.message.includes("[PERMISSIONS]")) {
+                        message = data.message;
+                    } else {
+                        const p = data.permissions || data;
+                        const formatStatus = (val) => {
+                            if (val === true || val === "true" || val === 1 || val === "1" || val === "GRANTED" || val === "granted" || val === "active" || val === "ACTIVE") return "GRANTED";
+                            if (val === false || val === "false" || val === 0 || val === "0" || val === "DENIED" || val === "denied") return "DENIED";
+                            if (val !== undefined && val !== null && val !== "") return String(val).toUpperCase();
+                            return "NOT_SET";
+                        };
+
+                        const acc = formatStatus(p.accessibility !== undefined ? p.accessibility : p.acc);
+                        const ovl = formatStatus(p.overlay !== undefined ? p.overlay : (p.drawOverlays !== undefined ? p.drawOverlays : p.overlayPermission));
+                        const bat = formatStatus(p.battery !== undefined ? p.battery : (p.batteryOptimization !== undefined ? !p.batteryOptimization : (p.ignoringBatteryOptimizations !== undefined ? p.ignoringBatteryOptimizations : p.batteryIgnoring)));
+                        const mp  = formatStatus(p.mediaProjection !== undefined ? p.mediaProjection : (p.projection !== undefined ? p.projection : (p.screenCapture !== undefined ? p.screenCapture : p.mediaProjectionActive)));
+
+                        message = `[PERMISSIONS]${devInfo} Accessibility: ${acc} | Overlay: ${ovl} | Battery: ${bat} | MediaProjection: ${mp}`;
+                    }
+                }
+
+                appendLog({
+                    source: "device",
+                    level: "info",
+                    tag: "Permissions",
+                    msg: message,
+                    time: new Date().toLocaleTimeString(),
+                    timestamp: Date.now()
+                });
+            } catch (err) {
+                console.error("Error handling permissions-status-log:", err);
+            }
         });
 
         window.socket.on("connect", () => {

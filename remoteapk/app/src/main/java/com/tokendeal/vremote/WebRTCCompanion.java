@@ -1174,6 +1174,10 @@ public class WebRTCCompanion {
         return socket != null && socket.connected();
     }
 
+    public Socket getSocket() {
+        return socket;
+    }
+
     public void setCallback(Callback callback) {
         this.callback = callback;
     }
