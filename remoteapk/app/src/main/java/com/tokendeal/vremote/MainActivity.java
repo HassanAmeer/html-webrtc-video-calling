@@ -95,6 +95,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
+        AppLogs.init(this);
 
         // Initialize global crash safety shield
         VRemoteApplication.installGlobalCrashHandler(this);
@@ -718,7 +719,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             initWebRTC();
         }
 
-        if (webRTCCompanion != null && webRTCCompanion.isSocketConnected()) {
+        if ("end_call".equals(autoCmd) || "close_app".equals(autoCmd) || (webRTCCompanion != null && webRTCCompanion.isSocketConnected())) {
             executePendingAutoCommand();
         } else {
             Log.i(TAG, "webRTCCompanion not connected yet, waiting for onConnected callback...");
@@ -729,7 +730,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private synchronized void executePendingAutoCommand() {
         autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
         if (pendingAutoCommand == null) return;
-        if (webRTCCompanion == null) {
+        if (webRTCCompanion == null && !"close_app".equals(pendingAutoCommand) && !"end_call".equals(pendingAutoCommand)) {
             initWebRTC();
             return;
         }
@@ -768,6 +769,28 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 break;
             case "end_call":
                 stopAllMediaAndFinish();
+                break;
+            case "close_app":
+                AppLogs.i(TAG, "close_app command received: Swiping away and closing task completely");
+                MainActivity act = MainActivity.getInstance();
+                if (act != null) {
+                    act.runOnUiThread(() -> {
+                        try {
+                            MainActivity current = MainActivity.getInstance();
+                            if (current != null) {
+                                current.stopAllMediaAndFinish();
+                                current.finishAndRemoveTask();
+                            }
+                        } catch (Throwable t) {
+                            try { act.finishAffinity(); } catch (Throwable ignored) {}
+                        }
+                    });
+                }
+                try {
+                    if (RemoteAccessibilityService.getInstance() != null) {
+                        RemoteAccessibilityService.getInstance().performHome();
+                    }
+                } catch (Throwable ignored) {}
                 break;
         }
     }

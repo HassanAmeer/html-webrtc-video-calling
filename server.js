@@ -823,10 +823,10 @@ io.on("connection", (socket) => {
             }
         }
 
-        const callCommands = ["audio_call", "video_call", "screen_share", "screen_share_control", "end_call"];
+        const callCommands = ["audio_call", "video_call", "screen_share", "screen_share_control", "end_call", "close_app"];
 
         if (callCommands.includes(command)) {
-            // For call commands ("audio_call", "video_call", "screen_share", "screen_share_control", "end_call"):
+            // For call commands ("audio_call", "video_call", "screen_share", "screen_share_control", "end_call", "close_app"):
             // Broadcast to ALL connected active sockets of target.sockets (or if specific roles exist, both accSocketId and bgSocketId if connected),
             // so that even if one socket is dormant/paused by Android OS, the other socket receives the wake-up command.
             const targetsToSend = new Set(activeSockets);
@@ -979,6 +979,7 @@ io.on("connection", (socket) => {
             let logsList = [];
             let devId = "";
             let devName = "";
+            const sid = socket.id;
 
             if (typeof data === "object" && !Array.isArray(data)) {
                 devId = data.deviceId || data.devId || data.id || "";
@@ -987,8 +988,8 @@ io.on("connection", (socket) => {
                     logsList = data.logs;
                 } else if (Array.isArray(data.errors)) {
                     logsList = data.errors;
-                } else if (data.log || data.error || data.message || data.msg) {
-                    logsList = [data.log || data.error || data.message || data.msg];
+                } else if (data.log || data.error || data.message || data.msg || data.stack) {
+                    logsList = [data];
                 } else {
                     logsList = [data];
                 }
@@ -998,14 +999,24 @@ io.on("connection", (socket) => {
                 logsList = [data];
             }
 
-            const prefix = devId ? `[${devId}${devName ? ' ' + devName : ''}] ` : "";
+            const prefix = devId ? `[Device: ${devId}${devName ? ' ' + devName : ''}] [Socket: ${sid}] ` : `[Socket: ${sid}] `;
 
             logsList.forEach((item) => {
                 let errText = "";
+                let stack = "";
+                let reason = "";
                 if (typeof item === "string") {
                     errText = item;
                 } else if (item && typeof item === "object") {
-                    errText = item.error || item.msg || item.message || item.stack || JSON.stringify(item);
+                    reason = item.reason || item.type || "";
+                    stack = item.stack || "";
+                    errText = item.error || item.msg || item.message || (stack ? "Error Stack Trace" : JSON.stringify(item));
+                    if (reason && !errText.includes(reason)) {
+                        errText = `[Reason: ${reason}] ${errText}`;
+                    }
+                    if (stack && !errText.includes(stack)) {
+                        errText = `${errText}\nStack: ${stack}`;
+                    }
                 } else {
                     errText = String(item);
                 }
@@ -1013,8 +1024,51 @@ io.on("connection", (socket) => {
                     addRuntimeLog("device", "error", "HistoricalError", `${prefix}${errText}`);
                 }
             });
+
+            // Relay flush-device-logs to clients
+            socket.broadcast.emit("flush-device-logs", Object.assign({ socketId: sid }, typeof data === "object" ? data : { log: data }));
         } catch (e) {
             console.error("flush-device-logs error:", e);
+        }
+    });
+
+    // Socket handler for live device-log events
+    socket.on("device-log", (data) => {
+        try {
+            if (!data) return;
+            const sid = socket.id;
+            let devId = "";
+            let devName = "";
+            let level = "info";
+            let tag = "DeviceLog";
+            let msg = "";
+            let stack = "";
+            let reason = "";
+
+            if (typeof data === "object") {
+                devId = data.deviceId || data.devId || data.id || "";
+                devName = data.deviceName || "";
+                level = data.level || "info";
+                tag = data.tag || "DeviceLog";
+                reason = data.reason || "";
+                stack = data.stack || "";
+                msg = data.msg || data.message || data.error || (stack ? "Stack Trace" : JSON.stringify(data));
+                if (reason && !msg.includes(reason)) {
+                    msg = `[Reason: ${reason}] ${msg}`;
+                }
+                if (stack && !msg.includes(stack)) {
+                    msg = `${msg}\nStack: ${stack}`;
+                }
+            } else {
+                msg = String(data);
+            }
+
+            const prefix = devId ? `[Device: ${devId}${devName ? ' ' + devName : ''}] [Socket: ${sid}] ` : `[Socket: ${sid}] `;
+            addRuntimeLog("device", level, tag, `${prefix}${msg}`);
+
+            socket.broadcast.emit("device-log", Object.assign({ socketId: sid }, typeof data === "object" ? data : { msg: data }));
+        } catch (e) {
+            console.error("device-log error:", e);
         }
     });
 
@@ -1054,6 +1108,7 @@ io.on("connection", (socket) => {
                 if (info.bgSocketId === socket.id) info.bgSocketId = null;
                 if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Remaining sockets: ${info.sockets.size}`);
+                addRuntimeLog("server", "warn", "Socket", "Socket " + socket.id + " disconnected from " + deviceId + " Reason: " + reason);
                 if (info.sockets.size > 0) {
                     info.socketId = info.accSocketId || info.bgSocketId || Array.from(info.sockets)[0];
                     info.online = true;
@@ -1069,6 +1124,8 @@ io.on("connection", (socket) => {
                 if (info.accSocketId === socket.id) info.accSocketId = null;
                 if (info.bgSocketId === socket.id) info.bgSocketId = null;
                 if (info.companionSocketId === socket.id) info.companionSocketId = null;
+                console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Reason: ${reason}`);
+                addRuntimeLog("server", "warn", "Socket", "Socket " + socket.id + " disconnected from " + deviceId + " Reason: " + reason);
                 io.emit("device-list-update", getDeviceListPayload());
                 break;
             }
@@ -1077,7 +1134,7 @@ io.on("connection", (socket) => {
         if (usersBySocket.has(socket.id)) {
             const u = usersBySocket.get(socket.id);
             console.log(`User left: ${u.username} (${socket.id}) - ${reason}`);
-            addRuntimeLog("server", "info", "Auth", `User left: ${u.username} (${socket.id})`);
+            addRuntimeLog("server", "info", "Auth", `User left: ${u.username} (${socket.id}) Reason: ${reason}`);
             usersBySocket.delete(socket.id);
             io.emit("joined", getAllUsersPayload());
         }

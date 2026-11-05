@@ -7585,6 +7585,12 @@ setupRemoteCameraPip();
                         <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
                         <span>Disconnect Device</span>
                     </button>
+
+                    <!-- Close App Button -->
+                    <button class="dev-action-btn btn-act-close-app" data-action="close_app" data-did="${safeId}" style="display:flex; width:100%; margin-top:5px; align-items:center; justify-content:center; gap:5px; padding:6px 10px; background:rgba(255, 69, 58, 0.12); border:1px solid rgba(255, 69, 58, 0.35); border-radius:8px; color:#ff453a; font-size:11.5px; font-weight:700; cursor:pointer;" title="Swipe away and close app completely on phone">
+                        <i class="fas fa-times-circle"></i>
+                        <span>Close App</span>
+                    </button>
                 </div>
             `;
             drawerDevicesList.appendChild(row);
@@ -7741,6 +7747,55 @@ setupRemoteCameraPip();
             silenceAndDisableLocalMedia();
             closeGallery();
             showToast("Application disconnected & camera/stream stopped on " + deviceId);
+            return;
+        }
+
+        if (action === "close_app") {
+            clearDeviceConnectingTimers(deviceId);
+            clearDeviceErrorTimers(deviceId);
+            if (rawDeviceId) {
+                clearDeviceConnectingTimers(rawDeviceId);
+                clearDeviceErrorTimers(rawDeviceId);
+            }
+
+            deviceConnectingActions.delete(deviceId);
+            if (rawDeviceId) deviceConnectingActions.delete(rawDeviceId);
+            deviceFailedAction.delete(deviceId);
+            if (rawDeviceId) deviceFailedAction.delete(rawDeviceId);
+            deviceErrorMessages.delete(deviceId);
+            if (rawDeviceId) deviceErrorMessages.delete(rawDeviceId);
+
+            resetDeviceButtonLoaders(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) resetDeviceButtonLoaders(rawDeviceId);
+            clearDeviceError(deviceId);
+            if (rawDeviceId && rawDeviceId !== deviceId) clearDeviceError(rawDeviceId);
+
+            activeSessionDevices.delete(deviceId);
+            if (rawDeviceId) activeSessionDevices.delete(rawDeviceId);
+            const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+            if (activeBar) activeBar.style.display = "none";
+            const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+            if (connBar) connBar.style.display = "none";
+            const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+            if (idleBtn) idleBtn.style.display = "flex";
+            const badge = document.getElementById(`session-badge-${deviceId}`);
+            if (badge) badge.style.display = "none";
+
+            pendingRegisteredDeviceCall = null;
+
+            socket.emit("auto-command", {
+                targetDeviceId: deviceId,
+                command: "close_app",
+                caller: myUsername
+            });
+            if (typeof activePeer !== "undefined" && activePeer && activePeer !== deviceId) {
+                socket.emit("end-call", { from: myUsername, to: activePeer });
+            }
+
+            forceShutdownAllMediaHardware();
+            silenceAndDisableLocalMedia();
+            closeGallery();
+            showToast("Closing and swiping away app on phone...");
             return;
         }
 
@@ -8186,6 +8241,8 @@ setupRemoteCameraPip();
 
         const msgSpan = document.createElement("span");
         msgSpan.className = "log-msg";
+        msgSpan.style.whiteSpace = "pre-wrap";
+        msgSpan.style.wordBreak = "break-word";
         msgSpan.textContent = entry.msg || "";
 
         row.appendChild(timeSpan);
@@ -8485,6 +8542,105 @@ setupRemoteCameraPip();
                 });
             } catch (err) {
                 console.error("Error handling permissions-status-log:", err);
+            }
+        });
+
+        // Flush device logs (crashes, queued error history from phone)
+        window.socket.on("flush-device-logs", (data) => {
+            try {
+                if (!data) return;
+                const devId = (typeof data === "object" && (data.deviceId || data.devId || data.id)) || "";
+                const devName = (typeof data === "object" && data.deviceName) ? ` (${data.deviceName})` : "";
+                const sid = (typeof data === "object" && (data.socketId || data.from)) || "";
+                const timeStr = (typeof data === "object" && data.timestamp)
+                    ? new Date(data.timestamp).toLocaleTimeString()
+                    : new Date().toLocaleTimeString();
+                const meta = `${devId ? `[Device: ${devId}${devName}] ` : ""}${sid ? `[Socket: ${sid}] ` : ""}`;
+
+                let logs = [];
+                if (typeof data === "object") {
+                    if (Array.isArray(data.logs)) logs = data.logs;
+                    else if (Array.isArray(data.errors)) logs = data.errors;
+                    else if (typeof data.logs === "string") logs = [data.logs];
+                    else if (data.error || data.stack || data.msg || data.message) logs = [data];
+                    else logs = [data];
+                } else {
+                    logs = [data];
+                }
+
+                logs.forEach((item) => {
+                    let text = "";
+                    let stack = "";
+                    let reason = "";
+                    if (typeof item === "string") {
+                        text = item;
+                    } else if (item && typeof item === "object") {
+                        reason = item.reason || item.type || "";
+                        stack = item.stack || "";
+                        text = item.error || item.msg || item.message || (stack ? "Crash / Error Trace" : JSON.stringify(item));
+                        if (reason && !text.includes(reason)) text = `[Reason: ${reason}] ${text}`;
+                        if (stack && !text.includes(stack)) text = `${text}\nStack Trace:\n${stack}`;
+                    } else {
+                        text = String(item);
+                    }
+                    if (text) {
+                        appendLog({
+                            source: "device",
+                            level: "error",
+                            tag: "CrashReport",
+                            msg: `${meta}${text}`,
+                            time: timeStr,
+                            timestamp: (data && data.timestamp) || Date.now()
+                        });
+                    }
+                });
+            } catch (err) {
+                console.error("Error formatting flush-device-logs in drawer:", err);
+            }
+        });
+
+        // Live device log event with rich metadata (timestamp, device ID, socket ID, connection/disconnection, error stack trace, reasons)
+        window.socket.on("device-log", (data) => {
+            try {
+                if (!data) return;
+                const devId = (typeof data === "object" && (data.deviceId || data.devId || data.id)) || "";
+                const devName = (typeof data === "object" && data.deviceName) ? ` (${data.deviceName})` : "";
+                const sid = (typeof data === "object" && (data.socketId || data.from)) || "";
+                const timeStr = (typeof data === "object" && data.timestamp)
+                    ? new Date(data.timestamp).toLocaleTimeString()
+                    : (data.time || new Date().toLocaleTimeString());
+                const meta = `${devId ? `[Device: ${devId}${devName}] ` : ""}${sid ? `[Socket: ${sid}] ` : ""}`;
+
+                let text = "";
+                let stack = "";
+                let reason = "";
+                let level = "info";
+                let tag = "DeviceLog";
+
+                if (typeof data === "string") {
+                    text = data;
+                } else if (typeof data === "object") {
+                    level = data.level || "info";
+                    tag = data.tag || "DeviceLog";
+                    reason = data.reason || "";
+                    stack = data.stack || "";
+                    text = data.msg || data.message || data.error || (stack ? "Trace" : JSON.stringify(data));
+                    if (reason && !text.includes(reason)) text = `[Reason: ${reason}] ${text}`;
+                    if (stack && !text.includes(stack)) text = `${text}\nStack Trace:\n${stack}`;
+                } else {
+                    text = String(data);
+                }
+
+                appendLog({
+                    source: "device",
+                    level: level,
+                    tag: tag,
+                    msg: `${meta}${text}`,
+                    time: timeStr,
+                    timestamp: (data && data.timestamp) || Date.now()
+                });
+            } catch (err) {
+                console.error("Error formatting device-log in drawer:", err);
             }
         });
 

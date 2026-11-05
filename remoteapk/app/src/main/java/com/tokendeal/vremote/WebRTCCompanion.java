@@ -184,7 +184,9 @@ public class WebRTCCompanion {
             AppLogs.registerSocket(socket);
 
             socket.on(Socket.EVENT_CONNECT, args -> {
-                AppLog.i(TAG, "Signaling Socket Connected");
+                String sId = socket != null ? socket.id() : "null";
+                AppLog.i(TAG, "Signaling Socket Connected [id=" + sId + ", url=" + serverUrl + "]");
+                AppLogs.flushPersistentLogs(socket);
                 if (myId != null && !myId.isEmpty()) {
                     AppLog.i(TAG, "Emitting companion join-user: " + myId);
                     socket.emit("join-user", myId);
@@ -207,7 +209,14 @@ public class WebRTCCompanion {
             });
 
             socket.on(Socket.EVENT_DISCONNECT, args -> {
-                AppLog.w(TAG, "Signaling Socket Disconnected");
+                String reason = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                String sId = socket != null ? socket.id() : "null";
+                AppLog.w(TAG, "Signaling Socket Disconnected [id=" + sId + ", url=" + serverUrl + ", reason=" + reason + "]");
+            });
+
+            socket.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                String error = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                AppLogs.e(TAG, "Signaling Socket Connect Error [url=" + serverUrl + ", error=" + error + "]");
             });
 
             socket.on("name-confirmed", args -> {
@@ -1226,12 +1235,41 @@ public class WebRTCCompanion {
                 switch (command) {
                     case "end_call":
                         endCall(false);
-                        if (MainActivity.getInstance() != null) {
-                            MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().stopAllMediaAndFinish();
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            act.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                    }
+                                } catch (Throwable ignored) {}
                             });
                         }
                         break;
+                    case "close_app": {
+                        AppLogs.i(TAG, "close_app command received: Swiping away and closing task completely");
+                        MainActivity actClose = MainActivity.getInstance();
+                        if (actClose != null) {
+                            actClose.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                        current.finishAndRemoveTask();
+                                    }
+                                } catch (Throwable t) {
+                                    try { actClose.finishAffinity(); } catch (Throwable ignored) {}
+                                }
+                            });
+                        }
+                        try {
+                            if (RemoteAccessibilityService.getInstance() != null) {
+                                RemoteAccessibilityService.getInstance().performHome();
+                            }
+                        } catch (Throwable ignored) {}
+                        break;
+                    }
                     case "flip_camera":
                     case "switch_camera": {
                         String camChoice = data.optString("cameraChoice", "");

