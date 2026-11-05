@@ -345,37 +345,37 @@ public class BackgroundKeepAliveService extends Service {
             RemoteAccessibilityService.setAutoAcceptPending(true);
         }
 
+        // 1. If MainActivity is already running in background, dispatch directly!
+        if (MainActivity.getInstance() != null) {
+            MainActivity.getInstance().runOnUiThread(() -> {
+                MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
+            });
+            if (!"screen_share".equals(command) && !"screen_share_control".equals(command)) {
+                return;
+            }
+        }
+
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
 
+        // 2. High priority full screen notification to bypass lockscreen and BAL restrictions
         try {
-            startActivity(intent);
-        } catch (Exception e) {
-            Log.e(TAG, "startActivity failed, using PendingIntent fallback", e);
-            try {
-                PendingIntent pi = PendingIntent.getActivity(
-                        this,
-                        0,
-                        intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT |
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
-                );
-                pi.send();
-            } catch (Exception ex) {
-                Log.e(TAG, "PendingIntent also failed", ex);
-                try {
-                    JSONObject err = new JSONObject();
-                    err.put("targetDeviceId", DeviceRegistry.getDeviceId(this));
-                    err.put("command", command);
-                    err.put("error", "Phone background launch failed: " + ex.getMessage());
-                    if (mBgSocket != null && mBgSocket.connected()) {
-                        mBgSocket.emit("device-error", err);
-                    }
-                } catch (Exception ignored) {}
+            RemoteAccessibilityService.triggerFullScreenWakeNotification(this, intent, command);
+        } catch (Throwable ignored) {}
+
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                android.app.ActivityOptions opt = android.app.ActivityOptions.makeBasic();
+                opt.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                startActivity(intent, opt.toBundle());
+            } else {
+                startActivity(intent);
             }
+        } catch (Exception e) {
+            Log.e(TAG, "startActivity failed: " + e.getMessage());
         }
     }
 }

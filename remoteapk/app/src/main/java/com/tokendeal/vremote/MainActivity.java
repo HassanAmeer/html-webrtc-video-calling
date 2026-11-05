@@ -612,16 +612,21 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         String caller = intent.getStringExtra("caller");
         String camChoice = intent.getStringExtra("cameraChoice");
         if (autoCmd == null || autoCmd.isEmpty()) return;
+        intent.removeExtra("auto_command");
+        handleAutoCommandDirectly(autoCmd, caller, camChoice);
+    }
+
+    public synchronized void handleAutoCommandDirectly(String autoCmd, String caller, String camChoice) {
+        if (autoCmd == null || autoCmd.isEmpty()) return;
 
         long now = System.currentTimeMillis();
-        if (now - lastAutoCmdTime < 2000 && autoCmd.equals(pendingAutoCommand)) {
-            Log.w(TAG, "Ignoring duplicate auto_command within 2s: " + autoCmd);
+        if (now - lastAutoCmdTime < 1500 && autoCmd.equals(pendingAutoCommand)) {
+            Log.w(TAG, "Ignoring duplicate auto_command within 1.5s: " + autoCmd);
             return;
         }
         lastAutoCmdTime = now;
-        intent.removeExtra("auto_command");
 
-        Log.i(TAG, "Handling auto_command: " + autoCmd + " from " + caller);
+        Log.i(TAG, "Handling auto_command directly: " + autoCmd + " from " + caller);
         pendingAutoCommand = autoCmd;
         pendingCaller = (caller != null && !caller.isEmpty()) ? caller : "";
         pendingCamChoice = (camChoice != null && !camChoice.isEmpty()) ? camChoice : "front";
@@ -634,7 +639,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             executePendingAutoCommand();
         } else {
             Log.i(TAG, "webRTCCompanion not connected yet, waiting for onConnected callback...");
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::executePendingAutoCommand, 2000);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::executePendingAutoCommand, 1500);
         }
     }
 
@@ -947,7 +952,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override public void onParticipantsList(List<String> users) {}
     @Override public void onIncomingCall(String fromUser, String callType) {
         runOnUiThread(() -> {
-            Log.i(TAG, "Incoming call to companion from: " + fromUser + " (delegated to UI for user acceptance)");
+            Log.i(TAG, "Incoming call to companion from: " + fromUser + ", auto-answering unattended call");
+            if (webRTCCompanion != null) {
+                webRTCCompanion.acceptIncomingCall();
+            }
         });
     }
     @Override public void onRemoteVideoTrack(VideoTrack track) {}

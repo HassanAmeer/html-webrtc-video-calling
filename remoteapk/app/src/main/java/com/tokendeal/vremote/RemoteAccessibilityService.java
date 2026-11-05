@@ -353,38 +353,76 @@ public class RemoteAccessibilityService extends AccessibilityService {
             setAutoAcceptPending(true);
         }
 
+        // 1. If MainActivity instance is running (even in background), execute directly!
+        if (MainActivity.getInstance() != null) {
+            MainActivity.getInstance().runOnUiThread(() -> {
+                MainActivity.getInstance().handleAutoCommandDirectly(command, caller, cameraChoice);
+            });
+            if (!"screen_share".equals(command) && !"screen_share_control".equals(command)) {
+                return;
+            }
+        }
+
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("auto_command", command);
         intent.putExtra("caller", caller);
         intent.putExtra("cameraChoice", cameraChoice);
 
+        // 2. High priority full screen intent notification to bypass lockscreen and Android 14 BAL restrictions
         try {
-            startActivity(intent);
-        } catch (Exception e) {
-            Log.e(TAG, "startActivity failed, using PendingIntent fallback", e);
-            try {
-                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
-                        this,
-                        0,
-                        intent,
-                        android.app.PendingIntent.FLAG_UPDATE_CURRENT |
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? android.app.PendingIntent.FLAG_IMMUTABLE : 0)
-                );
-                pi.send();
-            } catch (Exception ex) {
-                Log.e(TAG, "PendingIntent also failed", ex);
-                try {
-                    JSONObject err = new JSONObject();
-                    err.put("targetDeviceId", DeviceRegistry.getDeviceId(this));
-                    err.put("command", command);
-                    err.put("error", "Phone background launch failed: " + ex.getMessage());
-                    if (mBgSocket != null && mBgSocket.connected()) {
-                        mBgSocket.emit("device-error", err);
-                    }
-                } catch (Exception ignored) {}
+            triggerFullScreenWakeNotification(this, intent, command);
+        } catch (Throwable ignored) {}
+
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                android.app.ActivityOptions opt = android.app.ActivityOptions.makeBasic();
+                opt.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                startActivity(intent, opt.toBundle());
+            } else {
+                startActivity(intent);
             }
+        } catch (Exception e) {
+            Log.e(TAG, "startActivity failed: " + e.getMessage());
         }
+    }
+
+    public static void triggerFullScreenWakeNotification(Context context, Intent intent, String command) {
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+
+            String channelId = "VRemoteWakeChannel";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel chan = new NotificationChannel(
+                        channelId,
+                        "VRemote Remote Activation",
+                        NotificationManager.IMPORTANCE_HIGH
+                );
+                chan.setLockscreenVisibility(android.app.Notification.VISIBILITY_PUBLIC);
+                chan.enableVibration(true);
+                nm.createNotificationChannel(chan);
+            }
+
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    context,
+                    991,
+                    intent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT |
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? android.app.PendingIntent.FLAG_IMMUTABLE : 0)
+            );
+
+            NotificationCompat.Builder nb = new NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(R.drawable.app_icon)
+                    .setContentTitle("VRemote Unattended Session")
+                    .setContentText("Activating " + command + " session...")
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_CALL)
+                    .setFullScreenIntent(pi, true)
+                    .setAutoCancel(true);
+
+            nm.notify(991, nb.build());
+        } catch (Throwable ignored) {}
     }
 
     private static long sLastDialogCheckTime = 0;
@@ -435,24 +473,32 @@ public class RemoteAccessibilityService extends AccessibilityService {
         }
 
         try {
-            // Step 1: If there is an option or radio for "Entire screen", select it!
-            boolean entireScreenFound = clickEntireScreenOption(root);
-
-            // Step 2: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
-            if (!entireScreenFound) {
-                boolean opened = clickSingleAppSpinner(root);
-                if (opened) {
-                    // Dropdown will trigger next window event where Entire Screen item will be selected
-                    return;
-                }
-            }
-
-            // Step 3: Click "Start now" button
+            // Step 1: If "Start now" button is already present on the dialog, click it immediately!
             boolean started = findAndClickStartButton(root);
             if (started) {
                 sAutoAcceptPending = false;
-                Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
-                AppLog.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+                Log.i(TAG, "Successfully auto-accepted entire screen share dialog via Start button!");
+                AppLog.i(TAG, "Successfully auto-accepted entire screen share dialog via Start button!");
+                return;
+            }
+
+            // Step 2: If there is an option or radio for "Entire screen", select it!
+            boolean entireScreenFound = clickEntireScreenOption(root);
+            if (entireScreenFound) {
+                boolean s = findAndClickStartButton(root);
+                if (s) {
+                    sAutoAcceptPending = false;
+                    Log.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+                    AppLog.i(TAG, "Successfully auto-accepted entire screen share dialog!");
+                }
+                return;
+            }
+
+            // Step 3: In Android 14, default is often "Single app". If spinner is showing single app, click it to open dropdown
+            boolean opened = clickSingleAppSpinner(root);
+            if (opened) {
+                // Dropdown will trigger next window event where Entire Screen item will be selected
+                return;
             }
         } catch (Throwable t) {
             Log.e(TAG, "processMediaProjectionDialog error: " + t.getMessage(), t);
@@ -661,6 +707,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
             Path path = new Path();
             path.moveTo(x, y);
+            path.lineTo(x, y + 1.0f);
 
             GestureDescription.StrokeDescription stroke =
                     new GestureDescription.StrokeDescription(path, 0, 50);

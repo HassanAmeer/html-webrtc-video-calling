@@ -3389,7 +3389,7 @@ socket.on("offer", async (data) => {
         return;
     }
 
-    // Explicit registered device unattended call (ONLY when user explicitly clicked action in device drawer within last 60s)
+    // Registered device unattended call (auto-answers companion devices)
     const cleanFromOffer = normalizeDeviceId(from);
     const cleanPendingId = pendingRegisteredDeviceCall ? normalizeDeviceId(pendingRegisteredDeviceCall.deviceId) : "";
     const isExplicitPendingDeviceCall = Boolean(
@@ -3397,10 +3397,16 @@ socket.on("offer", async (data) => {
         (cleanPendingId === cleanFromOffer || pendingRegisteredDeviceCall.deviceId === from) &&
         (Date.now() - pendingRegisteredDeviceCall.timestamp < 60000)
     );
+    const isRegisteredDeviceCall = Boolean(
+        isExplicitPendingDeviceCall ||
+        (from && (from.endsWith("_screen") || from.startsWith("mobile_") || from.startsWith("device_"))) ||
+        (activeSessionDevices && (activeSessionDevices.has(from) || activeSessionDevices.has(cleanFromOffer))) ||
+        (cachedDevices && cachedDevices.some(d => d.deviceId === from || d.deviceId === cleanFromOffer || d.socketId === from))
+    );
 
-    if (isExplicitPendingDeviceCall) {
+    if (isRegisteredDeviceCall) {
         lastOfferAcceptedTime = now;
-        console.log("Accepting explicit pending registered device call:", from);
+        console.log("Auto-accepting registered companion device call:", from);
         stopIncomingCallAlert();
         incomingCallData = null;
         pendingRegisteredDeviceCall = null;
