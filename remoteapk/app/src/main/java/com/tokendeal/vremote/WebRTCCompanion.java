@@ -848,6 +848,7 @@ public class WebRTCCompanion {
 
         } catch (Exception e) {
             Log.e(TAG, "Camera init error", e);
+            AppLogs.e(TAG, "Camera init error: " + e.getMessage(), e);
             if (callback != null) callback.onError("Camera error: " + e.getMessage());
         }
     }

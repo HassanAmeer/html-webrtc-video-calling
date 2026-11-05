@@ -746,20 +746,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             case "audio_call":
                 startMediaForegroundService("audio_call");
                 webRTCCompanion.startAudioCall(caller);
-                runOnUiThread(() -> {
-                    try {
-                        moveTaskToBack(true);
-                    } catch (Exception ignored) {}
-                });
                 break;
             case "video_call":
                 startMediaForegroundService("video_call");
                 webRTCCompanion.startVideoCall(caller);
-                runOnUiThread(() -> {
-                    try {
-                        moveTaskToBack(true);
-                    } catch (Exception ignored) {}
-                });
                 break;
             case "screen_share":
                 startScreenCaptureWithCamera(caller, false, false, "none");

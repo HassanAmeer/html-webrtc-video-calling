@@ -3526,10 +3526,11 @@ function silenceAndDisableLocalMedia() {
 }
 
 // Auto-accept calls from Registered Devices (Receiver/Controller only - No Local Cam, Muted Mic)
-async function acceptRegisteredDeviceCall(from, offer) {
+async function acceptRegisteredDeviceCall(from, offer, callAction) {
     console.log(`Auto-accepting registered device call from ${from}`);
     try {
-        if (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.action === "audio_call") {
+        const actionType = callAction || (pendingRegisteredDeviceCall ? pendingRegisteredDeviceCall.action : null);
+        if (actionType === "audio_call") {
             isAudioCallMode = true;
         } else {
             isAudioCallMode = false;
@@ -3640,11 +3641,11 @@ socket.on("offer", async (data) => {
     if (isRegisteredDeviceCall) {
         lastOfferAcceptedTime = now;
         console.log("Auto-accepting registered companion device call:", from);
+        const pendingAction = pendingRegisteredDeviceCall ? pendingRegisteredDeviceCall.action : null;
         stopIncomingCallAlert();
         incomingCallData = null;
         pendingRegisteredDeviceCall = null;
-        silenceAndDisableLocalMedia();
-        await acceptRegisteredDeviceCall(from, offer);
+        await acceptRegisteredDeviceCall(from, offer, pendingAction);
         return;
     }
 
