@@ -972,6 +972,21 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 webView.evaluateJavascript("if (typeof shutdownIdleMediaHardware === 'function') shutdownIdleMediaHardware();", null);
             }
         }
+        if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
+            if (webRTCCompanion != null) {
+                try {
+                    webRTCCompanion.cleanupActiveMediaSession();
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall())) {
+            stopAllMediaAndFinish();
+        }
     }
 
     // WebRTCCompanion callbacks
@@ -1039,22 +1054,41 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             if (webRTCCompanion != null) {
                 try {
                     webRTCCompanion.endCall(false);
+                    webRTCCompanion.cleanupActiveMediaSession();
                 } catch (Exception ignored) {}
             }
 
             runOnUiThread(() -> {
                 try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        setShowWhenLocked(false);
+                        setTurnScreenOn(false);
+                    }
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } catch (Exception ignored) {}
+
+                try {
                     moveTaskToBack(true);
                 } catch (Exception ignored) {}
+
                 try {
                     Intent homeIntent = new Intent(Intent.ACTION_MAIN);
                     homeIntent.addCategory(Intent.CATEGORY_HOME);
                     homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(homeIntent);
                 } catch (Exception ignored) {}
+
                 if (RemoteAccessibilityService.getInstance() != null) {
                     try {
                         RemoteAccessibilityService.getInstance().performHome();
+                    } catch (Exception ignored) {}
+                }
+
+                try {
+                    finishAndRemoveTask();
+                } catch (Exception e) {
+                    try {
+                        finish();
                     } catch (Exception ignored) {}
                 }
             });

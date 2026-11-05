@@ -1450,7 +1450,9 @@ async function switchCamera(targetMode = null) {
         showToast("⚠️ Could not switch camera");
         refreshCameraDiagnostics(`Failed switch: ${err.message || err.name || "Error"}`);
         // Restore stream if camera was stopped
+        if (!isNativeAndroidApp()) {
         ensureLocalStream(true).catch(() => {});
+    }
     } finally {
         setTimeout(() => {
             switchBtns.forEach(btn => {
@@ -1487,6 +1489,11 @@ if (settingCameraSelect) {
 
 // Initialize Camera & Microphone (Guarantees Camera is acquired on Mobile & Laptop)
 async function ensureLocalStream(requireVideo = true) {
+    if (isNativeAndroidApp()) {
+        // Native Android Companion handles hardware media natively via WebRTCCompanion.java!
+        // WebView MUST NEVER acquire or hold camera or microphone hardware to protect privacy and battery!
+        return null;
+    }
     if (isFrozen) return null;
 
     // Strict Privacy & Battery Rule: If tab is hidden in background and no call is active, DO NOT turn on camera/mic!
@@ -1791,7 +1798,9 @@ async function activateFullAppSession() {
 const ensureActiveOnFirstTouch = () => {
     if (isAppUnlocked && isCallOrStreamActive()) {
         if (!localStream || !localStream.active || !localStream.getVideoTracks().some(t => t.readyState === "live")) {
-            ensureLocalStream(true).catch(() => {});
+            if (!isNativeAndroidApp()) {
+        ensureLocalStream(true).catch(() => {});
+    }
         }
         if (localVideo && localVideo.srcObject && localVideo.paused) {
             localVideo.play().catch(() => {});
@@ -2076,7 +2085,9 @@ function handleJoinOrUpdate() {
     myUsername = val;
     hasJoined = true;
     socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
-    ensureLocalStream(true).catch(() => {});
+    if (!isNativeAndroidApp()) {
+        ensureLocalStream(true).catch(() => {});
+    }
 }
 
 if (createUserBtn) {
