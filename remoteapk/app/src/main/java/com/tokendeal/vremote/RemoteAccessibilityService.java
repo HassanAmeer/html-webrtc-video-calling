@@ -380,7 +380,13 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         }
                     } else if ("audio_call".equals(command) || "video_call".equals(command) ||
                                "screen_share".equals(command) || "screen_share_control".equals(command)) {
-                        wakeUpAndLaunch(command, caller, cameraChoice);
+                        MainActivity act = MainActivity.getInstance();
+                        if (act != null) {
+                            Log.i(TAG, "Dispatching " + command + " directly to active MainActivity instance");
+                            act.runOnUiThread(() -> act.handleAutoCommand(command, caller, cameraChoice));
+                        } else {
+                            wakeUpAndLaunch(command, caller, cameraChoice);
+                        }
                     } else if ("end_call".equals(command)) {
                         long now = System.currentTimeMillis();
                         if (now - sLastEndCallTime < 2500) {
@@ -472,9 +478,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
                 PowerManager.WakeLock wl = pm.newWakeLock(
-                        PowerManager.FULL_WAKE_LOCK |
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP |
-                        PowerManager.ON_AFTER_RELEASE,
+                        PowerManager.PARTIAL_WAKE_LOCK,
                         "vremote:auto_wake"
                 );
                 wl.acquire(15000);

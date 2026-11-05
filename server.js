@@ -1005,9 +1005,11 @@ io.on("connection", (socket) => {
                 let errText = "";
                 let stack = "";
                 let reason = "";
+                let level = "info";
                 if (typeof item === "string") {
                     errText = item;
                 } else if (item && typeof item === "object") {
+                    level = item.level || "info";
                     reason = item.reason || item.type || "";
                     stack = item.stack || "";
                     errText = item.error || item.msg || item.message || (stack ? "Error Stack Trace" : JSON.stringify(item));
@@ -1021,7 +1023,10 @@ io.on("connection", (socket) => {
                     errText = String(item);
                 }
                 if (errText) {
-                    addRuntimeLog("device", "error", "HistoricalError", `${prefix}${errText}`);
+                    const isActualError = (level === "error" || level === "fatal" || Boolean(stack) || Boolean(item && item.error));
+                    const logCategory = isActualError ? "HistoricalError" : "DeviceHistory";
+                    const logLevel = isActualError ? "error" : (level === "warn" ? "warn" : "info");
+                    addRuntimeLog("device", logLevel, logCategory, `${prefix}${errText}`);
                 }
             });
 
