@@ -7580,17 +7580,18 @@ setupRemoteCameraPip();
                         </button>
                     </div>
 
-                    <!-- Idle Disconnect Button -->
-                    <button id="btn-disconnect-idle-${safeId}" class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="display:${(!hasActiveSession && !isConnecting) ? 'flex' : 'none'}; width:100%; align-items:center; justify-content:center; gap:6px; padding:6px 10px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; color:#ff3b30; font-size:11.5px; font-weight:600; cursor:pointer;" title="Disconnect Device & Kill Camera/Stream">
-                        <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30;"></i>
-                        <span>Disconnect Device</span>
-                    </button>
+                    <!-- Action Row: Disconnect Device & Close App -->
+                    <div style="display:flex; gap:6px; width:100%; margin-top:5px;">
+                        <button id="btn-disconnect-idle-${safeId}" class="dev-action-btn btn-act-disconnect" data-action="disconnect_device" data-did="${safeId}" style="display:${(!hasActiveSession && !isConnecting) ? 'flex' : 'none'}; flex:1; min-width:0; align-items:center; justify-content:center; gap:5px; padding:6px 8px; background:rgba(255, 255, 255, 0.04); border:1px solid rgba(255, 255, 255, 0.08); border-radius:8px; color:#ff3b30; font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;" title="Disconnect Device & Kill Camera/Stream">
+                            <i class="fas fa-power-off" style="font-size:11px; color:#ff3b30; flex-shrink:0;"></i>
+                            <span style="overflow:hidden; text-overflow:ellipsis;">Disconnect Device</span>
+                        </button>
 
-                    <!-- Close App Button -->
-                    <button class="dev-action-btn btn-act-close-app" data-action="close_app" data-did="${safeId}" style="display:flex; width:100%; margin-top:5px; align-items:center; justify-content:center; gap:5px; padding:6px 10px; background:rgba(255, 69, 58, 0.12); border:1px solid rgba(255, 69, 58, 0.35); border-radius:8px; color:#ff453a; font-size:11.5px; font-weight:700; cursor:pointer;" title="Swipe away and close app completely on phone">
-                        <i class="fas fa-times-circle"></i>
-                        <span>Close App</span>
-                    </button>
+                        <button class="dev-action-btn btn-act-close-app" data-action="close_app" data-did="${safeId}" style="display:flex; flex:1; min-width:0; align-items:center; justify-content:center; gap:5px; padding:6px 8px; background:rgba(255, 69, 58, 0.12); border:1px solid rgba(255, 69, 58, 0.35); border-radius:8px; color:#ff453a; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap;" title="Swipe away and close app completely on phone">
+                            <i class="fas fa-times-circle" style="font-size:11px; flex-shrink:0;"></i>
+                            <span style="overflow:hidden; text-overflow:ellipsis;">Close App</span>
+                        </button>
+                    </div>
                 </div>
             `;
             drawerDevicesList.appendChild(row);
