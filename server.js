@@ -196,6 +196,7 @@ function getDeviceListPayload() {
                 const s = io.sockets.sockets.get(sid);
                 if (!s || !s.connected) {
                     info.sockets.delete(sid);
+                    if (info.accSocketId === sid) info.accSocketId = null;
                     if (info.bgSocketId === sid) info.bgSocketId = null;
                     if (info.companionSocketId === sid) info.companionSocketId = null;
                 }
@@ -205,7 +206,7 @@ function getDeviceListPayload() {
         let isOnline = Boolean(info.sockets && info.sockets.size > 0);
         info.online = isOnline;
         if (isOnline) {
-            info.socketId = info.bgSocketId || Array.from(info.sockets)[0];
+            info.socketId = info.accSocketId || info.bgSocketId || Array.from(info.sockets)[0];
         } else {
             info.socketId = null;
         }

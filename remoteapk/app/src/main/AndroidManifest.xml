@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:targetApi="upsideDownCake" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:targetApi="upsideDownCake" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:targetApi="upsideDownCake" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" tools:targetApi="upsideDownCake" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:targetApi="upsideDownCake" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Media Access Permissions for Device Gallery/Video Registry -->
@@ -75,14 +77,19 @@
             android:foregroundServiceType="mediaProjection|camera|microphone"
             tools:targetApi="q" />
 
-        <!-- 24/7 Persistent Background Companion Foreground Service -->
+        <!-- 24/7 Persistent Background Companion Foreground Service in isolated process -->
         <service
             android:name=".BackgroundKeepAliveService"
             android:enabled="true"
             android:exported="false"
+            android:process=":companion"
             android:stopWithTask="false"
-            android:foregroundServiceType="connectedDevice"
-            tools:targetApi="upsideDownCake" />
+            android:foregroundServiceType="dataSync"
+            tools:targetApi="upsideDownCake">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="24/7 WebRTC remote signaling socket for registered device monitoring" />
+        </service>
 
         <!-- Remote Control Accessibility Service (Touch Injection / Gesture Dispatch) -->
         <service

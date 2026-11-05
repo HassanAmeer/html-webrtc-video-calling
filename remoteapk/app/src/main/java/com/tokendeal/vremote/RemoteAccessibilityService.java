@@ -198,6 +198,17 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     @Override
+    public void onCreate() {
+        super.onCreate();
+        sInstance = this;
+        AppLog.i(TAG, "Remote Accessibility Service Created.");
+        acquireLocks();
+        initBackgroundSocket();
+        mWatchdogHandler.postDelayed(mWatchdogRunnable, 3000);
+        KeepAliveScheduler.schedulePeriodicWork(this);
+    }
+
+    @Override
     public void onServiceConnected() {
         super.onServiceConnected();
         sInstance = this;
@@ -207,8 +218,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
             prefs.edit().putBoolean("has_prompted_accessibility", true).apply();
         } catch (Exception ignored) {}
         acquireLocks();
-        initBackgroundSocket();
-        mWatchdogHandler.postDelayed(mWatchdogRunnable, 5000);
+        if (mBgSocket == null || !mBgSocket.connected()) {
+            initBackgroundSocket();
+        }
         KeepAliveScheduler.schedulePeriodicWork(this);
     }
 
