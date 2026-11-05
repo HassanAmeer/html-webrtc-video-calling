@@ -554,6 +554,13 @@ public class WebRTCCompanion {
         this.isScreenSharingCall = true;
         AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
 
+        if (captureIntentData == null) {
+            Log.e(TAG, "startScreenShare: captureIntentData is null! Cannot initialize ScreenCapturerAndroid");
+            AppLog.e(TAG, "Screen capture failed: Permission token intent was null");
+            if (callback != null) callback.onError("Screen capture failed: Permission token intent was null");
+            return;
+        }
+
         // Cleanly release any prior media session (hardware camera, old PeerConnection, EGL contexts)
         cleanupActiveMediaSession();
         setupPeerConnection();
@@ -615,6 +622,8 @@ public class WebRTCCompanion {
 
         } catch (Exception e) {
             Log.e(TAG, "Screen share init error", e);
+            AppLog.e(TAG, "Screen share init error: " + e.getMessage());
+            cleanupActiveMediaSession();
             if (callback != null) callback.onError("Screen capture failed: " + e.getMessage());
         }
     }

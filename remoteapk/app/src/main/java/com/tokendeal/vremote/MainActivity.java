@@ -67,6 +67,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private boolean isCallActive = false;
     private boolean hasPromptedAccessibility = false;
     private boolean isStoppingMedia = false;
+    private boolean isScreenCaptureRequestPending = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -286,13 +287,17 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         runOnUiThread(() -> {
             // Android 14 strictly forbids reusing MediaProjection resultData Intent tokens.
-            // If already actively sharing, ignore duplicate start requests
+            // If already actively sharing or permission request in flight, ignore duplicate request
             if (webRTCCompanion != null && webRTCCompanion.isScreenSharing()) {
                 Log.w(TAG, "Screen sharing is already actively running, ignoring duplicate request");
                 return;
             }
+            if (isScreenCaptureRequestPending) {
+                Log.w(TAG, "Screen capture permission request already in flight, ignoring duplicate");
+                return;
+            }
 
-            // Always request fresh MediaProjection permission for every session
+            isScreenCaptureRequestPending = true;
             captureIntentData = null;
 
             // Arm accessibility service to auto-click "Start now" without manual phone interaction
@@ -300,6 +305,8 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
             if (projectionManager != null) {
                 startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+            } else {
+                isScreenCaptureRequestPending = false;
             }
         });
     }
@@ -590,9 +597,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private long lastAutoCmdTime = 0;
+    private String lastExecutedCommand = "";
     private String pendingAutoCommand = null;
     private String pendingCaller = null;
     private String pendingCamChoice = null;
+    private final android.os.Handler autoCmdHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable pendingAutoCmdRunnable = this::executePendingAutoCommand;
 
     private void handleAutoCommandIntent(Intent intent) {
         if (intent == null) return;
@@ -601,6 +611,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         String camChoice = intent.getStringExtra("cameraChoice");
         if (autoCmd == null || autoCmd.isEmpty()) return;
         intent.removeExtra("auto_command");
+        intent.removeExtra("caller");
+        intent.removeExtra("cameraChoice");
+        setIntent(intent);
         handleAutoCommandDirectly(autoCmd, caller, camChoice);
     }
 
@@ -608,13 +621,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         if (autoCmd == null || autoCmd.isEmpty()) return;
 
         long now = System.currentTimeMillis();
-        if (now - lastAutoCmdTime < 1500 && autoCmd.equals(pendingAutoCommand)) {
-            Log.w(TAG, "Ignoring duplicate auto_command within 1.5s: " + autoCmd);
+        if ((now - lastAutoCmdTime < 3000 && autoCmd.equals(lastExecutedCommand)) || (now - lastAutoCmdTime < 1000)) {
+            Log.w(TAG, "Ignoring duplicate auto_command: " + autoCmd);
             return;
         }
         lastAutoCmdTime = now;
+        lastExecutedCommand = autoCmd;
 
         Log.i(TAG, "Handling auto_command directly: " + autoCmd + " from " + caller);
+        autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
         pendingAutoCommand = autoCmd;
         pendingCaller = (caller != null && !caller.isEmpty()) ? caller : "";
         pendingCamChoice = (camChoice != null && !camChoice.isEmpty()) ? camChoice : "front";
@@ -627,11 +642,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             executePendingAutoCommand();
         } else {
             Log.i(TAG, "webRTCCompanion not connected yet, waiting for onConnected callback...");
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::executePendingAutoCommand, 1500);
+            autoCmdHandler.postDelayed(pendingAutoCmdRunnable, 1500);
         }
     }
 
     private synchronized void executePendingAutoCommand() {
+        autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
         if (pendingAutoCommand == null) return;
         if (webRTCCompanion == null) {
             initWebRTC();
@@ -677,11 +693,13 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_SCREEN_CAPTURE) {
+            isScreenCaptureRequestPending = false;
             if (resultCode == Activity.RESULT_OK && data != null) {
                 AppLog.i(TAG, "Screen capture permission granted by user");
-                captureIntentData = data;
+                captureIntentData = (Intent) data.clone();
                 startScreenStreaming();
             } else {
+                captureIntentData = null;
                 AppLog.w(TAG, "Screen capture was cancelled on phone");
                 Toast.makeText(this, "Screen capture was cancelled", Toast.LENGTH_SHORT).show();
                 if (webRTCCompanion != null) {
@@ -719,6 +737,17 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     private void startScreenStreaming() {
+        if (captureIntentData == null) {
+            Log.e(TAG, "startScreenStreaming called with null captureIntentData");
+            if (webRTCCompanion != null) {
+                webRTCCompanion.emitDeviceError("Screen capture permission token was null");
+            }
+            return;
+        }
+
+        final Intent tokenIntent = (Intent) captureIntentData.clone();
+        captureIntentData = null; // Consume immediately so token is strictly single-use
+
         ScreenCaptureService.setOnForegroundStartedListener(() -> {
             DisplayMetrics displayMetrics = new DisplayMetrics();
             getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
@@ -726,7 +755,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             if (webRTCCompanion != null) {
                 webRTCCompanion.startScreenShare(
                         pendingTargetPeer,
-                        captureIntentData,
+                        tokenIntent,
                         displayMetrics.widthPixels,
                         displayMetrics.heightPixels,
                         streamCompanionCamera,
@@ -734,16 +763,16 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 );
             }
 
-            // Immediately clear single-use token so it can never be reused on Android 14
-            captureIntentData = null;
-
             // Immediately send application to background so phone stays on desktop/other apps
             runOnUiThread(() -> {
-                moveTaskToBack(true);
+                try {
+                    moveTaskToBack(true);
+                } catch (Exception ignored) {}
             });
         });
 
         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
+        serviceIntent.putExtra("session_type", "screen_share");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
         } else {
@@ -934,6 +963,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     // WebRTCCompanion callbacks
     @Override public void onConnected(String myId) {
         Log.i(TAG, "WebRTCCompanion connected as: " + myId);
+        autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
         runOnUiThread(this::executePendingAutoCommand);
     }
     @Override public void onStatusChanged(String status, boolean isLive) {}
@@ -972,9 +1002,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         try {
             Log.i(TAG, "stopAllMediaAndFinish: Releasing all cameras, mics, services and hiding activity to background");
             isCallActive = false;
+            isScreenCaptureRequestPending = false;
             captureIntentData = null;
             pendingAutoCommand = null;
             lastAutoCmdTime = 0;
+            lastExecutedCommand = "";
+            autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
 
             if (webView != null) {
                 runOnUiThread(() -> {

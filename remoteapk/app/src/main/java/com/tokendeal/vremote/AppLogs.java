@@ -71,9 +71,11 @@ public class AppLogs {
             obj.put("time", new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date()));
             obj.put("timestamp", System.currentTimeMillis());
 
+            // Transmit log over the first connected socket only to avoid duplicate log lines
             for (Socket s : sActiveSockets) {
                 if (s != null && s.connected()) {
                     s.emit("client-log", obj);
+                    break;
                 }
             }
         } catch (Exception ignored) {}

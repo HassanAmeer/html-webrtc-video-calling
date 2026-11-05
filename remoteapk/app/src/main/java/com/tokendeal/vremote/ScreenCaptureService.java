@@ -23,9 +23,9 @@ public class ScreenCaptureService extends Service {
 
     private static OnForegroundStartedListener sForegroundListener = null;
 
-    public static void setOnForegroundStartedListener(OnForegroundStartedListener listener) {
+    public static synchronized void setOnForegroundStartedListener(OnForegroundStartedListener listener) {
         if (sForegroundReady && listener != null) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(listener::onForegroundStarted);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(listener::onForegroundStarted, 250);
         } else {
             sForegroundListener = listener;
         }
@@ -89,7 +89,7 @@ public class ScreenCaptureService extends Service {
         if (sForegroundListener != null) {
             OnForegroundStartedListener listener = sForegroundListener;
             sForegroundListener = null;
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(listener::onForegroundStarted);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(listener::onForegroundStarted, 250);
         }
 
         return START_STICKY;
