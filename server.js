@@ -46,6 +46,8 @@ const io = new Server(server, {
         methods: ["GET", "POST"],
         credentials: true
     },
+    pingInterval: 25000,
+    pingTimeout: 60000, // 60s timeout so mobile networks & background doze don't drop
     maxHttpBufferSize: 2e7 // 20MB payload limit for file/photo attachments
 });
 
