@@ -19,6 +19,10 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: "2mb" }));
+// The Android app pushes ghost state as application/x-www-form-urlencoded
+// (GhostStateSync.push). Without this parser req.body was undefined and the
+// push always failed with HTTP 400, so ghost state never reached the server.
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // Remote Crash Logging from Android Companion
 app.post("/api/crash-log", (req, res) => {
@@ -176,6 +180,82 @@ function findTargetSocketId(to) {
         if (u.username && u.username.toLowerCase() === needleLower) return sId;
     }
     return null;
+}
+
+// =====================================================================
+// findTargetSocketIds — every live socket that belongs to the same peer.
+//
+// A phone can hold several sockets at once: the UI process
+// ("<deviceId>_screen"), the :companion background service
+// ("<deviceId>_screen_1") and the device-registry sockets. Only ONE of them
+// owns the RTCPeerConnection that created an offer, but any of them can be
+// the "current" registration name. Signalling messages (answer / ICE) must
+// therefore be delivered to the whole group — the instance that owns the
+// peer connection applies it, the others ignore it. Sending to a single
+// socket used to hand the answer to an instance with no peer connection,
+// which produced "answer from null" and zero decoded video frames.
+// =====================================================================
+function findTargetSocketIds(to) {
+    const targets = new Set();
+    const add = (sId) => {
+        if (!sId) return;
+        const s = io.sockets.sockets.get(sId);
+        if (s && s.connected) targets.add(sId);
+    };
+
+    if (!to) return targets;
+    const needle = String(to).trim();
+    if (!needle) return targets;
+
+    // 1. Exact username / socketId matches
+    for (const [sId, u] of usersBySocket.entries()) {
+        if (u.username === needle || sId === needle) add(sId);
+    }
+
+    // 2. Same companion group ("<base>", "<base>_screen", "<base>_screen_1", ...)
+    const base = needle.endsWith("_screen")
+        ? needle.slice(0, -7)
+        : needle.replace(/_screen_\d+$/, "");
+    if (base) {
+        const screenPrefix = `${base}_screen`;
+        for (const [sId, u] of usersBySocket.entries()) {
+            const uname = u && u.username ? u.username : "";
+            if (!uname) continue;
+            if (uname === base || uname === screenPrefix || uname.startsWith(`${screenPrefix}_`)) add(sId);
+        }
+    }
+
+    // 3. Device registry — every live socket of the device
+    for (const key of [base, needle]) {
+        if (!key || !deviceRegistry.has(key)) continue;
+        const dev = deviceRegistry.get(key);
+        if (!dev) continue;
+        if (dev.sockets && dev.sockets.size) {
+            for (const sid of dev.sockets) add(sid);
+        }
+        for (const sid of [dev.socketId, dev.accSocketId, dev.bgSocketId, dev.companionSocketId]) add(sid);
+    }
+
+    // 4. Direct live socket id
+    if (io.sockets.sockets.has(needle)) add(needle);
+
+    // 5. Case-insensitive fallback
+    const needleLower = needle.toLowerCase();
+    for (const [sId, u] of usersBySocket.entries()) {
+        if (u.username && u.username.toLowerCase() === needleLower) add(sId);
+    }
+
+    return targets;
+}
+
+/**
+ * Emit a signalling event (offer / answer / icecandidate) to every socket of
+ * the target peer group. Returns the number of sockets that received it.
+ */
+function emitToPeerGroup(eventName, to, payload) {
+    const targets = findTargetSocketIds(to);
+    for (const sid of targets) io.to(sid).emit(eventName, payload);
+    return targets.size;
 }
 const deviceRegistry = new Map();
 
@@ -673,9 +753,9 @@ io.on("connection", (socket) => {
         const isScreenShare = Boolean(data.isScreenShare || (offer && offer.isScreenShare));
         console.log(`Call offer: ${from} -> ${to} (isScreenShare=${isScreenShare})`);
         addRuntimeLog("server", "info", "WebRTC", `Offer routed: ${from} -> ${to} (screen=${isScreenShare})`);
-        const targetSocketId = findTargetSocketId(to);
-        if (targetSocketId) {
-            io.to(targetSocketId).emit("offer", { ...data, from, to, offer, isScreenShare });
+        const grouped = emitToPeerGroup("offer", to, { ...data, from, to, offer, isScreenShare });
+        if (grouped > 0) {
+            if (grouped > 1) console.log(`Offer delivered to ${grouped} sockets of "${to}"`);
         } else {
             console.warn(`Target user "${to}" not found for offer`);
         }
@@ -698,9 +778,9 @@ io.on("connection", (socket) => {
     socket.on("answer", ({ from, to, answer }) => {
         console.log(`Call answer: ${from} -> ${to}`);
         addRuntimeLog("server", "info", "WebRTC", `Answer routed: ${from} -> ${to}`);
-        const targetSocketId = findTargetSocketId(to);
-        if (targetSocketId) {
-            io.to(targetSocketId).emit("answer", { from, to, answer });
+        const grouped = emitToPeerGroup("answer", to, { from, to, answer });
+        if (grouped > 0) {
+            if (grouped > 1) console.log(`Answer delivered to ${grouped} sockets of "${to}"`);
         } else {
             console.warn(`Target user "${to}" not found for answer`);
         }
@@ -709,10 +789,9 @@ io.on("connection", (socket) => {
     // ICE Candidate
     socket.on("icecandidate", ({ from, to, candidate }) => {
         if (!candidate) return;
-        const targetSocketId = findTargetSocketId(to);
-        if (targetSocketId) {
-            io.to(targetSocketId).emit("icecandidate", { from, candidate });
-        }
+        // Deliver to the whole peer group: the socket that owns the peer
+        // connection may not be the one currently registered under this name.
+        emitToPeerGroup("icecandidate", to, { from, candidate });
     });
 
     // End Call & Stop Screen Share — TARGETED ONLY.

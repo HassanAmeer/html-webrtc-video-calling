@@ -262,6 +262,14 @@ public class WebRTCCompanion {
                 try {
                     JSONObject data = (JSONObject) args[0];
                     JSONObject answerObj = data.getJSONObject("answer");
+                    // The server delivers signalling to every socket of this
+                    // device group. An instance that never created an offer has
+                    // no peer connection / active peer — it must ignore the
+                    // answer instead of throwing an NPE.
+                    if (peerConnection == null || activePeer == null) {
+                        AppLog.i(TAG, "Ignoring answer: this instance has no active peer connection");
+                        return;
+                    }
                     AppLog.i(TAG, "Received call answer from " + activePeer);
                     handleRemoteAnswer(answerObj);
                 } catch (Exception e) {
@@ -273,12 +281,17 @@ public class WebRTCCompanion {
                 try {
                     JSONObject data = (JSONObject) args[0];
                     JSONObject candidateObj = data.getJSONObject("candidate");
+                    if (peerConnection == null) {
+                        // Wrong instance of the group (or call already ended) —
+                        // never queue candidates for a PC that does not exist.
+                        return;
+                    }
                     IceCandidate candidate = new IceCandidate(
                             candidateObj.getString("sdpMid"),
                             candidateObj.getInt("sdpMLineIndex"),
                             candidateObj.getString("candidate")
                     );
-                    if (peerConnection != null && peerConnection.getRemoteDescription() != null) {
+                    if (peerConnection.getRemoteDescription() != null) {
                         peerConnection.addIceCandidate(candidate);
                     } else {
                         queuedCandidates.add(candidate);

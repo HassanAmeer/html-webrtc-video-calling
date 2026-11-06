@@ -24,6 +24,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONObject;
 import io.socket.client.IO;
 import io.socket.client.Socket;
@@ -898,6 +899,54 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     /**
+     * Clicks the accessibility node located under the given screen pixel.
+     * Used as a fallback when the system cancels an injected gesture.
+     * Walks up to the nearest clickable ancestor because the deepest node
+     * under a tap is often a non-clickable TextView.
+     */
+    private boolean clickNodeAt(int x, int y) {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) return false;
+            java.util.ArrayDeque<AccessibilityNodeInfo> queue = new java.util.ArrayDeque<>();
+            queue.add(root);
+            int visited = 0;
+            AccessibilityNodeInfo best = null;
+            while (!queue.isEmpty() && visited < 500) {
+                AccessibilityNodeInfo node = queue.poll();
+                if (node == null) continue;
+                visited++;
+                android.graphics.Rect bounds = new android.graphics.Rect();
+                node.getBoundsInScreen(bounds);
+                if (bounds.contains(x, y)) {
+                    if (node.isClickable()) {
+                        best = node;
+                        break;
+                    }
+                    if (best == null) best = node;
+                }
+                for (int i = 0; i < node.getChildCount(); i++) {
+                    AccessibilityNodeInfo child = node.getChild(i);
+                    if (child != null) queue.add(child);
+                }
+            }
+            AccessibilityNodeInfo target = best;
+            // Climb to a clickable ancestor when the hit node itself is not clickable.
+            while (target != null && !target.isClickable()) {
+                target = target.getParent();
+            }
+            if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                AppLog.i(TAG, "Tap fallback clicked node: " + target.getClassName() + " @(" + x + "," + y + ")");
+                return true;
+            }
+            AppLog.w(TAG, "Tap fallback found no clickable node @(" + x + "," + y + ")");
+        } catch (Throwable t) {
+            AppLog.e(TAG, "Tap fallback error: " + t.getMessage(), t);
+        }
+        return false;
+    }
+
+    /**
      * Dispatches a tap gesture on the screen using normalized coordinates (0.0 to 1.0)
      */
     public boolean performTap(float normX, float normY) {
@@ -934,6 +983,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
                 @Override
                 public void onCancelled(GestureDescription gestureDescription) {
                     AppLog.w(TAG, "performTap gesture cancelled by system at (" + (int) x + ", " + (int) y + ")");
+                    // Some ROMs / emulators (Redroid) reject injected gestures
+                    // immediately. Fall back to clicking the accessibility node
+                    // that sits under the tapped point so remote taps still work.
+                    boolean clicked = clickNodeAt((int) x, (int) y);
+                    AppLog.i(TAG, "performTap node fallback for (" + (int) x + ", " + (int) y + "): " + clicked);
                 }
             };
 

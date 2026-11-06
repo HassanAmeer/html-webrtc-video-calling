@@ -304,6 +304,30 @@ public class BackgroundKeepAliveService extends Service {
         return sForegroundActive;
     }
 
+    /**
+     * True when the app's main process (the one that owns MainActivity and the
+     * primary WebRTCCompanion) is alive. This service runs in ":companion", so
+     * both processes receive the same auto-command. Without this check each one
+     * created its own RTCPeerConnection and sent its own offer, so the browser
+     * could end up attached to a peer without camera/mic access.
+     * Screen share is intentionally NOT gated: it must launch the capture
+     * activity through this service even when the UI process is alive.
+     */
+    private boolean isMainProcessRunning() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return false;
+            String pkg = getPackageName();
+            List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
+            if (procs == null) return false;
+            for (ActivityManager.RunningAppProcessInfo p : procs) {
+                if (p == null || p.processName == null) continue;
+                if (pkg.equals(p.processName)) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -438,6 +462,10 @@ public class BackgroundKeepAliveService extends Service {
                             mBgSocket.emit("device-info-response", info);
                         }
                     } else if ("audio_call".equals(command) || "video_call".equals(command)) {
+                        if (isMainProcessRunning()) {
+                            Log.i(TAG, "Ignoring " + command + ": main process companion handles it");
+                            return;
+                        }
                         long now = System.currentTimeMillis();
                         if (now - sLastAutoCallTime < 2500) {
                             Log.w(TAG, "Ignoring duplicate " + command + " within 2.5s");

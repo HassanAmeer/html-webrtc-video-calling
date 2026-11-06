@@ -7832,6 +7832,10 @@ setupRemoteCameraPip();
             pendingRegisteredDeviceCall = null;
 
             setTimeout(() => {
+                // Bypass the rapid-tap guard for this internal retry: it runs
+                // 600ms after the first trigger, so the 1s guard used to swallow
+                // the switch and the new action never started.
+                lastActionTriggerTime = 0;
                 triggerDeviceAction(action, deviceId);
             }, 600);
             return;
