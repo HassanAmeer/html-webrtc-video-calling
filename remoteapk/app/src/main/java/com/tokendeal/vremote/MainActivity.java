@@ -682,19 +682,24 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 try {
                     android.content.SharedPreferences prefs = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE);
                     boolean current = prefs.getBoolean("ghost_mode", false);
-                    String statusText = current ? "👻 Currently: ENABLED (icon hidden)" : "✅ Currently: DISABLED (icon visible)";
+                    String statusText = current
+                        ? "👻 Currently: ENABLED\nApp is completely hidden from launcher"
+                        : "✅ Currently: DISABLED\nApp icon is visible in launcher";
                     String btnText = current ? "Disable Ghost Mode" : "Enable Ghost Mode";
+                    String msg = current
+                        ? "App icon is currently hidden from launcher.\n\nDisable to show icon again."
+                        : "App will completely disappear from launcher (no icon, no name).\n\nTo reopen after hiding:\n• Settings → Apps → VRemote → Open\n• Or use website panel\n\n" + statusText;
                     new android.app.AlertDialog.Builder(MainActivity.this)
                         .setTitle("👻 Ghost Mode")
-                        .setMessage("Hide app icon and name from launcher so app stays invisible.\n\n" + statusText)
+                        .setMessage(msg)
                         .setPositiveButton(btnText, (dialog, which) -> {
                             boolean newState = !current;
                             prefs.edit().putBoolean("ghost_mode", newState).apply();
                             applyGhostMode(newState);
-                            String msg = newState
-                                ? "👻 Ghost Mode ON — Icon hidden from launcher"
-                                : "✅ Ghost Mode OFF — Icon visible in launcher";
-                            android.widget.Toast.makeText(MainActivity.this, msg, android.widget.Toast.LENGTH_LONG).show();
+                            String toast = newState
+                                ? "👻 Ghost Mode ON — App hidden from launcher!\nTo reopen: Settings → Apps → VRemote"
+                                : "✅ Ghost Mode OFF — App icon visible in launcher";
+                            android.widget.Toast.makeText(MainActivity.this, toast, android.widget.Toast.LENGTH_LONG).show();
                         })
                         .setNegativeButton("Cancel", null)
                         .show();
@@ -712,13 +717,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
             android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
             if (enable) {
+                // Ghost ON: disable BOTH aliases → app completely gone from launcher
                 pm.setComponentEnabledSetting(normalAlias,
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
                 pm.setComponentEnabledSetting(ghostAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
             } else {
+                // Ghost OFF: enable normal alias → real icon visible
                 pm.setComponentEnabledSetting(ghostAlias,
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
@@ -726,7 +733,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
             }
-            Log.d(TAG, "Ghost mode " + (enable ? "ENABLED" : "DISABLED"));
+            Log.d(TAG, "Ghost mode " + (enable ? "ENABLED — app removed from launcher" : "DISABLED — app visible in launcher"));
         } catch (Exception e) {
             Log.e(TAG, "applyGhostMode error: " + e.getMessage());
         }
