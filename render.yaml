@@ -3,7 +3,7 @@ services:
     name: html-webrtc-video-calling
     env: node
     plan: free
-    buildCommand: "npm i"
-    startCommand: "npm run dev"
+    buildCommand: "npm install"
+    startCommand: "npm start"
     repo: https://github.com/HassanAmeer/html-webrtc-video-calling.git
     branch: main

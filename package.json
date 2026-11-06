@@ -2,11 +2,12 @@
   "name": "wemeet",
   "version": "1.0.0",
   "description": "audio video call app",
-  "main": "index.js",
+  "main": "server.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon server.js",
+    "test": "node --check server.js && node --check public/js/main.js",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "build": "npm install"
   },
   "author": "Hasan",

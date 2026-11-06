@@ -2862,10 +2862,16 @@ function sendRemoteControlCommand(cmd) {
             console.warn("DataChannel send failed, using socket fallback:", e);
         }
     }
-    const target = activePeer || callingPeer || (incomingCallData && incomingCallData.from) || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId);
+    // Socket fallback targets the CALL peer only. A registered deviceId would
+    // resolve to whatever socket the server picks, which can be the
+    // accessibility socket instead of the active screen-share peer.
+    const target = activePeer || callingPeer || (incomingCallData && incomingCallData.from);
     if (!sent && socket && socket.connected && target) {
         socket.emit("remote-control", { ...cmd, to: target });
         sent = true;
+    }
+    if (!sent) {
+        console.warn("Remote control command dropped — no open data channel and no active peer");
     }
     return sent;
 }
@@ -2876,8 +2882,12 @@ function getNormalizedVideoCoords(e, videoEl) {
     const rect = videoEl.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
 
-    const videoWidth = videoEl.videoWidth || 1080;
-    const videoHeight = videoEl.videoHeight || 1920;
+    // IMPORTANT: no fabricated default dimensions. During an audio-only call
+    // (or before the first frame arrives) videoWidth/videoHeight are 0; mapping
+    // taps against a guessed 1080x1920 sent every gesture to the wrong pixel.
+    const videoWidth = Number(videoEl.videoWidth) || 0;
+    const videoHeight = Number(videoEl.videoHeight) || 0;
+    if (videoWidth <= 0 || videoHeight <= 0) return null;
 
     const elemRatio = rect.width / rect.height;
     const videoRatio = videoWidth / videoHeight;
@@ -3809,8 +3819,30 @@ if (endCallBtn && endCallBtn !== floatingEndCallBtn) {
     });
 }
 
-socket.on("end-call", ({ from, to }) => {
+socket.on("end-call", ({ from, to } = {}) => {
     console.log(`Call ended event received: from=${from}, to=${to}`);
+    // Guard: only tear down if this event is actually for us. A stale or
+    // missing target must never kill an unrelated live session.
+    const myIds = [myUsername, window.myUsername, window.VRemoteNative && (() => { try { return window.VRemoteNative.getDeviceId(); } catch (_) { return null; } })()]
+        .filter(Boolean).map(String);
+    const activeIds = [activePeer, callingPeer, screenPeerConnection && screenPeerConnection.__peerId,
+                       (incomingCallData && incomingCallData.from),
+                       (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId)]
+        .filter(Boolean).map(String);
+    const fromStr = from ? String(from) : "";
+    const toStr = to ? String(to) : "";
+    const visibleCall = Boolean(activePeer || callingPeer || incomingCallData ||
+        (typeof peerConnection !== "undefined" && peerConnection) ||
+        (typeof screenPeerConnection !== "undefined" && screenPeerConnection));
+
+    const isForMe = toStr === "all" || !toStr ||
+        activeIds.includes(toStr) || myIds.includes(toStr) ||
+        activeIds.includes(fromStr) || fromStr === "system" && visibleCall;
+
+    if (!isForMe) {
+        console.log(`Ignoring end-call not addressed to this client (me=${myIds.join(",")} active=${activeIds.join(",")})`);
+        return;
+    }
     forceShutdownAllMediaHardware();
     closeScreenShareStream();
     if (incomingCallData) {
@@ -3821,6 +3853,13 @@ socket.on("end-call", ({ from, to }) => {
     showToast("Call ended");
     endCall(false);
     renderParticipantsList();
+});
+
+// A direct chat message is now dropped by the server when the peer is offline
+// (instead of being broadcast to every connected client). Tell the user.
+socket.on("chat-delivery-failed", ({ to } = {}) => {
+    console.log(`Chat delivery failed — target "${to}" is offline`);
+    showToast(`Message not delivered — ${to || "peer"} is offline`);
 });
 
 // Decoy Security Toast on single click
@@ -7002,7 +7041,14 @@ function setupRemoteCameraPip() {
                         type: "system"
                     });
                 }
-                socket.emit("auto-command", { command: "flip_camera" });
+                const flipTarget = (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId)
+                    || (activePeer ? normalizeDeviceId(activePeer) : "");
+                if (flipTarget) {
+                    socket.emit("auto-command", {
+                        command: "flip_camera",
+                        targetDeviceId: flipTarget
+                    });
+                }
             }
             showToast("🔄 Switched camera lens (Front / Back)");
         });
@@ -8890,6 +8936,7 @@ setupRemoteCameraPip();
         if (!el) return;
         var pressTimer = null;
         var isLongPress = false;
+        var suppressClickUntil = 0;
 
         function startPress() {
             isLongPress = false;
@@ -8912,6 +8959,9 @@ setupRemoteCameraPip();
             if (isLongPress) {
                 e.preventDefault();
                 e.stopPropagation();
+                // The synthetic click that follows a touch must not reopen
+                // the sheet after a long press already fired.
+                suppressClickUntil = Date.now() + 700;
             }
         });
         el.addEventListener("touchmove", cancelPress);
@@ -8923,17 +8973,21 @@ setupRemoteCameraPip();
             if (isLongPress) {
                 e.preventDefault();
                 e.stopPropagation();
+                suppressClickUntil = Date.now() + 700;
+                isLongPress = false;
             }
         });
         el.addEventListener("mouseleave", cancelPress);
 
+        // Bubble phase, not capture: a capture listener here also swallowed the
+        // first real tap on some WebView builds, so the sheet felt dead.
         el.addEventListener("click", function(e) {
-            if (isLongPress) {
+            if (isLongPress || Date.now() < suppressClickUntil) {
                 e.preventDefault();
-                e.stopImmediatePropagation();
+                e.stopPropagation();
                 isLongPress = false;
             }
-        }, true);
+        });
     }
 
     // --- Event listeners (always bind, regardless of native check) ---

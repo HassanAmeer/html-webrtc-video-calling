@@ -6,12 +6,19 @@ android {
     namespace 'com.tokendeal.vremote'
     compileSdk 34
 
+    // versionName is the single source of truth. versionCode is DERIVED from it
+    // (major*10000 + minor*100 + patch) so it can never be forgotten — a stale
+    // versionCode makes Android reject the update with "App not installed".
+    def vName = "6.4.24"
+    def vParts = vName.tokenize('.')
+    def vCode = (vParts[0] as int) * 10000 + (vParts[1] as int) * 100 + (vParts[2] as int)
+
     defaultConfig {
         applicationId "com.tokendeal.vremote"
         minSdk 21
         targetSdk 34
-        versionCode 30
-        versionName "6.4.19"
+        versionCode vCode
+        versionName vName
 
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a'

@@ -60,5 +60,13 @@ remoteapk/**/build/
 remoteapk/.gradle/
 remoteapk/local.properties
 
+# Runtime state — must NEVER be committed. devices.json holds live device
+# registry + ghost state and is rewritten by the server at runtime; a git pull
+# or deploy would otherwise conflict with it or resurrect stale devices.
+devices.json
+devices.json.tmp
+crash.log
+persistent_logs.jsonl
+
 # Agents
 .agents/

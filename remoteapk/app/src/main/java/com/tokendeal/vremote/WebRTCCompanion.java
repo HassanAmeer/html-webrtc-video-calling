@@ -1212,6 +1212,7 @@ public class WebRTCCompanion {
             payload.put("ram", ram);
             payload.put("platform", "android");
             payload.put("role", "companion");
+            GhostStateSync.putGhostFields(payload, context);
 
             if (socket != null && socket.connected()) {
                 socket.emit("register-device", payload);

@@ -28,6 +28,17 @@ public class VRemoteApplication extends Application {
         try {
             KeepAliveScheduler.schedulePeriodicWork(this);
         } catch (Exception ignored) {}
+
+        // Reset launcher aliases on every start so updates recover. On fresh install
+        // (local pref missing), restore ghost state saved server-side (survives reinstall).
+        try {
+            android.content.SharedPreferences ghostPrefs = getSharedPreferences("VRemotePrefs", Context.MODE_PRIVATE);
+            if (ghostPrefs.contains("ghost_mode")) {
+                GhostStateSync.applyAliases(this, ghostPrefs.getBoolean("ghost_mode", false));
+            } else {
+                GhostStateSync.pullAndApply(this);
+            }
+        } catch (Exception ignored) {}
     }
 
     public static synchronized void installGlobalCrashHandler(Context context) {
@@ -74,12 +85,15 @@ public class VRemoteApplication extends Application {
                 return;
             }
 
-            // For non-fatal background thread crashes, try clean media teardown if MainActivity is alive
+            // For non-fatal background thread crashes, try clean media teardown if MainActivity is alive.
+            // Capture the instance once: it can become null between the check and the
+            // posted Runnable, which produced "stopAllMediaAndFinish() on a null object".
             try {
-                if (MainActivity.getInstance() != null) {
-                    MainActivity.getInstance().runOnUiThread(() -> {
+                final MainActivity activity = MainActivity.getInstance();
+                if (activity != null) {
+                    activity.runOnUiThread(() -> {
                         try {
-                            MainActivity.getInstance().stopAllMediaAndFinish();
+                            activity.stopAllMediaAndFinish();
                         } catch (Throwable ignored) {}
                     });
                 }
