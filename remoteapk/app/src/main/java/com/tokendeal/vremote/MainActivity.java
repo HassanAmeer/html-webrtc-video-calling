@@ -717,12 +717,12 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             android.content.ComponentName normalAlias = new android.content.ComponentName(pkg, pkg + ".MainAliasNormal");
             android.content.ComponentName ghostAlias  = new android.content.ComponentName(pkg, pkg + ".MainAliasGhost");
             if (enable) {
-                // Ghost ON: disable BOTH aliases → app completely gone from launcher
+                // Ghost ON: hide real icon/name, keep an invisible (transparent) launcher entry so the app stays openable
                 pm.setComponentEnabledSetting(normalAlias,
                     android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
                 pm.setComponentEnabledSetting(ghostAlias,
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     android.content.pm.PackageManager.DONT_KILL_APP);
             } else {
                 // Ghost OFF: enable normal alias → real icon visible
