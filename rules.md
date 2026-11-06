@@ -90,8 +90,13 @@ After any change affecting the Android APK or backend:
 2. Pull on VPS (`root@201.18.218.29`, `/root/v-webrtc`).
 3. Compile APK using Gradle (`/root/gradle-8.5/bin/gradle assembleRelease --no-daemon`).
 4. Copy compiled APK to `/root/v-webrtc/public/downloads/vremote.apk` and `/root/v-webrtc/app/downloads/vremote.apk`.
-5. Restart PM2 (`pm2 restart v-webrtc`).
+5. Restart PM2 (`pm2 reload v-webrtc`).
 6. Verify APK download URL returns HTTP 200 with new timestamp.
+7. Automated Emulator Verification:
+   - Install APK into live VPS ReDroid container: `adb -s emulator-5554 install -r /root/v-webrtc/public/downloads/vremote.apk`
+   - Launch app: `adb -s emulator-5554 shell am start -n com.tokendeal.vremote/.MainActivity`
+   - Check logcat for any exceptions or crashes: `adb -s emulator-5554 logcat -d | grep -iE 'vremote|fatal|exception' | tail -30`
+   - Capture emulator screen: `adb -s emulator-5554 exec-out screencap -p > /root/v-webrtc/public/emulator_screen.png` (View at `https://v.tokendeal.cloud/emulator_screen.png`)
 
 ---
 
