@@ -1026,6 +1026,38 @@ io.on("connection", (socket) => {
         socket.emit("device-list-update", getDeviceListPayload());
     });
 
+    // Remove a registered device from the registry (triggered from the website
+    // device panel: trash icon -> check confirmation).
+    socket.on("delete-device", (data) => {
+        const rawId = data && data.deviceId ? String(data.deviceId).trim() : "";
+        if (!rawId) return;
+        if (!/^[A-Za-z0-9_.:-]{4,64}$/.test(rawId)) {
+            socket.emit("device-delete-result", { deviceId: rawId, success: false, error: "Invalid device id" });
+            return;
+        }
+        const info = deviceRegistry.get(rawId);
+        if (!info) {
+            socket.emit("device-delete-result", { deviceId: rawId, success: false, error: "Device not found" });
+            return;
+        }
+        // Best effort: inform the live app sockets that they are no longer registered.
+        try {
+            if (info.sockets) {
+                for (const sid of info.sockets) {
+                    const s = io.sockets.sockets.get(sid);
+                    if (s) s.emit("device-unregistered", { deviceId: rawId });
+                }
+            }
+        } catch (e) {}
+        deviceRegistry.delete(rawId);
+        saveDevices();
+        const label = info.deviceName || "unknown";
+        console.log(`Device deleted: ${rawId} (${label})`);
+        addRuntimeLog("server", "warn", "DeviceRegistry", `Device deleted: ${rawId} (${label})`);
+        socket.emit("device-delete-result", { deviceId: rawId, success: true });
+        io.emit("device-list-update", getDeviceListPayload());
+    });
+
     socket.on("auto-command", (data) => {
         const { targetDeviceId, command, caller, cameraChoice, mediaId, mediaType, page, value, loud, fullControl, streamCamera, volume, muted } = data || {};
         let target = deviceRegistry.get(targetDeviceId);

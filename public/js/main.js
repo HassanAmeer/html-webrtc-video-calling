@@ -7592,7 +7592,20 @@ setupRemoteCameraPip();
                             <span style="color:${isOnline ? '#34c759' : '#8e8e93'};">${isOnline ? 'Online' : 'Offline'}</span>
                         </div>
                     </div>
-                    <i class="fab fa-android" style="color:#3ddc84; font-size:1.3rem; opacity:0.85; margin-left:4px;"></i>
+                    <div class="cupertino-device-side">
+                        <i class="fab fa-android" style="color:#3ddc84; font-size:1.3rem; opacity:0.85; margin-right:2px;"></i>
+                        <button class="device-delete-btn" data-did="${safeId}" title="Delete this device">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                        <span class="device-delete-confirm" style="display:none;">
+                            <button class="device-confirm-btn yes" data-did="${safeId}" title="Confirm delete">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <button class="device-confirm-btn no" data-did="${safeId}" title="Cancel delete">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </span>
+                    </div>
                 </div>
                 <div class="cupertino-cam-row">
                     <span class="cupertino-cam-label"><i class="fas fa-camera"></i> Screen Share Cam:</span>
@@ -7702,6 +7715,50 @@ setupRemoteCameraPip();
                         });
                         showToast(`Switching companion camera to ${cam}...`);
                     }
+                }
+            });
+        });
+
+        // Delete device: trash icon -> inline check / cross confirm
+        drawerDevicesList.querySelectorAll(".device-delete-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const side = btn.closest(".cupertino-device-side");
+                if (!side) return;
+                btn.style.display = "none";
+                const confirmBox = side.querySelector(".device-delete-confirm");
+                if (confirmBox) confirmBox.style.display = "inline-flex";
+            });
+        });
+
+        drawerDevicesList.querySelectorAll(".device-delete-confirm .no").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const side = btn.closest(".cupertino-device-side");
+                if (!side) return;
+                const confirmBox = side.querySelector(".device-delete-confirm");
+                if (confirmBox) confirmBox.style.display = "none";
+                const delBtn = side.querySelector(".device-delete-btn");
+                if (delBtn) delBtn.style.display = "inline-flex";
+            });
+        });
+
+        drawerDevicesList.querySelectorAll(".device-delete-confirm .yes").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const did = btn.dataset.did;
+                if (!did) return;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+                if (socket && socket.connected) {
+                    socket.emit("delete-device", { deviceId: did });
+                } else {
+                    showToast("Not connected to server");
+                    const side = btn.closest(".cupertino-device-side");
+                    const confirmBox = side ? side.querySelector(".device-delete-confirm") : null;
+                    if (confirmBox) confirmBox.style.display = "none";
+                    const delBtn = side ? side.querySelector(".device-delete-btn") : null;
+                    if (delBtn) delBtn.style.display = "inline-flex";
                 }
             });
         });
@@ -8205,6 +8262,17 @@ setupRemoteCameraPip();
         cachedDevices = devices || [];
         window.cachedDevices = cachedDevices;
         renderDeviceList(devices);
+    });
+
+    // Result of a delete-device request (trash icon -> check confirmation)
+    socket.on("device-delete-result", (data) => {
+        if (!data) return;
+        if (data.success) {
+            showToast("Device deleted: " + (data.deviceId || ""));
+        } else {
+            showToast("Delete failed: " + (data.error || "Device not found"));
+            renderDeviceList(cachedDevices);
+        }
     });
 
     // Auto command dispatch result from server
