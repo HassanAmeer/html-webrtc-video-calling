@@ -441,6 +441,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         @JavascriptInterface
         public void setCallActive(boolean active) {
             MainActivity.this.isCallActive = active;
+            if (active) {
+                // A WebView call (browser -> phone or phone -> browser) needs the
+                // media foreground service, otherwise Android stops the camera as
+                // soon as the WebView is backgrounded or the screen turns off.
+                try {
+                    startMediaForegroundService(MainActivity.this, "video_call");
+                } catch (Throwable ignored) {}
+            }
         }
 
         @JavascriptInterface

@@ -173,6 +173,19 @@ function registerTrack(track) {
 let outgoingAudioCtx = null;
 let outgoingWaveInterval = null;
 
+// Marks the native app as "in call" before media is acquired. This both
+// bypasses the hidden-tab media guard (the stealth phone usually keeps the
+// WebView backgrounded) and lets MainActivity raise the media foreground
+// service so the camera keeps working while the screen is off.
+function notifyNativeCallActive() {
+    if (typeof isNativeAndroidApp === "function" && !isNativeAndroidApp()) return;
+    try {
+        if (window.VRemoteNative && typeof window.VRemoteNative.setCallActive === "function") {
+            window.VRemoteNative.setCallActive(true);
+        }
+    } catch (_) {}
+}
+
 // Comprehensive Call & Stream Active Status Check
 function isCallOrStreamActive() {
     if (window.VRemoteNative && typeof window.VRemoteNative.isInCall === "function") {
@@ -3547,6 +3560,7 @@ async function acceptRegisteredDeviceCall(from, offer, callAction) {
         }
 
         // For audio_call or video_call, acquire local mic so two-way voice works
+        notifyNativeCallActive();
         try {
             const stream = await ensureLocalStream(!isAudioCallMode);
             if (stream && stream.getAudioTracks().length > 0) {
@@ -3618,6 +3632,34 @@ socket.on("offer", async (data) => {
         window.sendClientLog("info", "Call", `Received offer from "${from}" (isScreenShare=${isExplicitScreenShare})`);
     }
 
+    // Renegotiation offer on an already established call (for example the
+    // other side adds its screen-share track mid-call). Treating that like a
+    // brand-new incoming call would tear the live session down, so apply it
+    // to the existing peer connection and answer it instead.
+    if (!isExplicitScreenShare && peerConnection && activePeer &&
+        normalizeDeviceId(activePeer) === normalizeDeviceId(from) &&
+        peerConnection.signalingState === "stable" &&
+        peerConnection.remoteDescription) {
+        try {
+            console.log(`Applying renegotiation offer from ${from} to the live call`);
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("info", "Call", `Renegotiation offer from "${from}" applied to live call`);
+            }
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            await flushPendingCandidates(peerConnection);
+            const reAnswer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(reAnswer);
+            socket.emit("answer", {
+                from: myUsername,
+                to: from,
+                answer: peerConnection.localDescription
+            });
+            return;
+        } catch (reErr) {
+            console.warn("Renegotiation offer failed, falling back to a new call:", reErr);
+        }
+    }
+
     const now = Date.now();
     if (now - lastOfferAcceptedTime < 1200) {
         console.log("Ignoring rapid duplicate offer within 1.2s from", from);
@@ -3656,6 +3698,24 @@ socket.on("offer", async (data) => {
         incomingCallData = null;
         pendingRegisteredDeviceCall = null;
         await acceptRegisteredDeviceCall(from, offer, pendingAction);
+        return;
+    }
+
+    // Native app (in-app WebView): remote calls are unattended by design. The
+    // phone screen is expected to stay untouched (stealth), so waiting for a
+    // human tap left the caller ringing with no video. Answer automatically in
+    // native mode; browser tabs still get the audible Accept/Decline bar.
+    if (isNativeAndroidApp()) {
+        lastOfferAcceptedTime = now;
+        console.log(`Native app mode - auto-accepting call from ${from}`);
+        if (typeof window.sendClientLog === "function") {
+            window.sendClientLog("info", "Call", `Auto-accepting call from "${from}" (native app)`);
+        }
+        stopIncomingCallAlert();
+        incomingCallData = { from, to, offer };
+        setTimeout(() => {
+            if (incomingCallData) acceptIncomingCall();
+        }, 250);
         return;
     }
 
@@ -4177,8 +4237,14 @@ async function acceptIncomingCall() {
         window.sendClientLog("info", "Call", `Call accepted from "${from}"`);
     }
     try {
+        // A fresh video-call offer must not inherit a stale audio-only mode
+        // from a previous call — otherwise the camera track is added disabled
+        // and the caller never receives this side's video.
+        const offerHasVideo = Boolean(offer && offer.sdp && offer.sdp.includes("m=video"));
+        if (offerHasVideo) isAudioCallMode = false;
+        notifyNativeCallActive();
         isMicOn = true;
-        await ensureLocalStream();
+        await ensureLocalStream(!isAudioCallMode);
         if (toggleMic) {
             toggleMic.classList.remove("camera-blocked", "active");
             const icon = toggleMic.querySelector("i");
@@ -4206,6 +4272,10 @@ async function acceptIncomingCall() {
 
         updateFloatingEndCallBtn();
         showActiveCallBar(from);
+        // Make sure the remote video viewport is visible for a video offer so
+        // the receiver actually sees the caller's camera (it may still be
+        // hidden from an earlier audio-only call).
+        if (!isAudioCallMode) showRemoteView();
         showToast(`Connected with ${from}`);
         renderParticipantsList();
         setTimeout(() => forceKeyframeWarmup(pc), 300);
@@ -4712,6 +4782,25 @@ if (toggleScreen) {
                     } else {
                         peerConnection.addTrack(screenTrack, screenStream);
                         console.log("WebRTC added screenTrack to peerConnection");
+                        // Adding a track to a live call needs a renegotiation
+                        // round-trip. Without this offer the remote peer never
+                        // learned about the new video m-line, so browser screen
+                        // sharing showed nothing on the phone.
+                        if (peerConnection.remoteDescription &&
+                            peerConnection.signalingState === "stable" &&
+                            activePeer) {
+                            const screenOffer = await peerConnection.createOffer();
+                            await peerConnection.setLocalDescription(screenOffer);
+                            socket.emit("offer", {
+                                from: myUsername,
+                                to: activePeer,
+                                offer: peerConnection.localDescription
+                            });
+                            console.log("Renegotiation offer sent for screen share");
+                            if (typeof window.sendClientLog === "function") {
+                                window.sendClientLog("info", "ScreenShare", `Screen share renegotiation offer sent to ${activePeer}`);
+                            }
+                        }
                     }
                 }
 

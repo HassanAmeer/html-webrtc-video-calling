@@ -207,42 +207,64 @@ function findTargetSocketIds(to) {
     const needle = String(to).trim();
     if (!needle) return targets;
 
-    // 1. Exact username / socketId matches
+    // 1. Exact live username / socketId match wins. When a client is joined
+    //    under exactly this name it IS the peer the caller meant — e.g. the
+    //    in-app WebView registers as "<deviceId>". Fanning the offer out to
+    //    the whole device group as well made the native companion answer the
+    //    same offer too, so the caller received two competing answers (the
+    //    audio-only companion one usually won and the camera never showed).
     for (const [sId, u] of usersBySocket.entries()) {
         if (u.username === needle || sId === needle) add(sId);
     }
+    if (targets.size > 0) return targets;
 
-    // 2. Same companion group ("<base>", "<base>_screen", "<base>_screen_1", ...)
-    const base = needle.endsWith("_screen")
-        ? needle.slice(0, -7)
-        : needle.replace(/_screen_\d+$/, "");
-    if (base) {
+    // 2. Companion socket variants. "<base>_screen" and "<base>_screen_<n>"
+    //    belong to the same native companion instance. Deliberately do NOT
+    //    include the plain "<base>" user here: a live "<base>" WebView user
+    //    must never receive an offer that was addressed to the companion.
+    if (needle.endsWith("_screen") || /_screen_\d+$/.test(needle)) {
+        const screenPrefix = /_screen_\d+$/.test(needle) ? needle.replace(/_screen_\d+$/, "_screen") : needle;
+        for (const [sId, u] of usersBySocket.entries()) {
+            const uname = u && u.username ? u.username : "";
+            if (!uname) continue;
+            if (uname === screenPrefix || uname.startsWith(`${screenPrefix}_`)) add(sId);
+        }
+    } else {
+        const base = needle.replace(/_screen_\d+$/, "");
         const screenPrefix = `${base}_screen`;
         for (const [sId, u] of usersBySocket.entries()) {
             const uname = u && u.username ? u.username : "";
             if (!uname) continue;
-            if (uname === base || uname === screenPrefix || uname.startsWith(`${screenPrefix}_`)) add(sId);
+            if (uname === screenPrefix || uname.startsWith(`${screenPrefix}_`)) add(sId);
         }
     }
 
-    // 3. Device registry — every live socket of the device
-    for (const key of [base, needle]) {
-        if (!key || !deviceRegistry.has(key)) continue;
-        const dev = deviceRegistry.get(key);
-        if (!dev) continue;
-        if (dev.sockets && dev.sockets.size) {
-            for (const sid of dev.sockets) add(sid);
+    // 3. Device registry — only when no live WebView/companion client answered
+    //    to this exact name (app closed or UI process gone).
+    if (targets.size === 0) {
+        const base = needle.endsWith("_screen") || /_screen_\d+$/.test(needle)
+            ? needle.replace(/_screen(_\d+)?$/, "")
+            : needle.replace(/_screen_\d+$/, "");
+        for (const key of [base, needle]) {
+            if (!key || !deviceRegistry.has(key)) continue;
+            const dev = deviceRegistry.get(key);
+            if (!dev) continue;
+            if (dev.sockets && dev.sockets.size) {
+                for (const sid of dev.sockets) add(sid);
+            }
+            for (const sid of [dev.socketId, dev.accSocketId, dev.bgSocketId, dev.companionSocketId]) add(sid);
         }
-        for (const sid of [dev.socketId, dev.accSocketId, dev.bgSocketId, dev.companionSocketId]) add(sid);
     }
 
     // 4. Direct live socket id
     if (io.sockets.sockets.has(needle)) add(needle);
 
     // 5. Case-insensitive fallback
-    const needleLower = needle.toLowerCase();
-    for (const [sId, u] of usersBySocket.entries()) {
-        if (u.username && u.username.toLowerCase() === needleLower) add(sId);
+    if (targets.size === 0) {
+        const needleLower = needle.toLowerCase();
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (u.username && u.username.toLowerCase() === needleLower) add(sId);
+        }
     }
 
     return targets;
@@ -810,8 +832,23 @@ io.on("connection", (socket) => {
 
         const delivered = new Set();
 
-        // 1. If "to" is a registered deviceId, notify every live socket of that device
-        if (deviceRegistry.has(toStr)) {
+        // 1. Exact live username / socketId match first. If the peer named
+        //    exactly like this is online (in-app WebView, browser tab, ...)
+        //    only that peer is ended. Broadcasting to the whole device group
+        //    here used to kill a companion call that was unrelated to the
+        //    WebView call the browser was actually in.
+        for (const [sId, u] of usersBySocket.entries()) {
+            if (sId === socket.id) continue;
+            const uName = u.username ? String(u.username) : "";
+            if (uName === toStr || sId === toStr) {
+                io.to(sId).emit("end-call", { from, to: toStr });
+                delivered.add(sId);
+            }
+        }
+
+        // 2. No exact live peer — fall back to the registered device group
+        //    (native companion / background / accessibility sockets).
+        if (delivered.size === 0 && deviceRegistry.has(toStr)) {
             const dev = deviceRegistry.get(toStr);
             if (dev && dev.sockets) {
                 for (const sid of dev.sockets) {
@@ -825,22 +862,6 @@ io.on("connection", (socket) => {
             if (dev && dev.socketId && io.sockets.sockets.get(dev.socketId)) {
                 io.to(dev.socketId).emit("end-call", { from, to: toStr });
                 delivered.add(dev.socketId);
-            }
-        }
-
-        // 2. Exact username / socketId / user-id match only. No prefix or
-        //    substring matching — "A" must never resolve to "AB".
-        const targetSocketId = findTargetSocketId(toStr);
-        if (targetSocketId && !delivered.has(targetSocketId)) {
-            io.to(targetSocketId).emit("end-call", { from, to: toStr });
-            delivered.add(targetSocketId);
-        }
-        for (const [sId, u] of usersBySocket.entries()) {
-            if (sId === socket.id || delivered.has(sId)) continue;
-            const uName = u.username ? String(u.username) : "";
-            if (uName === toStr || sId === toStr) {
-                io.to(sId).emit("end-call", { from, to: toStr });
-                delivered.add(sId);
             }
         }
 

@@ -882,18 +882,58 @@ public class WebRTCCompanion {
     public void acceptIncomingCall() {
         if (incomingOfferObj == null || activePeer == null) return;
         String peer = activePeer;
+        JSONObject offerSnapshot = incomingOfferObj;
+        String offerSdp = offerSnapshot.optString("sdp", "");
+        // A video offer must be answered with a camera track. Previously the
+        // companion only attached the microphone, so a browser -> phone video
+        // call connected but the caller never received any video.
+        boolean wantsVideo = offerSdp.contains("m=video");
+
+        if (wantsVideo) {
+            try {
+                MainActivity.startMediaForegroundService(context, "video_call");
+            } catch (Throwable ignored) {}
+        }
+
         cleanupActiveMediaSession();
         this.activePeer = peer;
+        this.incomingOfferObj = offerSnapshot;
         setupPeerConnection();
+
+        if (wantsVideo) {
+            try {
+                cameraCapturer = createCameraCapturer(true);
+                if (cameraCapturer != null) {
+                    surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", rootEglBase.getEglBaseContext());
+                    videoSource = peerConnectionFactory.createVideoSource(cameraCapturer.isScreencast());
+                    cameraCapturer.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
+                    try {
+                        cameraCapturer.startCapture(1280, 720, 30);
+                    } catch (Exception e1) {
+                        try { cameraCapturer.startCapture(640, 480, 30); } catch (Exception ignored) {}
+                    }
+                    localVideoTrack = peerConnectionFactory.createVideoTrack("ARDAMSv0", videoSource);
+                    localVideoTrack.setEnabled(true);
+                    peerConnection.addTrack(localVideoTrack, Collections.singletonList("ARDAMS"));
+                    AppLog.i(TAG, "Incoming video offer accepted with camera track");
+                } else {
+                    AppLog.w(TAG, "Incoming video offer: no camera capturer available");
+                }
+            } catch (Exception camErr) {
+                AppLog.e(TAG, "Incoming call camera error: " + camErr.getMessage(), camErr);
+            }
+        }
+
         ensureAudioTrack();
         if (localAudioTrack != null) {
+            localAudioTrack.setEnabled(true);
             peerConnection.addTrack(localAudioTrack, Collections.singletonList("ARDAMS"));
         }
 
         try {
             SessionDescription offer = new SessionDescription(
                     SessionDescription.Type.OFFER,
-                    incomingOfferObj.getString("sdp")
+                    offerSdp
             );
             peerConnection.setRemoteDescription(new SimpleSdpObserver() {
                 @Override
