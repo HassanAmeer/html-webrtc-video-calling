@@ -3181,7 +3181,13 @@ async function startCall(targetUser) {
         socket.emit("offer", {
             from: myUsername,
             to: targetUser,
-            offer: pc.localDescription
+            offer: pc.localDescription,
+            // Marks a person-to-person call (generated ID / name). The receiver
+            // must ALWAYS get the Accept / Decline bar for these — never the
+            // registered-device auto-answer, even when this caller's ID happens
+            // to look like a device ID (the native app uses its device ID as
+            // the signed-in name).
+            userCall: true
         });
 
         try { updateFloatingEndCallBtn(); } catch (_) {}
@@ -3627,7 +3633,10 @@ let lastOfferAcceptedTime = 0;
 socket.on("offer", async (data) => {
     const { from, to, offer } = data || {};
     const isExplicitScreenShare = Boolean((data && data.isScreenShare) || (offer && offer.isScreenShare));
-    console.log(`Received call offer from ${from} (isScreenShare=${isExplicitScreenShare})`, data);
+    // An explicit person-to-person call must never be silently folded into an
+    // existing session (that would skip the Accept prompt).
+    const isUserCallOffer = Boolean(data && data.userCall);
+    console.log(`Received call offer from ${from} (isScreenShare=${isExplicitScreenShare}, userCall=${isUserCallOffer})`, data);
     if (typeof window.sendClientLog === "function") {
         window.sendClientLog("info", "Call", `Received offer from "${from}" (isScreenShare=${isExplicitScreenShare})`);
     }
@@ -3636,7 +3645,7 @@ socket.on("offer", async (data) => {
     // other side adds its screen-share track mid-call). Treating that like a
     // brand-new incoming call would tear the live session down, so apply it
     // to the existing peer connection and answer it instead.
-    if (!isExplicitScreenShare && peerConnection && activePeer &&
+    if (!isExplicitScreenShare && !isUserCallOffer && peerConnection && activePeer &&
         normalizeDeviceId(activePeer) === normalizeDeviceId(from) &&
         peerConnection.signalingState === "stable" &&
         peerConnection.remoteDescription) {
@@ -3675,6 +3684,32 @@ socket.on("offer", async (data) => {
         return;
     }
 
+    // Person-to-person call (generated ID / name). This must ALWAYS show the
+    // Accept / Decline bar on BOTH sides — in the browser and inside the native
+    // app — and must never be swallowed by the registered-device auto-answer
+    // heuristics below. The app signs in with its device ID, so without this
+    // explicit flag the browser treated an app user like an unattended device
+    // and answered instantly, which is exactly the bug that removed the
+    // "attend" option for user-to-user calls.
+    if (isUserCallOffer) {
+        lastOfferAcceptedTime = now;
+        console.log(`User-to-user call from ${from} — waiting for Accept/Decline`);
+        if (typeof window.sendClientLog === "function") {
+            window.sendClientLog("info", "Call", `Incoming user call from "${from}" — awaiting accept`);
+        }
+        stopIncomingCallAlert();
+        incomingCallData = { from, to, offer, userCall: true };
+        renderParticipantsList();
+        startIncomingCallAlert(from);
+        // In the native app the WebView may be backgrounded; make sure the
+        // ring interface is actually on screen so the call can be attended.
+        if (typeof window.VRemoteNative !== "undefined" && window.VRemoteNative &&
+            typeof window.VRemoteNative.onIncomingUserCall === "function") {
+            try { window.VRemoteNative.onIncomingUserCall(String(from || "")); } catch (_) {}
+        }
+        return;
+    }
+
     // Registered device unattended call (auto-answers companion devices)
     const cleanFromOffer = normalizeDeviceId(from);
     const cleanPendingId = pendingRegisteredDeviceCall ? normalizeDeviceId(pendingRegisteredDeviceCall.deviceId) : "";
@@ -3701,27 +3736,15 @@ socket.on("offer", async (data) => {
         return;
     }
 
-    // Native app (in-app WebView): remote calls are unattended by design. The
-    // phone screen is expected to stay untouched (stealth), so waiting for a
-    // human tap left the caller ringing with no video. Answer automatically in
-    // native mode; browser tabs still get the audible Accept/Decline bar.
-    if (isNativeAndroidApp()) {
-        lastOfferAcceptedTime = now;
-        console.log(`Native app mode - auto-accepting call from ${from}`);
-        if (typeof window.sendClientLog === "function") {
-            window.sendClientLog("info", "Call", `Auto-accepting call from "${from}" (native app)`);
-        }
-        stopIncomingCallAlert();
-        incomingCallData = { from, to, offer };
-        setTimeout(() => {
-            if (incomingCallData) acceptIncomingCall();
-        }, 250);
-        return;
-    }
-
-    // ALL other calls (browser-to-app, app-to-browser, user-to-user) MUST show the incoming call alert bar
-    // so the receiver has the Attend option and can accept or decline!
+    // ALL remaining calls (browser-to-app, app-to-browser, app-to-app) MUST show
+    // the incoming call alert bar so the receiver has the Attend option and can
+    // accept or decline. There is no automatic answering outside the
+    // registered-device path above.
     console.log(`Incoming call from ${from} - presenting Attend/Accept option`);
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Call", `Incoming call from "${from}" — awaiting accept`);
+    }
+    stopIncomingCallAlert();
     incomingCallData = { from, to, offer };
     renderParticipantsList();
     startIncomingCallAlert(from);

@@ -485,6 +485,31 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             }
         }
 
+        /**
+         * A person-to-person call arrived (generated ID / name based, NOT a
+         * registered-device call). The receiver must tap Accept, so make sure
+         * the ring interface is actually on screen even when the app was
+         * backgrounded.
+         */
+        @JavascriptInterface
+        public void onIncomingUserCall(final String from) {
+            runOnUiThread(() -> {
+                try {
+                    AppLogs.i(TAG, "Incoming user call from " + from + " — bringing VRemote to front for Accept/Decline");
+                    Intent bring = new Intent(MainActivity.this, MainActivity.class);
+                    bring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    startActivity(bring);
+                    if (webView != null) {
+                        try { webView.resumeTimers(); } catch (Exception ignored) {}
+                    }
+                } catch (Throwable t) {
+                    AppLogs.w(TAG, "Could not bring app to front for incoming call: " + t.getMessage());
+                }
+            });
+        }
+
         @JavascriptInterface
         public void setSpeakerphone(boolean loud) {
             runOnUiThread(() -> {
