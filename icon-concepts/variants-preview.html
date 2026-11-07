@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: #080b10; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { width: 1240px; padding: 26px 28px 30px; box-sizing: border-box; }
+  h1 { color: #e8eef7; font-size: 19px; margin: 0 0 4px; font-weight: 700; }
+  p.sub { color: #7c8798; font-size: 12.5px; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .card { background: #11161d; border: 1px solid #1d2531; border-radius: 18px; padding: 13px; }
+  .name { color: #dbe4ef; font-size: 13px; font-weight: 600; margin: 0 0 1px; }
+  .note { color: #6d7888; font-size: 11.5px; margin: 0 0 10px; font-family: ui-monospace, monospace; }
+  .big { height: 132px; border-radius: 18px; background: #0d1218; display: flex; align-items: center; justify-content: center; }
+  .big img { width: 96px; height: 96px; }
+  .chips { display: flex; gap: 7px; margin-top: 9px; }
+  .chip { flex: 1; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+  .chip img { width: 32px; height: 32px; }
+  .chip.white { background: #f6f7f9; }
+  .chip.color { background: linear-gradient(135deg, #1d4ed8, #7c3aed 55%, #db2777); }
+  .chip.dark { background: #0d1218; border: 1px solid #1d2531; }
+  .lblrow { display: flex; justify-content: space-between; color: #5f6b7a; font-size: 10px; margin-top: 5px; }
+  .masks { display: flex; gap: 10px; margin-top: 9px; }
+  .mask { flex: 1; height: 60px; background: #0d1218; display: flex; align-items: center; justify-content: center; }
+  .mask.round { border-radius: 50%; }
+  .mask.sq { border-radius: 18px; }
+  .mask img { width: 46px; height: 46px; }
+  h2 { color: #8b96a6; font-size: 12px; text-transform: uppercase; letter-spacing: 1.1px; margin: 22px 0 10px; font-weight: 600; }
+  .sizes { display: flex; align-items: flex-end; gap: 20px; background: #0d1218; border-radius: 14px; padding: 14px 18px; }
+  .sizes .sz { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .sizes span { color: #5f6b7a; font-size: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>App icon — darker grey + reduced opacity</h1>
+  <p class="sub">APK mein abhi kuch nahi badla. Sirf preview — jo pasand aaye wohi lagaunga. Har card: dark launcher (bara), phir white / colour / dark chips.</p>
+  <div class="grid" id="grid"></div>
+
+  <h2>Circle &amp; squircle mask (Android launcher)</h2>
+  <div class="grid" id="masks"></div>
+
+  <h2>Real sizes</h2>
+  <div class="sizes" id="sizes"></div>
+</div>
+<script>
+const variants = [
+  { id: 'v1', label: 'v1 — existing', note: '#9CA3AF · 100%' },
+  { id: 'v2', label: 'v2 — dark grey', note: '#6B7280 · 100%' },
+  { id: 'v3', label: 'v3 — darker grey', note: '#4B5563 · 100%' },
+  { id: 'v4', label: 'v4 — dark + 40%', note: '#55606E · 40%' },
+  { id: 'v5', label: 'v5 — dark + 60%', note: '#55606E · 60%' },
+  { id: 'v6', label: 'v6 — darker + 40%', note: '#3F4855 · 40%' },
+  { id: 'v7', label: 'v7 — darker + 30%', note: '#3F4855 · 30%' }
+];
+document.getElementById('grid').innerHTML = variants.map(v => `
+  <div class="card">
+    <p class="name">${v.label}</p>
+    <p class="note">${v.note}</p>
+    <div class="big"><img src="variants/${v.id}.png"></div>
+    <div class="chips">
+      <div class="chip white"><img src="variants/${v.id}.png"></div>
+      <div class="chip color"><img src="variants/${v.id}.png"></div>
+    </div>
+  </div>`).join('');
+
+document.getElementById('masks').innerHTML = variants.map(v => `
+  <div class="card">
+    <p class="name">${v.label}</p>
+    <div class="masks">
+      <div class="mask round"><img src="variants/${v.id}.png"></div>
+      <div class="mask sq"><img src="variants/${v.id}.png"></div>
+    </div>
+  </div>`).join('');
+
+document.getElementById('sizes').innerHTML = [96, 72, 48, 32].map(s =>
+  `<div class="sz"><img src="variants/v4.png" width="${s}" height="${s}"><span>${s}px</span></div>`
+).join('') + `<div style="flex:1"></div>` + [96, 72, 48, 32].map(s =>
+  `<div class="sz"><img src="variants/v1.png" width="${s}" height="${s}"><span>${s}px</span></div>`
+).join('');
+</script>
+</body>
+</html>

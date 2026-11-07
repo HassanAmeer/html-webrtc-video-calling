@@ -1,0 +1,51 @@
+[
+  {
+    "id": "v1",
+    "label": "v1 — existing",
+    "note": "#9CA3AF · 100% opacity",
+    "color": "#9CA3AF",
+    "a": 1
+  },
+  {
+    "id": "v2",
+    "label": "v2 — dark grey",
+    "note": "#6B7280 · 100% opacity",
+    "color": "#6B7280",
+    "a": 1
+  },
+  {
+    "id": "v3",
+    "label": "v3 — darker grey",
+    "note": "#4B5563 · 100% opacity",
+    "color": "#4B5563",
+    "a": 1
+  },
+  {
+    "id": "v4",
+    "label": "v4 — dark + 40%",
+    "note": "#55606E · opacity 40%",
+    "color": "#55606E",
+    "a": 0.4
+  },
+  {
+    "id": "v5",
+    "label": "v5 — dark + 60%",
+    "note": "#55606E · opacity 60%",
+    "color": "#55606E",
+    "a": 0.6
+  },
+  {
+    "id": "v6",
+    "label": "v6 — darker + 40%",
+    "note": "#3F4855 · opacity 40%",
+    "color": "#3F4855",
+    "a": 0.4
+  },
+  {
+    "id": "v7",
+    "label": "v7 — darker + 30%",
+    "note": "#3F4855 · opacity 30%",
+    "color": "#3F4855",
+    "a": 0.3
+  }
+]
