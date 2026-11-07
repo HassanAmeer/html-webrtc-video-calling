@@ -410,6 +410,9 @@ public class RemoteAccessibilityService extends AccessibilityService {
 
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
+                        // Dismiss any permission dialog that is still waiting, so
+                        // the next screen_share request starts from a clean slate.
+                        HeadlessCaptureActivity.cancelPending();
                         sendBroadcast(new Intent(ACTION_END_CALL));
                         if (MainActivity.getCompanionInstance() != null) {
                             MainActivity.getCompanionInstance().endCall(false);

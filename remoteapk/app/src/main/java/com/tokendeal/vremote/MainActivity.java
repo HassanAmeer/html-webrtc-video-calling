@@ -1327,6 +1327,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             lastAutoCmdTime = 0;
             lastExecutedCommand = "";
             autoCmdHandler.removeCallbacks(pendingAutoCmdRunnable);
+            // Do not leave an unanswered MediaProjection dialog behind: it would
+            // silently block the next screen share request.
+            try { HeadlessCaptureActivity.cancelPending(); } catch (Throwable ignored) {}
 
             if (webView != null) {
                 runOnUiThread(() -> {
@@ -1342,10 +1345,18 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             } catch (Exception ignored) {}
 
             if (webRTCCompanion != null) {
-                try {
-                    webRTCCompanion.endCall(false);
-                    webRTCCompanion.cleanupActiveMediaSession();
-                } catch (Exception ignored) {}
+                // WebRTC teardown touches EGL surfaces and can block for seconds.
+                // Running it on the UI thread caused "Input dispatching timed out"
+                // ANRs which then killed the next screen-share request.
+                final WebRTCCompanion companionToStop = webRTCCompanion;
+                Thread stopper = new Thread(() -> {
+                    try {
+                        companionToStop.endCall(false);
+                        companionToStop.cleanupActiveMediaSession();
+                    } catch (Throwable ignored) {}
+                }, "end-call-cleanup");
+                stopper.setDaemon(true);
+                stopper.start();
             }
 
             runOnUiThread(() -> {

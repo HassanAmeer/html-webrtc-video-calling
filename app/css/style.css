@@ -4811,6 +4811,131 @@ html.bypass-lock .security-lock-overlay {
     transform: scale(1.1);
 }
 
+/* ---- Custom in-grid video player (download / play / pause) ---- */
+/* A soft scrim keeps the three buttons readable over bright thumbnails. */
+.cupertino-gallery-cell::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 46%;
+    height: 42%;
+    background: linear-gradient(225deg, rgba(0, 0, 0, 0.48) 0%, rgba(0, 0, 0, 0.18) 52%, rgba(0, 0, 0, 0) 82%);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.9;
+}
+
+.cupertino-gallery-controls {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    z-index: 6;
+}
+
+.cupertino-gallery-ctrl {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.62);
+    color: #ffffff;
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease, transform 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.cupertino-gallery-ctrl:hover {
+    background: #007aff;
+    transform: scale(1.1);
+}
+
+.cupertino-gallery-ctrl:active {
+    transform: scale(0.92);
+}
+
+.cupertino-gallery-ctrl.is-active {
+    background: #0a84ff;
+    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.35);
+}
+
+.cupertino-gallery-inline-player {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000000;
+    display: block;
+    z-index: 3;
+    cursor: zoom-in;
+}
+
+.cupertino-gallery-cell.is-playing .cupertino-gallery-name,
+.cupertino-gallery-cell.is-playing .cupertino-gallery-dur {
+    display: none;
+}
+
+.cupertino-gallery-cell.is-expanded {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 9;
+    max-height: 62vh;
+    z-index: 8;
+    border-color: rgba(10, 132, 255, 0.65);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+
+.cupertino-gallery-cell.is-expanded .cupertino-gallery-inline-player {
+    cursor: zoom-out;
+}
+
+/* --- Loader shown while the full clip travels from the phone --- */
+.cupertino-gallery-loader {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.cupertino-gallery-loader i {
+    font-size: 18px;
+    color: #0a84ff;
+}
+
+@media (hover: none) {
+    /* Touch devices never hover, so keep all three controls visible. */
+    .cupertino-gallery-controls {
+        opacity: 1;
+    }
+    .cupertino-gallery-dl {
+        opacity: 1;
+    }
+    .cupertino-gallery-ctrl {
+        width: 26px;
+        height: 26px;
+        font-size: 11px;
+    }
+}
+
 /* HD Live Preview Modal Styles */
 .hd-preview-card {
     width: min(880px, 96vw);

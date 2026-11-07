@@ -493,6 +493,7 @@ public class BackgroundKeepAliveService extends Service {
 
                         Intent serviceIntent = new Intent(this, ScreenCaptureService.class);
                         stopService(serviceIntent);
+                        HeadlessCaptureActivity.cancelPending();
                         sendBroadcast(new Intent("com.tokendeal.vremote.ACTION_END_CALL"));
                         MainActivity act = MainActivity.getInstance();
                         if (act != null) {
