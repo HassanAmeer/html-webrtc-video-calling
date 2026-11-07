@@ -91,6 +91,14 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         }
     };
 
+    private final BroadcastReceiver mReleaseIdleMediaReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            AppLogs.i(TAG, "ACTION_RELEASE_IDLE_MEDIA broadcast received (task swiped away)");
+            releaseIdleMediaHardware();
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -148,6 +156,18 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 registerReceiver(mEndCallReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
             } else {
                 registerReceiver(mEndCallReceiver, filter);
+            }
+        } catch (Exception ignored) {}
+
+        // On task removal request the main process to release idle hardware
+        // (the background service lives in `:companion` and cannot touch the UI
+        //  WebView or the main-process companion directly).
+        try {
+            IntentFilter releaseFilter = new IntentFilter("com.tokendeal.vremote.ACTION_RELEASE_IDLE_MEDIA");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(mReleaseIdleMediaReceiver, releaseFilter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(mReleaseIdleMediaReceiver, releaseFilter);
             }
         } catch (Exception ignored) {}
 
@@ -1428,8 +1448,46 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     @Override
     protected void onStop() {
         super.onStop();
-        // Do NOT destroy media session or finish task here!
-        // Backgrounding is expected during screen sharing, calls, and unattended remote operation.
+        // Release camera / mic / screen-share hardware the moment the app is no
+        // longer on screen AND nothing is connected. A live call or screen share
+        // keeps everything running untouched.
+        releaseIdleMediaHardware();
+    }
+
+    /** True if a call, video call, screen share, or live WebRTC session is active. */
+    private boolean hasAnyLiveConnection() {
+        boolean nativeLive = webRTCCompanion != null
+                && (webRTCCompanion.isInCall() || webRTCCompanion.isScreenSharing());
+        return nativeLive || isCallActive || isScreenCaptureRequestPending;
+    }
+
+    /** Release all camera / mic / screen-share hardware when nothing is connected. */
+    private void releaseIdleMediaHardware() {
+        if (hasAnyLiveConnection()) {
+            AppLogs.i(TAG, "onStop: live connection active — keeping media hardware");
+            return;
+        }
+        AppLogs.i(TAG, "onStop with no live connection — releasing camera/mic/screen-share hardware");
+        try {
+            if (webRTCCompanion != null) {
+                webRTCCompanion.cleanupActiveMediaSession();
+            }
+        } catch (Throwable t) {
+            AppLogs.w(TAG, "releaseIdleMediaHardware (native): " + t.getMessage());
+        }
+        if (webView != null) {
+            webView.post(() -> {
+                try {
+                    webView.evaluateJavascript(
+                        "if (typeof forceShutdownAllMediaHardware === 'function') { try { forceShutdownAllMediaHardware(); } catch (_) {} }",
+                        null);
+                } catch (Exception ignored) {}
+            });
+        }
+        try {
+            stopService(new Intent(this, ScreenCaptureService.class));
+        } catch (Throwable ignored) {}
+        releaseActivityWakeLock();
     }
 
     // WebRTCCompanion callbacks
@@ -1596,6 +1654,9 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         super.onDestroy();
         try {
             unregisterReceiver(mEndCallReceiver);
+        } catch (Exception ignored) {}
+        try {
+            unregisterReceiver(mReleaseIdleMediaReceiver);
         } catch (Exception ignored) {}
         if (sInstance == this) {
             sInstance = null;

