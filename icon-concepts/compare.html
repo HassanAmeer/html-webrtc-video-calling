@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: #0a0d12; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { width: 1240px; padding: 40px 40px 46px; box-sizing: border-box; }
+  .row { display: flex; gap: 40px; }
+  .card { flex: 1; background: #11161d; border: 1px solid #1e2733; border-radius: 26px; padding: 26px; }
+  .title { color: #e6edf6; font-size: 20px; font-weight: 700; letter-spacing: .2px; margin: 0 0 4px; }
+  .sub { color: #7f8b9b; font-size: 13.5px; margin: 0 0 20px; }
+  .icon { width: 340px; height: 340px; border-radius: 76px; overflow: hidden; display: block; }
+  .sizes { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+  .sizes img.sm { border-radius: 14px; }
+  .sizes img.xs { border-radius: 9px; }
+  .cap { color: #5f6b7a; font-size: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div class="card">
+      <p class="title">Icon 1 — Devices</p>
+      <p class="sub">Monitor + phone, live camera dot, teal → blue</p>
+      <img class="icon" src="icon-1.png" />
+      <div class="sizes">
+        <img class="sm" src="icon-1.png" width="64" height="64" />
+        <img class="xs" src="icon-1.png" width="40" height="40" />
+        <span class="cap">64px / 40px preview</span>
+      </div>
+    </div>
+    <div class="card">
+      <p class="title">Icon 2 — Monogram V</p>
+      <p class="sub">Bold V with camera lens, cyan → magenta</p>
+      <img class="icon" src="icon-2.png" />
+      <div class="sizes">
+        <img class="sm" src="icon-2.png" width="64" height="64" />
+        <img class="xs" src="icon-2.png" width="40" height="40" />
+        <span class="cap">64px / 40px preview</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

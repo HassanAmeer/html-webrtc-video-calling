@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: #0a0d12; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { width: 1180px; padding: 34px 34px 40px; box-sizing: border-box; }
+  h2 { color: #e6edf6; font-size: 15px; font-weight: 600; margin: 0 0 14px; letter-spacing: .3px; }
+  .row { display: flex; gap: 22px; margin-bottom: 28px; }
+  .tile { width: 190px; height: 190px; display: flex; align-items: center; justify-content: center; border-radius: 26px; position: relative; }
+  .tile.dark { background: #0f1319; }
+  .tile.white { background: #ffffff; }
+  .tile.wall { background: linear-gradient(140deg, #1d4ed8, #7c3aed 55%, #db2777); }
+  .tile.photo { background: linear-gradient(140deg, #0b3d2e, #1f6f4a 45%, #a3b18a 100%); }
+  .tile img { width: 118px; height: 118px; display: block; }
+  .mask { border-radius: 50%; overflow: hidden; }
+  .sq { border-radius: 34px; overflow: hidden; }
+  .lbl { color: #6f7b8a; font-size: 11.5px; margin-top: 8px; text-align: center; }
+  .col { display: flex; flex-direction: column; align-items: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Transparent grey icon on different launcher backgrounds</h2>
+  <div class="row">
+    <div class="col"><div class="tile dark"><img src="app-icon-grey-512.png" /></div><div class="lbl">dark wallpaper</div></div>
+    <div class="col"><div class="tile white"><img src="app-icon-grey-512.png" /></div><div class="lbl">white wallpaper</div></div>
+    <div class="col"><div class="tile wall"><img src="app-icon-grey-512.png" /></div><div class="lbl">colour wallpaper</div></div>
+    <div class="col"><div class="tile photo"><img src="app-icon-grey-512.png" /></div><div class="lbl">photo wallpaper</div></div>
+    <div class="col"><div class="tile dark mask"><img src="app-icon-grey-512.png" /></div><div class="lbl">round mask</div></div>
+    <div class="col"><div class="tile dark sq"><img src="app-icon-grey-512.png" /></div><div class="lbl">squircle mask</div></div>
+  </div>
+  <h2>Size check</h2>
+  <div class="row" style="align-items:flex-end">
+    <div class="col"><img src="app-icon-grey-512.png" width="96" height="96" /><div class="lbl">96px</div></div>
+    <div class="col"><img src="app-icon-grey-512.png" width="72" height="72" /><div class="lbl">72px</div></div>
+    <div class="col"><img src="app-icon-grey-512.png" width="48" height="48" /><div class="lbl">48px</div></div>
+    <div class="col"><img src="app-icon-grey-512.png" width="32" height="32" /><div class="lbl">32px</div></div>
+  </div>
+</div>
+</body>
+</html>

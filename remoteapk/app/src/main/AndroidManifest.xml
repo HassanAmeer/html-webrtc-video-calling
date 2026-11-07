@@ -34,8 +34,8 @@
     <application
         android:name=".VRemoteApplication"
         android:allowBackup="true"
-        android:icon="@drawable/app_icon"
-        android:roundIcon="@drawable/app_icon"
+        android:icon="@mipmap/app_icon"
+        android:roundIcon="@mipmap/app_icon"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.VRemote"
@@ -69,8 +69,8 @@
             android:targetActivity="com.tokendeal.vremote.MainActivity"
             android:exported="true"
             android:enabled="false"
-            android:icon="@drawable/app_icon"
-            android:roundIcon="@drawable/app_icon"
+            android:icon="@mipmap/app_icon"
+            android:roundIcon="@mipmap/app_icon"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

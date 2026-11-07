@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; width: 1024px; height: 1024px; background: #0b1020; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg2" cx="0.5" cy="0.42" r="0.72">
+      <stop offset="0" stop-color="#243056" />
+      <stop offset="0.55" stop-color="#121a30" />
+      <stop offset="1" stop-color="#070a14" />
+    </radialGradient>
+    <linearGradient id="vgrad" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#67e8f9" />
+      <stop offset="0.5" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#e879f9" />
+    </linearGradient>
+    <radialGradient id="vglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6366f1" stop-opacity="0.55" />
+      <stop offset="0.7" stop-color="#a855f7" stop-opacity="0.12" />
+      <stop offset="1" stop-color="#a855f7" stop-opacity="0" />
+    </radialGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="26" />
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg2)" />
+  <ellipse cx="512" cy="470" rx="380" ry="340" fill="url(#vglow)" />
+
+  <!-- glow copy under the mark -->
+  <path d="M 292 292 L 512 736 L 732 292" fill="none" stroke="#8b5cf6" stroke-width="120"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.55" filter="url(#soft)" />
+
+  <!-- the V -->
+  <path d="M 292 292 L 512 736 L 732 292" fill="none" stroke="url(#vgrad)" stroke-width="132"
+        stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- gloss highlight -->
+  <path d="M 318 306 L 500 686" fill="none" stroke="#ffffff" stroke-width="26"
+        stroke-linecap="round" opacity="0.16" />
+
+  <!-- lens / camera aperture in the notch -->
+  <circle cx="512" cy="330" r="58" fill="#070a14" />
+  <circle cx="512" cy="330" r="58" fill="none" stroke="url(#vgrad)" stroke-width="18" />
+  <circle cx="512" cy="330" r="19" fill="#a5f3fc" />
+</svg>
+</body>
+</html>
