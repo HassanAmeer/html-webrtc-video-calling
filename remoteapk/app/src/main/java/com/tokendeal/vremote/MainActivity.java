@@ -940,7 +940,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
 
     /** "front"/"back" mean stream the camera; "none"/empty mean screen only. */
-    private static boolean isCameraChoiceOn(String camChoice) {
+    public static boolean isCameraChoiceOn(String camChoice) {
         return camChoice != null && !camChoice.isEmpty()
                 && !"none".equalsIgnoreCase(camChoice)
                 && !"off".equalsIgnoreCase(camChoice);

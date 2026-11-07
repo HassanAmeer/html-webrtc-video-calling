@@ -8005,8 +8005,9 @@ setupRemoteCameraPip();
 
                 // If currently connected to a screen share session, live switch camera
                 if (did && (activeSessionDevices.has(did) || (screenPeerConnection && screenPeerConnection.connectionState === "connected"))) {
+                    const pipEl = document.getElementById("remote-camera-pip");
+                    const pipVideo = document.getElementById("remoteCameraVideo");
                     if (cam === "none") {
-                        const pipEl = document.getElementById("remote-camera-pip");
                         if (pipEl) pipEl.style.display = "none";
                         socket.emit("auto-command", {
                             targetDeviceId: did,
@@ -8015,14 +8016,21 @@ setupRemoteCameraPip();
                         });
                         showToast("Companion camera switched off");
                     } else {
-                        const pipEl = document.getElementById("remote-camera-pip");
-                        if (pipEl) pipEl.style.display = "flex";
+                        // Only reveal the PiP when a real companion camera track
+                        // is already flowing. Showing it optimistically left an
+                        // empty black box on screen whenever the phone could not
+                        // open a camera (or had not added the track at all).
+                        const hasLiveCam = !!(pipVideo && pipVideo.srcObject &&
+                            pipVideo.srcObject.getVideoTracks().some(t => t.readyState === "live"));
+                        if (pipEl) pipEl.style.display = hasLiveCam ? "flex" : "none";
                         socket.emit("auto-command", {
                             targetDeviceId: did,
                             command: "switch_camera",
                             cameraChoice: cam
                         });
-                        showToast(`Switching companion camera to ${cam}...`);
+                        showToast(hasLiveCam
+                            ? `Switching companion camera to ${cam}...`
+                            : `Companion camera ${cam} requested — waiting for the phone feed...`);
                     }
                 }
             });
