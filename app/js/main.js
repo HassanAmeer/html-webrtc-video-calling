@@ -2073,8 +2073,20 @@ socket.on("connect", () => {
     if (hasJoined && myUsername) {
         socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
     }
+    // Pull the authoritative device list every time the socket (re)connects,
+    // so Online/Offline is never a guess after a network blip.
+    try { socket.emit("get-devices"); } catch (_) {}
 });
 
+// Pull the authoritative device list on reconnect and stop claiming a live
+// session while this browser itself is offline.
+socket.on("disconnect", () => {
+    if (typeof window.notifyDeviceSessionLost === "function" && typeof activeSessionDevices !== "undefined") {
+        Array.from(activeSessionDevices).forEach((id) => {
+            try { window.notifyDeviceSessionLost(id, "Lost connection to server", "lost"); } catch (_) {}
+        });
+    }
+});
 // Name confirmation from server
 socket.on("name-confirmed", (confirmedName) => {
     myUsername = confirmedName;
@@ -2624,6 +2636,7 @@ function initPeerConnection(targetUser) {
         }
     };
 
+    let callRecoverTimer = null;
     pc.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", pc.iceConnectionState);
         if (typeof window.sendClientLog === "function") {
@@ -2633,27 +2646,47 @@ function initPeerConnection(targetUser) {
                 `Browser ICE State: ${pc.iceConnectionState} (Peer: ${activePeer || 'none'})`
             );
         }
+        const devIdToNotify = (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) ||
+                              (activePeer && normalizeDeviceId(activePeer));
         if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
             // Automatically warm up encoder keyframe so receiver decodes without manual camera toggle
             forceKeyframeWarmup(pc);
             if (remoteVideo) {
                 remoteVideo.play().catch(() => {});
             }
-            const devIdToNotify = (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId) ||
-                                  (activePeer && normalizeDeviceId(activePeer));
+            if (callRecoverTimer) { clearTimeout(callRecoverTimer); callRecoverTimer = null; }
             if (typeof window.notifyDeviceConnectionSuccess === "function" && devIdToNotify) {
                 window.notifyDeviceConnectionSuccess(devIdToNotify);
             }
-        }
-        if (pc.iceConnectionState === "failed") {
-            if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
-                if (pendingRegisteredDeviceCall.action === 'audio_call' || pendingRegisteredDeviceCall.action === 'video_call') {
-                    window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
-                }
+        } else if (pc.iceConnectionState === "disconnected") {
+            // Real state: the link is down right now. Show "Reconnecting…" and
+            // only declare it lost if it does not recover shortly.
+            if (typeof window.notifyDeviceSessionLost === "function" && devIdToNotify) {
+                window.notifyDeviceSessionLost(devIdToNotify, "Live connection dropped", "reconnecting");
             }
-            try {
-                pc.restartIce();
-            } catch (_) {}
+            if (callRecoverTimer) clearTimeout(callRecoverTimer);
+            callRecoverTimer = setTimeout(() => {
+                if (pc.iceConnectionState !== "connected" && pc.iceConnectionState !== "completed") {
+                    if (typeof window.notifyDeviceSessionLost === "function" && devIdToNotify) {
+                        window.notifyDeviceSessionLost(devIdToNotify, "Connection lost — phone stopped responding", "lost");
+                    }
+                }
+            }, 9000);
+        } else if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+            if (callRecoverTimer) { clearTimeout(callRecoverTimer); callRecoverTimer = null; }
+            if (typeof window.notifyDeviceSessionLost === "function" && devIdToNotify) {
+                window.notifyDeviceSessionLost(devIdToNotify, "Connection ended", "lost");
+            }
+            if (pc.iceConnectionState === "failed") {
+                if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
+                    if (pendingRegisteredDeviceCall.action === 'audio_call' || pendingRegisteredDeviceCall.action === 'video_call') {
+                        window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
+                    }
+                }
+                try {
+                    pc.restartIce();
+                } catch (_) {}
+            }
         }
     };
 
@@ -3259,9 +3292,18 @@ async function acceptScreenShareStream(from, offer) {
                     }
                 }
                 if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
-            } else if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "closed") {
-                if (typeof window.notifyDeviceConnectionFailure === "function") {
-                    window.notifyDeviceConnectionFailure(cleanFrom || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId), "WebRTC ICE failed for Screen Share");
+            } else if (pc.iceConnectionState === "disconnected") {
+                const devId = cleanFrom || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId);
+                if (typeof window.notifyDeviceSessionLost === "function") {
+                    window.notifyDeviceSessionLost(devId, "Screen share link dropped", "reconnecting");
+                }
+            } else if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+                const devId = cleanFrom || (pendingRegisteredDeviceCall && pendingRegisteredDeviceCall.deviceId);
+                if (typeof window.notifyDeviceSessionLost === "function") {
+                    window.notifyDeviceSessionLost(devId, "Screen share ended", "lost");
+                }
+                if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
+                    window.notifyDeviceConnectionFailure(devId, "WebRTC ICE failed for Screen Share");
                 }
                 closeScreenShareStream();
                 if (typeof updateFloatingEndCallBtn === "function") updateFloatingEndCallBtn();
@@ -3347,10 +3389,10 @@ async function acceptScreenShareStream(from, offer) {
             answer: pc.localDescription
         });
 
+        // NOTE: no optimistic "Connected" here. The green indicator is driven
+        // by the real ICE/track events, so the panel never claims a link that
+        // was not actually established.
         const cleanFromDevice = normalizeDeviceId(from);
-        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
-            window.notifyDeviceConnectionSuccess(cleanFromDevice);
-        }
 
         console.log(`Sent answer for screen share to ${from}`);
     } catch (err) {
@@ -3593,10 +3635,10 @@ async function acceptRegisteredDeviceCall(from, offer, callAction) {
             answer: pc.localDescription
         });
 
+        // NOTE: no optimistic "Connected" here. The green indicator is driven
+        // by the real ICE/track events, so the panel never claims a link that
+        // was not actually established.
         const cleanFromDevice = normalizeDeviceId(from);
-        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
-            window.notifyDeviceConnectionSuccess(cleanFromDevice);
-        }
 
         applyBitrateToSender(pc);
         updateFloatingEndCallBtn();
@@ -3832,6 +3874,9 @@ function endCall(notifyServer = true) {
     pendingRegisteredDeviceCall = null;
     if (activeSessionDevices) {
         activeSessionDevices.clear();
+    }
+    if (typeof window.refreshDeviceSessionUI === "function") {
+        window.refreshDeviceSessionUI();
     }
     lastOfferAcceptedTime = 0;
 
@@ -4288,10 +4333,10 @@ async function acceptIncomingCall() {
             answer: pc.localDescription
         });
 
+        // NOTE: no optimistic "Connected" here. The green indicator is driven
+        // by the real ICE/track events, so the panel never claims a link that
+        // was not actually established.
         const cleanFromDevice = normalizeDeviceId(from);
-        if (cleanFromDevice && typeof window.notifyDeviceConnectionSuccess === "function") {
-            window.notifyDeviceConnectionSuccess(cleanFromDevice);
-        }
 
         updateFloatingEndCallBtn();
         showActiveCallBar(from);
@@ -7509,6 +7554,7 @@ setupRemoteCameraPip();
         if (sBadge) sBadge.style.display = "inline-flex";
 
         pendingRegisteredDeviceCall = null;
+        refreshDeviceSessionUI();
     }
 
     function notifyDeviceConnectionFailure(rawId, errorReason) {
@@ -7593,15 +7639,133 @@ setupRemoteCameraPip();
         }
 
         showToast(`⚠️ Device Notice: ${reason}`);
+        refreshDeviceSessionUI();
+    }
+
+    /**
+     * Live session ended / broke. Unlike notifyDeviceConnectionFailure this is
+     * used for a session that HAD connected, so it never paints a fake "Failed"
+     * on the action buttons — it just stops claiming "Connected" when the
+     * WebRTC link is no longer up.
+     */
+    function notifyDeviceSessionLost(rawId, reason, state) {
+        const cleanId = normalizeDeviceId(rawId);
+        if (!cleanId) return;
+
+        // A pending connect attempt is a different state: let the failure path
+        // (with its retry timers) own it.
+        if (!activeSessionDevices.has(cleanId)) return;
+
+        if (state === "reconnecting") {
+            const sBadge = document.getElementById(`session-badge-${cleanId}`);
+            if (sBadge) {
+                sBadge.style.display = "inline-flex";
+                sBadge.innerHTML = `<span class="call-pulse-dot" style="width:7px; height:7px; background:#ff9f0a; box-shadow:0 0 8px #ff9f0a;"></span><span style="color:#ff9f0a; font-size:11px; font-weight:700;">Reconnecting…</span>`;
+            }
+            const hintEl = document.getElementById(`device-hint-or-error-${cleanId}`);
+            if (hintEl) {
+                hintEl.textContent = "⚠️ Live connection dropped — reconnecting to phone...";
+                hintEl.style.color = "#ff9f0a";
+                hintEl.style.fontWeight = "600";
+                hintEl.style.fontSize = "11px";
+            }
+            return;
+        }
+
+        activeSessionDevices.delete(cleanId);
+        resetSesionBadgeMarkup(cleanId);
+
+        const connBar = document.getElementById(`session-connecting-bar-${cleanId}`);
+        if (connBar) connBar.style.display = "none";
+        const activeBar = document.getElementById(`session-active-bar-${cleanId}`);
+        if (activeBar) activeBar.style.display = "none";
+        const idleBtn = document.getElementById(`btn-disconnect-idle-${cleanId}`);
+        if (idleBtn) idleBtn.style.display = "flex";
+        const sBadge = document.getElementById(`session-badge-${cleanId}`);
+        if (sBadge) sBadge.style.display = "none";
+
+        const hintEl = document.getElementById(`device-hint-or-error-${cleanId}`);
+        if (hintEl) {
+            hintEl.textContent = reason ? `⚠️ ${reason}` : "Session ended";
+            hintEl.style.color = "#ff9f0a";
+            hintEl.style.fontWeight = "600";
+            hintEl.style.fontSize = "11px";
+        }
+    }
+
+    function resetSesionBadgeMarkup(deviceId) {
+        const sBadge = document.getElementById(`session-badge-${deviceId}`);
+        if (!sBadge) return;
+        sBadge.innerHTML = `<span class="call-pulse-dot" style="width:7px; height:7px; background:#34c759; box-shadow:0 0 8px #34c759;"></span><span style="color:#34c759; font-size:11px; font-weight:700;">Connected</span>`;
+    }
+
+    /** Repaint every device row from the real maps (no optimistic guesses). */
+    function refreshDeviceSessionUI() {
+        if (!drawerDevicesList) return;
+        drawerDevicesList.querySelectorAll(".cupertino-device-row").forEach(row => {
+            const btn = row.querySelector(".dev-action-btn[data-did]");
+            if (!btn) return;
+            const deviceId = normalizeDeviceId(btn.dataset.did);
+            if (!deviceId) return;
+            const connected = activeSessionDevices.has(deviceId);
+            const connecting = deviceConnectingActions.has(deviceId);
+            const sBadge = document.getElementById(`session-badge-${deviceId}`);
+            if (sBadge) {
+                sBadge.style.display = connected ? "inline-flex" : "none";
+                if (connected) resetSesionBadgeMarkup(deviceId);
+            }
+            const activeBar = document.getElementById(`session-active-bar-${deviceId}`);
+            if (activeBar) activeBar.style.display = connected ? "flex" : "none";
+            const connBar = document.getElementById(`session-connecting-bar-${deviceId}`);
+            if (connBar) connBar.style.display = connecting ? "flex" : "none";
+            const idleBtn = document.getElementById(`btn-disconnect-idle-${deviceId}`);
+            if (idleBtn) idleBtn.style.display = (!connected && !connecting) ? "flex" : "none";
+        });
     }
 
     // Expose helpers globally so WebRTC handlers can call them
     window.notifyDeviceConnectionSuccess = notifyDeviceConnectionSuccess;
     window.notifyDeviceConnectionFailure = notifyDeviceConnectionFailure;
+    window.notifyDeviceSessionLost = notifyDeviceSessionLost;
+    window.refreshDeviceSessionUI = refreshDeviceSessionUI;
     window.clearDeviceError = clearDeviceError;
     window.clearDeviceConnectingTimers = clearDeviceConnectingTimers;
     window.clearDeviceErrorTimers = clearDeviceErrorTimers;
     window.resetDeviceButtonLoaders = resetDeviceButtonLoaders;
+
+    // --- Registered-device truth helpers -------------------------------
+    function formatLastSeen(ts) {
+        if (!ts) return "";
+        const diff = Date.now() - Number(ts);
+        if (!isFinite(diff) || diff < 0) return "";
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return " · just now";
+        if (mins < 60) return ` · ${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return ` · ${hrs}h ago`;
+        return ` · ${Math.floor(hrs / 24)}d ago`;
+    }
+
+    function buildDevicePermissionWarning(device, safeId) {
+        if (!device || !device.online) return "";
+        const perms = device.permissions || null;
+        if (!perms) return "";
+        const chips = [];
+        if (perms.accessibility === false) {
+            chips.push(`<button type="button" class="device-perm-chip device-perm-fix" data-did="${safeId}" style="display:inline-flex; align-items:center; gap:5px; margin-top:5px; padding:2px 8px; border-radius:10px; background:rgba(255,159,10,0.14); border:1px solid rgba(255,159,10,0.45); color:#ff9f0a; font-size:10px; font-weight:700; cursor:pointer;" title="Screen share and touch control need Accessibility. Tap to open the phone's Accessibility settings.">
+                <i class="fas fa-universal-access" style="font-size:10px;"></i>
+                <span>Accessibility OFF — tap to fix</span>
+            </button>`);
+        }
+        if (perms.battery === false) {
+            chips.push(`<button type="button" class="device-perm-chip device-perm-battery" data-did="${safeId}" style="display:inline-flex; align-items:center; gap:5px; margin-top:5px; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#c7c7cc; font-size:10px; font-weight:600; cursor:pointer;" title="Battery optimisation is ON. Android may kill the background service, so calls can be missed. Tap to allow background running.">
+                <i class="fas fa-battery-quarter" style="font-size:10px;"></i>
+                <span>Battery saver ON — tap to fix</span>
+            </button>`);
+        }
+        if (!chips.length) return "";
+        return `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">${chips.join("")}</div>`;
+    }
 
     // Devices list rendered into drawer
     function renderDeviceList(devices) {
@@ -7651,8 +7815,10 @@ setupRemoteCameraPip();
                         <div class="cupertino-device-badges">
                             <span class="id-code">ID: ${safeId}</span><span class="dim">,</span>
                             <span>${safeRam}</span><span class="dim">,</span>
-                            <span style="color:${isOnline ? '#34c759' : '#8e8e93'};">${isOnline ? 'Online' : 'Offline'}</span>
+                            <span style="color:${isOnline ? '#34c759' : '#8e8e93'};">${isOnline ? 'Online' : `Offline${formatLastSeen(device.lastSeen)}`}</span>
+                            ${device.appVersion ? `<span class="dim">,</span><span style="color:#8e8e93;">v${escapeHtml(String(device.appVersion))}</span>` : ""}
                         </div>
+                        ${buildDevicePermissionWarning(device, safeId)}
                     </div>
                     <div class="cupertino-device-side">
                         <i class="fab fa-android" style="color:#3ddc84; font-size:1.3rem; opacity:0.85; margin-right:2px;"></i>
@@ -7778,6 +7944,35 @@ setupRemoteCameraPip();
                         showToast(`Switching companion camera to ${cam}...`);
                     }
                 }
+            });
+        });
+
+        // Permission fix chips: ask the phone to open the right system screen.
+        drawerDevicesList.querySelectorAll(".device-perm-fix").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const did = btn.dataset.did;
+                if (!did || !socket || !socket.connected) return;
+                socket.emit("auto-command", {
+                    targetDeviceId: did,
+                    command: "open_accessibility_settings",
+                    caller: myUsername
+                });
+                showToast("Opening Accessibility settings on the phone...");
+            });
+        });
+
+        drawerDevicesList.querySelectorAll(".device-perm-battery").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const did = btn.dataset.did;
+                if (!did || !socket || !socket.connected) return;
+                socket.emit("auto-command", {
+                    targetDeviceId: did,
+                    command: "request_battery_exemption",
+                    caller: myUsername
+                });
+                showToast("Opening battery optimisation settings on the phone...");
             });
         });
 

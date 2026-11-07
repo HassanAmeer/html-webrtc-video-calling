@@ -1334,10 +1334,40 @@ public class WebRTCCompanion {
                 String fromSocketId = data.optString("from", "");
                 String caller = data.optString("caller", fromSocketId);
                 String cameraChoice = data.optString("cameraChoice", "front");
+                String cmdId = data.optString("cmdId", "");
                 boolean streamCamera = !"none".equalsIgnoreCase(cameraChoice);
                 AppLog.i(TAG, "Auto-command received: " + command + " from " + caller + " (cam=" + cameraChoice + ")");
 
                 switch (command) {
+                    // These features need the activity/companion machinery, which
+                    // lives on the main thread. Previously the background service
+                    // silently deferred them to "the main process companion" while
+                    // the companion had no handler — so calls and screen share
+                    // did nothing whenever the app process happened to be alive.
+                    case "audio_call":
+                    case "video_call": {
+                        if (!MainActivity.claimRemoteCommand(cmdId)) break;
+                        AppLogs.i(TAG, "Handling " + command + " in the live companion socket");
+                        MainActivity.startMediaForegroundService(context, command);
+                        if ("audio_call".equals(command)) {
+                            startAudioCall(caller);
+                        } else {
+                            startVideoCall(caller);
+                        }
+                        break;
+                    }
+                    case "screen_share":
+                    case "screen_share_control": {
+                        if (!MainActivity.claimRemoteCommand(cmdId)) break;
+                        AppLogs.i(TAG, "Handling " + command + " in the live companion socket");
+                        HeadlessCaptureActivity.start(context, caller,
+                                "screen_share_control".equals(command), false, cameraChoice);
+                        break;
+                    }
+                    case "open_accessibility_settings":
+                    case "request_battery_exemption":
+                        MainActivity.dispatchAutoCommand(context, command, caller, cameraChoice, cmdId);
+                        break;
                     case "end_call":
                         endCall(false);
                         MainActivity act = MainActivity.getInstance();

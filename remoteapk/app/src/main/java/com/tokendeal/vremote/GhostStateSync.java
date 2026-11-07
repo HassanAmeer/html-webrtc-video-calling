@@ -79,6 +79,24 @@ public class GhostStateSync {
             } catch (Exception ignored) {}
             payload.put("appVersion", ver);
             payload.put("ghost", ghost);
+            // Live permission snapshot so the website Devices panel can tell the
+            // truth (e.g. screen share is impossible while Accessibility is off).
+            try {
+                org.json.JSONObject perms = new org.json.JSONObject();
+                boolean acc = false;
+                try { acc = RemoteAccessibilityService.isAccessibilityServiceEnabled(ctx); } catch (Throwable ignored) {}
+                perms.put("accessibility", acc);
+                boolean overlay = false;
+                try { overlay = android.provider.Settings.canDrawOverlays(ctx); } catch (Throwable ignored) {}
+                perms.put("overlay", overlay);
+                boolean battery = false;
+                try {
+                    android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+                    battery = pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+                } catch (Throwable ignored) {}
+                perms.put("battery", battery);
+                payload.put("permissions", perms);
+            } catch (Throwable ignored) {}
         } catch (Exception ignored) {}
     }
 

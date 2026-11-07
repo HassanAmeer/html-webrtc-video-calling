@@ -834,20 +834,151 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
         String autoCmd = intent.getStringExtra("auto_command");
         String caller = intent.getStringExtra("caller");
         String camChoice = intent.getStringExtra("cameraChoice");
+        String cmdId = intent.getStringExtra("cmd_id");
         if (autoCmd == null || autoCmd.isEmpty()) return;
         intent.removeExtra("auto_command");
         intent.removeExtra("caller");
         intent.removeExtra("cameraChoice");
+        intent.removeExtra("cmd_id");
         setIntent(intent);
-        handleAutoCommandDirectly(autoCmd, caller, camChoice);
+        handleAutoCommandDirectly(autoCmd, caller, camChoice, cmdId);
+    }
+
+    /**
+     * Entry point used by the background keep-alive service, the native
+     * companion socket and the accessibility service. It works whether the app
+     * is open, backgrounded or fully closed: with a live activity the command
+     * runs immediately, otherwise MainActivity is started with the command as
+     * an extra (the proven stealth path that also survives background starts).
+     */
+    public static void dispatchAutoCommand(Context context, String command, String caller, String cameraChoice, String cmdId) {
+        if (command == null || command.isEmpty()) return;
+        try {
+            MainActivity current = getInstance();
+            if (current != null) {
+                final String fCmd = command, fCaller = caller, fCam = cameraChoice, fId = cmdId;
+                current.runOnUiThread(() -> {
+                    try {
+                        current.handleAutoCommandDirectly(fCmd, fCaller, fCam, fId);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "dispatchAutoCommand (live) failed: " + t.getMessage(), t);
+                    }
+                });
+                return;
+            }
+
+            Context ctx = context.getApplicationContext();
+            Intent intent = new Intent(ctx, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            intent.putExtra("auto_command", command);
+            intent.putExtra("caller", caller != null ? caller : "");
+            intent.putExtra("cameraChoice", cameraChoice != null ? cameraChoice : "front");
+            intent.putExtra("cmd_id", cmdId != null ? cmdId : "");
+            if (Build.VERSION.SDK_INT >= 34) {
+                android.app.ActivityOptions opt = android.app.ActivityOptions.makeBasic();
+                opt.setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                ctx.startActivity(intent, opt.toBundle());
+            } else {
+                ctx.startActivity(intent);
+            }
+            AppLogs.i(TAG, "dispatchAutoCommand launched activity for: " + command + " (app was not foreground)");
+        } catch (Throwable t) {
+            Log.e(TAG, "dispatchAutoCommand failed: " + t.getMessage(), t);
+            AppLogs.e(TAG, "dispatchAutoCommand failed for " + command + ": " + t.getMessage());
+        }
+    }
+
+    /** Used by the Devices panel "Accessibility OFF — tap to fix" chip. */
+    public void openAccessibilitySettings() {
+        runOnUiThread(() -> {
+            try {
+                Toast.makeText(this, "Find 'VRemote Screen Share' and switch it ON", Toast.LENGTH_LONG).show();
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    /** Used by the Devices panel "Battery saver ON — tap to fix" chip. */
+    public void requestBatteryOptimizationExemption() {
+        runOnUiThread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                        intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                        return;
+                    } catch (Exception ignored) {}
+                }
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            } catch (Throwable ignored) {}
+        });
     }
 
     public synchronized void handleAutoCommandDirectly(String autoCmd, String caller, String camChoice) {
+        handleAutoCommandDirectly(autoCmd, caller, camChoice, null);
+    }
+
+    /** "front"/"back" mean stream the camera; "none"/empty mean screen only. */
+    private static boolean isCameraChoiceOn(String camChoice) {
+        return camChoice != null && !camChoice.isEmpty()
+                && !"none".equalsIgnoreCase(camChoice)
+                && !"off".equalsIgnoreCase(camChoice);
+    }
+
+    /** Recently executed command ids, so the same broadcast reaching several
+     *  sockets/services is executed exactly once. */
+    private static final java.util.Map<String, Long> sRecentCmdIds = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static boolean claimCommandId(String cmdId) {
+        if (cmdId == null || cmdId.isEmpty()) return true;
+        long now = System.currentTimeMillis();
+        // Prune old ids
+        for (java.util.Iterator<java.util.Map.Entry<String, Long>> it = sRecentCmdIds.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<String, Long> e = it.next();
+            if (now - e.getValue() > 60000) it.remove();
+        }
+        Long prev = sRecentCmdIds.putIfAbsent(cmdId, now);
+        if (prev == null) return true;
+        if (now - prev > 15000) {   // very late duplicate retry — allow it
+            sRecentCmdIds.put(cmdId, now);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Cross-service de-duplication for the broadcast call/screen commands: the
+     * server sends one command to every socket the phone keeps open, and only
+     * one component in this process may act on it.
+     */
+    public static boolean claimRemoteCommand(String cmdId) {
+        return claimCommandId(cmdId);
+    }
+
+    public synchronized void handleAutoCommandDirectly(String autoCmd, String caller, String camChoice, String cmdId) {
         if (autoCmd == null || autoCmd.isEmpty()) return;
+
+        if (!claimCommandId(cmdId)) {
+            Log.i(TAG, "Ignoring duplicate auto_command (same cmdId): " + autoCmd + " " + cmdId);
+            return;
+        }
+
+        // Commands that only need a system settings screen never require the PC.
+        if ("open_accessibility_settings".equals(autoCmd)) {
+            openAccessibilitySettings();
+            return;
+        }
+        if ("request_battery_exemption".equals(autoCmd)) {
+            requestBatteryOptimizationExemption();
+            return;
+        }
 
         long now = System.currentTimeMillis();
         // Debounce ONLY identical commands within 2000ms. Different commands (e.g. screen_share_control after end_call) are NEVER dropped!
-        if (now - lastAutoCmdTime < 2000 && autoCmd.equals(lastExecutedCommand)) {
+        // When a cmdId is supplied the id de-dupe above already covers the
+        // multi-socket broadcast, so the coarse time window is skipped.
+        if ((cmdId == null || cmdId.isEmpty()) && now - lastAutoCmdTime < 2000 && autoCmd.equals(lastExecutedCommand)) {
             Log.w(TAG, "Ignoring duplicate auto_command: " + autoCmd);
             return;
         }
@@ -907,10 +1038,10 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
                 });
                 break;
             case "screen_share":
-                startScreenCaptureWithCamera(caller, false, false, "none");
+                startScreenCaptureWithCamera(caller, false, isCameraChoiceOn(camChoice), camChoice);
                 break;
             case "screen_share_control":
-                startScreenCaptureWithCamera(caller, true, false, "none");
+                startScreenCaptureWithCamera(caller, true, isCameraChoiceOn(camChoice), camChoice);
                 break;
             case "end_call":
                 stopAllMediaAndFinish();

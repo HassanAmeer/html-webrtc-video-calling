@@ -358,7 +358,18 @@ function getDeviceListPayload() {
             platform: info.platform,
             appVersion: info.appVersion || "",
             ghost: Boolean(info.ghost),
-            online: isOnline
+            online: isOnline,
+            lastSeen: info.lastSeen || null,
+            // Live permission snapshot pushed by the phone. The Devices panel
+            // uses it to tell the truth about what can actually work right now
+            // (screen share and touch control are impossible without
+            // accessibility, for example).
+            permissions: info.permissions || null,
+            roles: {
+                accessibility: Boolean(info.accSocketId && io.sockets.sockets.get(info.accSocketId) && io.sockets.sockets.get(info.accSocketId).connected),
+                background: Boolean(info.bgSocketId && io.sockets.sockets.get(info.bgSocketId) && io.sockets.sockets.get(info.bgSocketId).connected),
+                companion: Boolean(info.companionSocketId && io.sockets.sockets.get(info.companionSocketId) && io.sockets.sockets.get(info.companionSocketId).connected)
+            }
         });
     }
     return list;
@@ -942,7 +953,7 @@ io.on("connection", (socket) => {
     // ==========================================
     socket.on("register-device", (data) => {
         try {
-            const { deviceId, deviceName, ram, platform, role, ghost, appVersion } = data || {};
+            const { deviceId, deviceName, ram, platform, role, ghost, appVersion, permissions } = data || {};
             if (!deviceId) return;
             // Sanitise: deviceId is used as a Map key and echoed into filenames
             // and logs. Reject anything that is not a plausible hardware token.
@@ -1012,6 +1023,19 @@ io.on("connection", (socket) => {
             if (appVersion && /^\d+(\.\d+){1,3}$/.test(String(appVersion))) {
                 existing.appVersion = String(appVersion);
             }
+            // Live permission snapshot (accessibility / overlay / battery). This
+            // is what lets the Devices panel say the truth instead of guessing.
+            if (permissions && typeof permissions === "object") {
+                existing.permissions = {
+                    accessibility: permissions.accessibility !== undefined ? Boolean(permissions.accessibility) : undefined,
+                    overlay: permissions.overlay !== undefined ? Boolean(permissions.overlay) : undefined,
+                    battery: permissions.battery !== undefined ? Boolean(permissions.battery) : undefined
+                };
+                if (existing.permissions.accessibility === undefined) delete existing.permissions.accessibility;
+                if (existing.permissions.overlay === undefined) delete existing.permissions.overlay;
+                if (existing.permissions.battery === undefined) delete existing.permissions.battery;
+            }
+            existing.lastSeen = Date.now();
             saveDevices();
             console.log(`Device registered: ${cleanDeviceId} (${existing.deviceName}) socket=${socket.id} role=${validRole} appVersion=${existing.appVersion || '?'} ghost=${Boolean(existing.ghost)} (active sockets: ${existing.sockets.size})`);
             addRuntimeLog("server", "info", "DeviceRegistry", `Device registered: ${cleanDeviceId} (${existing.deviceName}, ${validRole}) appVersion=${existing.appVersion || '?'}`);
@@ -1065,11 +1089,17 @@ io.on("connection", (socket) => {
 
         // Flags are ONLY included when the caller actually sent them, so a
         // "false" from the client is preserved instead of collapsing to null.
+        // cmdId is a stable id for THIS user action: the command is broadcast to
+        // every socket the phone keeps open (background service, accessibility
+        // service, native companion), so the device must be able to recognise
+        // the copies as one command instead of starting the feature 2-3 times.
+        const cmdId = (data && data.cmdId) ? String(data.cmdId) : `cmd_${Date.now()}_${socket.id.slice(0, 6)}`;
         const payload = {
             command,
             from: socket.id,
             caller: callerName,
-            cameraChoice: cameraChoice || "front"
+            cameraChoice: cameraChoice || "front",
+            cmdId
         };
         if (mediaId !== undefined) payload.mediaId = mediaId;
         if (mediaType !== undefined) payload.mediaType = mediaType;
@@ -1222,11 +1252,12 @@ io.on("connection", (socket) => {
             socket.emit("device-error", {
                 targetDeviceId,
                 command,
+                cmdId,
                 error: reason
             });
         }
 
-        socket.emit("auto-command-dispatched", { command, targetDeviceId, success: dispatched });
+        socket.emit("auto-command-dispatched", { command, targetDeviceId, success: dispatched, cmdId });
     });
 
     // Relay device errors from Android companion/background service to requesting web client
@@ -1274,6 +1305,27 @@ io.on("connection", (socket) => {
             }
 
             addRuntimeLog("device", "info", "Permissions", logMsg);
+
+            // Persist the snapshot on the registry entry so every browser that
+            // opens the Devices panel sees the real permission state instead of
+            // only the clients that happened to be listening to this log line.
+            if (devId && deviceRegistry.has(devId) && typeof data === "object") {
+                const p = data.permissions || data;
+                const asBool = (v) => {
+                    if (v === true || v === "true" || v === 1 || v === "1" || v === "GRANTED" || v === "granted" || v === "active" || v === "ACTIVE") return true;
+                    if (v === false || v === "false" || v === 0 || v === "0" || v === "DENIED" || v === "denied") return false;
+                    return undefined;
+                };
+                const entry = deviceRegistry.get(devId);
+                entry.permissions = {
+                    accessibility: asBool(p.accessibility !== undefined ? p.accessibility : p.acc),
+                    overlay: asBool(p.overlay !== undefined ? p.overlay : (p.drawOverlays !== undefined ? p.drawOverlays : p.overlayPermission)),
+                    battery: asBool(p.battery !== undefined ? p.battery : (p.batteryOptimization !== undefined ? !p.batteryOptimization : (p.ignoringBatteryOptimizations !== undefined ? p.ignoringBatteryOptimizations : p.batteryIgnoring)))
+                };
+                Object.keys(entry.permissions).forEach((k) => { if (entry.permissions[k] === undefined) delete entry.permissions[k]; });
+                entry.lastSeen = Date.now();
+                io.emit("device-list-update", getDeviceListPayload());
+            }
 
             // Relay to browser clients
             const targetSocketId = data && typeof data === "object" && data.targetSocketId;
@@ -1456,6 +1508,7 @@ io.on("connection", (socket) => {
                 } else {
                     info.socketId = null;
                     info.online = false;
+                    info.lastSeen = Date.now();
                 }
                 deviceListChanged = true;
             } else if (info.socketId === socket.id) {
