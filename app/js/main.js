@@ -154,8 +154,10 @@ function normalizeDeviceId(id) {
 window.normalizeDeviceId = normalizeDeviceId;
 let decoyClickCount = 0;
 let decoyToastTimeout = null;
+let isHoldingAccept = false;
 let holdAcceptTimer = null;
 let holdStartTime = 0;
+const HOLD_ACCEPT_MS = 1200;
 let ringAudioCtx = null;
 let ringInterval = null;
 
@@ -4248,6 +4250,31 @@ function stopSynthesizedRingtone() {
 }
 
 // Start Incoming Call Alert (Format: ID : [CallIcon] [EndIcon])
+/**
+ * Personal safety lock for the Attend button: a quick tap never answers the
+ * call, it only shows the same decoy error as the PIN pad. The call can only
+ * be attended by deliberately holding the button.
+ */
+const HOLD_ACCEPT_ERROR_MSG = "Error: Try again later after 10 minutes.";
+let incomingCallDecoyTimer = null;
+
+function showIncomingCallDecoyError(vibrate) {
+    const btnIncomingAccept = document.getElementById("btn-incoming-accept");
+    if (btnIncomingAccept) {
+        btnIncomingAccept.classList.add("shake-error");
+        if (incomingCallDecoyTimer) clearTimeout(incomingCallDecoyTimer);
+        incomingCallDecoyTimer = setTimeout(() => {
+            if (btnIncomingAccept) btnIncomingAccept.classList.remove("shake-error");
+        }, 450);
+    }
+    if (vibrate !== false && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch (_) {}
+    }
+    if (typeof showToast === "function") {
+        showToast(HOLD_ACCEPT_ERROR_MSG);
+    }
+}
+
 function startIncomingCallAlert(callerName) {
     const incomingBar = document.getElementById("incoming-call-bar");
     const callerNameSpan = document.getElementById("incoming-caller-name");
@@ -4362,10 +4389,64 @@ function setupIncomingCallHandlers() {
     if (!btnIncomingAccept) return;
 
     btnIncomingAccept.addEventListener("click", (e) => {
+        // The accept button is intentionally NOT single-click. A plain tap must
+        // never attend the call — the owner holds it (same as the personal lock).
         e.preventDefault();
         e.stopPropagation();
-        if (incomingCallData) {
-            acceptIncomingCall();
+        showIncomingCallDecoyError(false);
+    });
+
+    btnIncomingAccept.addEventListener("contextmenu", (e) => { e.preventDefault(); });
+
+    const startHoldingAccept = (e) => {
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+        if (isHoldingAccept || !incomingCallData) return;
+        isHoldingAccept = true;
+        holdStartTime = Date.now();
+
+        btnIncomingAccept.classList.remove("shake-error");
+        btnIncomingAccept.classList.add("holding");
+
+        holdAcceptTimer = setTimeout(() => {
+            isHoldingAccept = false;
+            holdStartTime = 0;
+            holdAcceptTimer = null;
+            btnIncomingAccept.classList.remove("holding");
+            if (incomingCallData) {
+                acceptIncomingCall();
+            }
+        }, HOLD_ACCEPT_MS);
+    };
+
+    const cancelHoldingAccept = (e) => {
+        if (!isHoldingAccept) return;
+        isHoldingAccept = false;
+        const duration = Date.now() - holdStartTime;
+        holdStartTime = 0;
+
+        if (holdAcceptTimer) {
+            clearTimeout(holdAcceptTimer);
+            holdAcceptTimer = null;
+        }
+        btnIncomingAccept.classList.remove("holding");
+
+        // Released too early / simple tap or stray touch -> personal safety error
+        if (duration < HOLD_ACCEPT_MS && incomingCallData) {
+            showIncomingCallDecoyError(true);
+        }
+    };
+
+    btnIncomingAccept.addEventListener("pointerdown", startHoldingAccept);
+    btnIncomingAccept.addEventListener("pointerup", cancelHoldingAccept);
+    btnIncomingAccept.addEventListener("pointerleave", cancelHoldingAccept);
+    btnIncomingAccept.addEventListener("pointercancel", cancelHoldingAccept);
+    // Keyboard interaction would otherwise bypass the hold requirement
+    btnIncomingAccept.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " " || (e.key >= "0" && e.key <= "9")) {
+            e.preventDefault();
+            e.stopPropagation();
+            showIncomingCallDecoyError(true);
         }
     });
 

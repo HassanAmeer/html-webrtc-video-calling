@@ -4076,6 +4076,9 @@ html.bypass-lock .security-lock-overlay {
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    outline-offset: 2px;
+    touch-action: none;
 }
 
 @keyframes whiteGrayPulse {
