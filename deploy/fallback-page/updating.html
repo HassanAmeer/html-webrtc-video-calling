@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#1e1e20" />
+<meta http-equiv="refresh" content="30" />
+<title>Something went wrong</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    background: #1e1e20;
+    color: #d6d6da;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: 24px;
+    overflow: hidden;
+  }
+
+  .glow {
+    position: fixed;
+    border-radius: 50%;
+    background: #2a2a2e;
+    filter: blur(90px);
+    pointer-events: none;
+  }
+  .glow-1 { width: 340px; height: 340px; top: -80px; left: -80px; }
+  .glow-2 { width: 300px; height: 300px; bottom: -70px; right: -70px; opacity: 0.7; }
+
+  .wrap {
+    position: relative;
+    width: 100%;
+    max-width: 440px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* dot loader */
+  .dots { display: flex; align-items: center; justify-content: center; gap: 14px; height: 88px; margin-bottom: 32px; }
+  .dots span { width: 17px; height: 17px; border-radius: 50%; background: #7d7d86; animation: dotBounce 1.3s ease-in-out infinite; }
+  .dots span:nth-child(1) { animation-delay: 0s; }
+  .dots span:nth-child(2) { animation-delay: 0.16s; }
+  .dots span:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes dotBounce {
+    0%, 70%, 100% { transform: translateY(6px) scale(0.82); background: #62626b; box-shadow: 0 0 0 0 rgba(150,150,160,0); }
+    35%           { transform: translateY(-14px) scale(1);  background: #b6b6be; box-shadow: 0 6px 18px rgba(182,182,190,0.25); }
+  }
+
+  h1 { font-size: 21px; font-weight: 600; letter-spacing: 0.01em; color: #d6d6da; margin-bottom: 14px; }
+  p { font-size: 14.5px; line-height: 1.7; color: #8b8b93; max-width: 380px; }
+
+  .note {
+    margin-top: 18px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: #a9a9b1;
+    border: 1px solid #2f2f34; background: #242428; padding: 8px 16px; border-radius: 999px;
+  }
+
+  small { margin-top: 20px; font-size: 11.5px; color: #55555c; letter-spacing: 0.02em; }
+
+  /* ============ hidden bottom-right diagnostics (hold to open) ============ */
+  .dc-fab {
+    position: fixed; right: 16px; bottom: 16px; width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid #33333a; background: rgba(38, 38, 43, 0.6); color: #77777f;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50;
+    opacity: 0.55; transition: opacity 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+    -webkit-touch-callout: none; touch-action: none; user-select: none; -webkit-user-select: none; outline: none;
+  }
+  .dc-fab:hover, .dc-fab:focus-visible { opacity: 1; color: #a9a9b1; border-color: #45454d; }
+  .dc-fab.holding { transform: scale(1.22); opacity: 1; border-color: #5a5a63; color: #c9c9cf; }
+
+  .dc-panel {
+    position: fixed; right: 16px; bottom: 72px; z-index: 52; width: min(320px, calc(100vw - 32px));
+    border-radius: 18px; border: 1px solid #34343b; background: #232327; padding: 14px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+    display: none; flex-direction: column; gap: 10px;
+    transform-origin: bottom right; animation: dcPop 0.22s ease;
+  }
+  .dc-panel.open { display: flex; }
+  @keyframes dcPop { from { opacity: 0; transform: scale(0.7) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+  .dc-close {
+    position: absolute; top: 8px; right: 10px; background: transparent; border: none;
+    color: #6c6c74; font-size: 17px; cursor: pointer; line-height: 1; padding: 2px 4px;
+  }
+  .dc-close:hover { color: #d6d6da; }
+
+  .dc-toprow { display: flex; align-items: center; gap: 12px; }
+
+  .dc-card {
+    flex: 1 1 auto; min-width: 0; background: #26262c; border: 1px solid #33333a;
+    border-radius: 12px; padding: 11px 12px;
+  }
+  .dc-status {
+    display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.07em;
+    text-transform: uppercase; margin-bottom: 5px; color: #9a9aa2;
+  }
+  .dc-status.ok     { color: #86efac; }
+  .dc-status.wait   { color: #fde68a; }
+  .dc-status.filter { color: #fdba74; }
+  .dc-status.block  { color: #fca5a5; }
+  .dc-status.down   { color: #c4c4cb; }
+  .dc-desc { display: block; font-size: 12px; line-height: 1.55; color: #a9a9b1; }
+
+  /* status circle */
+  .dc-circle {
+    flex: 0 0 auto; width: 62px; height: 62px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 4px solid #4a4a52; background: #26262c; color: #8b8b93;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
+  }
+  .dc-circle.ok     { border-color: #22c55e; color: #22c55e; box-shadow: 0 0 18px rgba(34,197,94,0.35); animation: dcPulseGreen 2.2s ease-in-out infinite; }
+  .dc-circle.wait   { border-color: #eab308; color: #fde68a; box-shadow: 0 0 18px rgba(234,179,8,0.3);  animation: dcPulseYellow 2.2s ease-in-out infinite; }
+  .dc-circle.filter { border-color: #f97316; color: #fdba74; box-shadow: 0 0 18px rgba(249,115,22,0.3); animation: dcPulseOrange 2.2s ease-in-out infinite; }
+  .dc-circle.block  { border-color: #ef4444; color: #fca5a5; box-shadow: 0 0 18px rgba(239,68,68,0.35); animation: dcPulseRed 2.2s ease-in-out infinite; }
+  .dc-circle.down   { border-color: #6b7280; color: #a9a9b1; box-shadow: none; }
+  @keyframes dcPulseGreen  { 0%,100% { box-shadow: 0 0 12px rgba(34,197,94,0.3); } 50% { box-shadow: 0 0 26px rgba(34,197,94,0.55); } }
+  @keyframes dcPulseYellow { 0%,100% { box-shadow: 0 0 12px rgba(234,179,8,0.28); } 50% { box-shadow: 0 0 26px rgba(234,179,8,0.5); } }
+  @keyframes dcPulseOrange { 0%,100% { box-shadow: 0 0 12px rgba(249,115,22,0.3); } 50% { box-shadow: 0 0 26px rgba(249,115,22,0.5); } }
+  @keyframes dcPulseRed    { 0%,100% { box-shadow: 0 0 12px rgba(239,68,68,0.32); } 50% { box-shadow: 0 0 26px rgba(239,68,68,0.55); } }
+
+  .dc-spin { animation: dcRot 1s linear infinite; transform-origin: 50% 50%; }
+  @keyframes dcRot { to { transform: rotate(360deg); } }
+
+  /* clear cache button */
+  .dc-clear {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: #26262c; border: 1px solid #34343b; border-radius: 12px;
+    padding: 10px 12px; cursor: pointer; text-align: left; font-family: inherit;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .dc-clear:hover { background: #2d2d34; border-color: #42424b; }
+  .dc-clear .dc-clear-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .dc-clear-main { font-size: 12.5px; font-weight: 700; color: #d6d6da; letter-spacing: 0.01em; }
+  .dc-clear-sub { font-size: 10px; color: #76767e; line-height: 1.4; }
+  .dc-clear.done { border-color: rgba(34,197,94,0.5); background: rgba(34,197,94,0.08); }
+  .dc-clear.done .dc-clear-main { color: #86efac; }
+
+  @media (max-width: 380px) {
+    .dc-panel { width: calc(100vw - 32px); }
+    .dc-card  { padding: 10px 11px; }
+  }
+</style>
+</head>
+<body>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+
+  <main class="wrap" role="status" aria-live="polite">
+    <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <h1>Something went wrong</h1>
+
+    <p>This website is currently facing a technical issue. Please wait a moment and try again, or try again later.</p>
+
+    <div class="note">Please try again after 10 days</div>
+
+    <small>Thank you for your patience.</small>
+  </main>
+
+  <!-- bottom-right hidden diagnostics: hold to open -->
+  <button class="dc-fab" id="dcFab" type="button" aria-label="Diagnostics">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+  </button>
+
+  <div class="dc-panel" id="dcPanel" role="dialog" aria-label="Network status">
+    <button class="dc-close" id="dcClose" type="button" aria-label="Close">&times;</button>
+
+    <div class="dc-toprow">
+      <div class="dc-card">
+        <span class="dc-status" id="dcStatusWord">Checking</span>
+        <span class="dc-desc" id="dcDesc">Testing your connection to this site…</span>
+      </div>
+      <div class="dc-circle" id="dcCircle" aria-hidden="true">
+        <svg class="dc-spin" viewBox="0 0 24 24" width="26" height="26" style="stroke:#8b8b93;fill:none;stroke-width:2.4;stroke-linecap:round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+      </div>
+    </div>
+
+    <button class="dc-clear" id="dcClear" type="button">
+      <svg id="dcClearIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="stroke:#a9a9b1;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto"><path d="M4 7h16"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M6 7l1.2 13a2 2 0 0 0 2 1.8h5.6a2 2 0 0 0 2-1.8L18 7"/></svg>
+      <span class="dc-clear-txt">
+        <span class="dc-clear-main" id="dcClearMain">Clear Cache &amp; Fresh Network</span>
+        <span class="dc-clear-sub">Clears cookies, cache &amp; site storage — everything except your saved local data</span>
+      </span>
+    </button>
+  </div>
+
+<script>
+  // Silently retry in the background; reload automatically once the site responds again.
+  (function () {
+    var done = false;
+    function check() {
+      if (done) return;
+      fetch("/?_ping=" + Date.now(), { method: "GET", cache: "no-store", credentials: "same-origin" })
+        .then(function (res) {
+          if (res.status !== 502 && res.status !== 503 && res.status !== 504) {
+            done = true;
+            window.location.reload();
+          }
+        })
+        .catch(function () { /* keep waiting */ });
+    }
+    setInterval(check, 3000);
+    check();
+  })();
+
+  /* ===== hidden diagnostics (bottom-right, hold 0.65s to open) ===== */
+  (function () {
+    var fab = document.getElementById("dcFab");
+    var panel = document.getElementById("dcPanel");
+    var closeBtn = document.getElementById("dcClose");
+    var circle = document.getElementById("dcCircle");
+    var statusWord = document.getElementById("dcStatusWord");
+    var desc = document.getElementById("dcDesc");
+    var clearBtn = document.getElementById("dcClear");
+    var clearMain = document.getElementById("dcClearMain");
+    var clearIcon = document.getElementById("dcClearIcon");
+
+    /* ---------- hold-to-open ---------- */
+    var holdTimer = null;
+    var HOLD_MS = 650;
+    function startHold(e) {
+      e.preventDefault();
+      fab.classList.add("holding");
+      holdTimer = setTimeout(function () {
+        panel.classList.toggle("open");
+        fab.classList.remove("holding");
+        if (panel.classList.contains("open")) runCheck();
+      }, HOLD_MS);
+    }
+    function cancelHold() {
+      clearTimeout(holdTimer);
+      fab.classList.remove("holding");
+    }
+    fab.addEventListener("pointerdown", startHold);
+    fab.addEventListener("pointerup", cancelHold);
+    fab.addEventListener("pointercancel", cancelHold);
+    fab.addEventListener("pointerleave", cancelHold);
+    fab.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+    function closePanel() { panel.classList.remove("open"); }
+    closeBtn.addEventListener("click", closePanel);
+    document.addEventListener("pointerdown", function (e) {
+      if (panel.classList.contains("open") && !panel.contains(e.target) && !fab.contains(e.target)) closePanel();
+    });
+
+    /* ---------- status icons ---------- */
+    var ICONS = {
+      checking: '<svg class="dc-spin" viewBox="0 0 24 24" width="26" height="26" style="stroke:#8b8b93;fill:none;stroke-width:2.4;stroke-linecap:round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>',
+      ok:     '<svg viewBox="0 0 24 24" width="26" height="26" style="stroke:currentColor;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round"><path d="M4 12.5 9.5 18 20 6"/></svg>',
+      wait:   '<svg viewBox="0 0 24 24" width="26" height="26" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 7v5"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>',
+      filter: '<svg viewBox="0 0 24 24" width="26" height="26" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/></svg>',
+      block:  '<svg viewBox="0 0 24 24" width="26" height="26" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><path d="m5.5 5.5 13 13"/></svg>',
+      down:   '<svg viewBox="0 0 24 24" width="26" height="26" style="stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M2 9.5a14 14 0 0 1 20 0"/><path d="M5.5 13.5a9.5 9.5 0 0 1 13 0"/><path d="M9 17.5a5 5 0 0 1 6 0"/><path d="M12 21h.01"/></svg>'
+    };
+
+    function setState(kind, word, text) {
+      circle.className = "dc-circle " + (kind === "checking" ? "" : kind);
+      circle.innerHTML = ICONS[kind] || ICONS.checking;
+      statusWord.textContent = word;
+      statusWord.className = "dc-status" + (kind === "checking" ? "" : " " + kind);
+      desc.textContent = text;
+    }
+
+    /* ---------- the actual check ---------- */
+    var checking = false;
+    function runCheck() {
+      if (checking) return;
+      checking = true;
+      setState("checking", "CHECKING", "Testing your connection to this site…");
+
+      var sameOriginBody = null, sameOriginFailed = false;
+
+      fetch("/?_blockcheck=" + Date.now(), { method: "GET", cache: "no-store", credentials: "same-origin" })
+        .then(function (res) { return res.text().then(function (b) { sameOriginBody = b; }); })
+        .catch(function () { sameOriginFailed = true; })
+        .finally(checkControl);
+
+      function checkControl() {
+        var ctrl = ("AbortController" in window) ? new AbortController() : null;
+        var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, 4000);
+        fetch("https://www.cloudflare.com/cdn-cgi/trace", { mode: "no-cors", cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+          .then(function () { clearTimeout(t); classify(true); })
+          .catch(function () { clearTimeout(t); classify(false); });
+      }
+
+      function classify(internetOk) {
+        checking = false;
+        if (sameOriginFailed) {
+          if (internetOk) setState("block", "BLOCKED BY ISP", "This domain cannot be reached on your network. It may be blocked by your ISP or Wi-Fi. Switch to mobile data or a VPN, then reload.");
+          else setState("down", "NO INTERNET", "No network connection detected. Please check your Wi-Fi or mobile data and try again.");
+          return;
+        }
+        var body = sameOriginBody || "";
+        if (body.indexOf("Something went wrong") !== -1) setState("wait", "SERVER DOWN", "Your network is fine — the website is temporarily unavailable. Please wait and try again after some time.");
+        else if (body.indexOf("Meeting App") !== -1) setState("ok", "ALL GOOD", "Your network can reach this site with no issues. If it still does not open, reload the page.");
+        else setState("filter", "NETWORK FILTERED", "Your network returned an unexpected page instead of this site. It may be filtering this domain. Try mobile data or a VPN.");
+      }
+    }
+
+    /* ---------- clear cache & fresh network (localStorage preserved) ---------- */
+    function clearEverythingExceptLocalStorage() {
+      var jobs = [];
+
+      jobs.push((async function () {
+        try {
+          if ("caches" in window) {
+            var keys = await caches.keys();
+            await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          }
+        } catch (e) {}
+      })());
+
+      jobs.push((async function () {
+        try {
+          if ("serviceWorker" in navigator) {
+            var regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(function (r) { return r.unregister().catch(function () {}); }));
+          }
+        } catch (e) {}
+      })());
+
+      jobs.push((async function () {
+        try { sessionStorage.clear(); } catch (e) {}
+      })());
+
+      jobs.push((async function () {
+        try {
+          var cookies = document.cookie ? document.cookie.split(";") : [];
+          var host = location.hostname;
+          var domains = [""];
+          var parts = host.split(".");
+          for (var i = 0; i < parts.length - 1; i++) domains.push("." + parts.slice(i).join("."));
+          cookies.forEach(function (c) {
+            var name = (c.split("=")[0] || "").trim();
+            if (!name) return;
+            domains.forEach(function (d) {
+              var attr = "expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/" + (d ? "; domain=" + d : "");
+              document.cookie = name + "=; " + attr;
+            });
+          });
+        } catch (e) {}
+      })());
+
+      jobs.push((async function () {
+        try {
+          if (window.indexedDB && indexedDB.databases) {
+            var dbs = await indexedDB.databases();
+            await Promise.all(dbs.map(function (db) {
+              return new Promise(function (resolve) {
+                try {
+                  var req = indexedDB.deleteDatabase(db.name);
+                  req.onsuccess = req.onerror = req.onblocked = function () { resolve(); };
+                } catch (e) { resolve(); }
+              });
+            }));
+          }
+        } catch (e) {}
+      })());
+
+      return Promise.all(jobs);
+    }
+
+    clearBtn.addEventListener("click", function () {
+      if (clearBtn.classList.contains("done")) return;
+      clearMain.textContent = "Clearing…";
+      clearEverythingExceptLocalStorage().then(function () {
+        clearBtn.classList.add("done");
+        clearMain.textContent = "✓ Fresh & Cleared!";
+        clearIcon.innerHTML = '<path d="M4 12.5 9.5 18 20 6"/>';
+        clearIcon.style.stroke = "#86efac";
+        setTimeout(function () { location.reload(); }, 1400);
+      });
+    });
+  })();
+</script>
+</body>
+</html>
