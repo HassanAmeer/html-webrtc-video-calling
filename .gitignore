@@ -67,6 +67,9 @@ devices.json
 devices.json.tmp
 crash.log
 persistent_logs.jsonl
+vapid.json
+push-subscriptions.json
+push-subscriptions.json.tmp
 
 # Agents
 .agents/

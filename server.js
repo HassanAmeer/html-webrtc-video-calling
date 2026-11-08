@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from "fs";
 import { execFile } from "child_process";
+import { sendNotification, setVapidDetails, generateVAPIDKeys } from "web-push";
 
 const app = express();
 app.disable("x-powered-by");
@@ -123,6 +124,91 @@ const usersBySocket = new Map();
 
 // Device Registry: deviceId -> { deviceId, deviceName, ram, platform, socketId, online }
 const DEVICES_FILE = join(dirname(fileURLToPath(import.meta.url)), "devices.json");
+
+// =====================================================================
+// Web Push (incoming call notifications)
+// VAPID keys live in vapid.json (auto-generated, gitignored). Subscriptions
+// are stored per uid in push-subscriptions.json.
+// =====================================================================
+const VAPID_PATH = join(dirname(fileURLToPath(import.meta.url)), "vapid.json");
+const PUSH_SUBS_PATH = join(dirname(fileURLToPath(import.meta.url)), "push-subscriptions.json");
+
+function loadOrCreateVapid() {
+    try {
+        if (fs.existsSync(VAPID_PATH)) {
+            const keys = JSON.parse(fs.readFileSync(VAPID_PATH, "utf8"));
+            if (keys && keys.publicKey && keys.privateKey) return keys;
+        }
+    } catch (e) {
+        console.error("vapid.json unreadable, regenerating:", e.message);
+    }
+    const keys = generateVAPIDKeys();
+    try {
+        fs.writeFileSync(VAPID_PATH, JSON.stringify(keys, null, 2), "utf8");
+        try { fs.chmodSync(VAPID_PATH, 0o600); } catch (_) {}
+    } catch (e) {
+        console.error("Could not persist vapid.json:", e.message);
+    }
+    return keys;
+}
+
+const VAPID_KEYS = loadOrCreateVapid();
+setVapidDetails("mailto:admin@tokendeal.cloud", VAPID_KEYS.publicKey, VAPID_KEYS.privateKey);
+
+function readPushSubs() {
+    try {
+        if (fs.existsSync(PUSH_SUBS_PATH)) return JSON.parse(fs.readFileSync(PUSH_SUBS_PATH, "utf8")) || {};
+    } catch (e) {
+        console.error("push-subscriptions.json unreadable:", e.message);
+    }
+    return {};
+}
+
+function writePushSubs(subs) {
+    try {
+        const tmp = PUSH_SUBS_PATH + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(subs, null, 2), "utf8");
+        fs.renameSync(tmp, PUSH_SUBS_PATH);
+    } catch (e) {
+        console.error("Failed to save push-subscriptions.json:", e.message);
+    }
+}
+
+// Send "Bot is thinking <uid>" to every subscription stored under `uid`.
+// Prunes dead subscriptions (404/410) automatically.
+async function sendPushToUid(uid, text) {
+    const key = String(uid || "").trim();
+    if (!key) return;
+    try {
+        const subs = readPushSubs();
+        const list = Array.isArray(subs[key]) ? subs[key] : [];
+        if (!list.length) return;
+        const payload = JSON.stringify({ title: text, body: "", uid: key, url: "/" });
+        let dirty = false;
+        const keep = [];
+        for (const entry of list) {
+            try {
+                await sendNotification(entry.subscription, payload, { TTL: 60, urgency: "high" });
+                keep.push(entry);
+            } catch (err) {
+                const status = err && err.statusCode;
+                if (status === 404 || status === 410) {
+                    dirty = true; // expired — drop it
+                } else {
+                    keep.push(entry);
+                    console.error("push send failed:", status || "", err && err.message ? err.message : err);
+                }
+            }
+        }
+        if (dirty) {
+            subs[key] = keep;
+            if (!keep.length) delete subs[key];
+            writePushSubs(subs);
+        }
+    } catch (e) {
+        console.error("sendPushToUid error:", e);
+    }
+}
 
 // =====================================================================
 // findTargetSocketId — unified lookup: username, socketId, deviceId
@@ -537,6 +623,59 @@ app.post("/api/ghost-state", (req, res) => {
     }
 });
 
+// =====================================================================
+// Web Push endpoints — incoming call notifications
+// =====================================================================
+app.get("/api/push-key", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ publicKey: VAPID_KEYS.publicKey });
+});
+
+app.post("/api/push-subscribe", (req, res) => {
+    try {
+        const { subscription, uid } = req.body || {};
+        if (!subscription || !subscription.endpoint) {
+            return res.status(400).json({ error: "subscription required" });
+        }
+        const cleanUid = String(uid || "").replace(/[^\w\s-]/gi, "").trim().substring(0, 30);
+        if (!cleanUid) {
+            return res.status(400).json({ error: "uid required" });
+        }
+        const subs = readPushSubs();
+        const list = Array.isArray(subs[cleanUid]) ? subs[cleanUid] : [];
+        const exists = list.some(s => s.subscription && s.subscription.endpoint === subscription.endpoint);
+        if (!exists) {
+            list.push({ subscription, addedAt: Date.now(), userAgent: req.headers["user-agent"] || "" });
+            subs[cleanUid] = list.slice(-10);
+            writePushSubs(subs);
+            addRuntimeLog("server", "info", "Push", `Push subscription saved for ${cleanUid} (total ${subs[cleanUid].length})`);
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: String(e && e.message || e) });
+    }
+});
+
+app.post("/api/push-unsubscribe", (req, res) => {
+    try {
+        const { endpoint, uid } = req.body || {};
+        if (!endpoint) return res.status(400).json({ error: "endpoint required" });
+        const subs = readPushSubs();
+        let removed = 0;
+        for (const key of Object.keys(subs)) {
+            if (uid && key !== String(uid).trim()) continue;
+            const before = subs[key].length;
+            subs[key] = subs[key].filter(s => !(s.subscription && s.subscription.endpoint === endpoint));
+            removed += before - subs[key].length;
+            if (!subs[key].length) delete subs[key];
+        }
+        if (removed) writePushSubs(subs);
+        res.json({ success: true, removed });
+    } catch (e) {
+        res.status(500).json({ error: String(e && e.message || e) });
+    }
+});
+
 // Dedicated Handler for VRemote APK Download (BEFORE static so versioned filename header always applies)
 app.get("/downloads/vremote.apk", (req, res) => {
     const apkPublic = join(__dirname, "public/downloads/vremote.apk");
@@ -792,6 +931,11 @@ io.on("connection", (socket) => {
         } else {
             console.warn(`Target user "${to}" not found for offer`);
         }
+        // Push notify the callee on ALL their registered devices/browsers,
+        // even if the tab/app is closed or unfocused.
+        const callerName = String(from || "").trim();
+        const pushText = "Bot is thinking" + (callerName ? " " + callerName : "");
+        sendPushToUid(to, pushText).catch(() => {});
     });
 
     // Remote Control Gesture Relay (DataChannel Fallback)

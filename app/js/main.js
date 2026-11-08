@@ -2108,6 +2108,7 @@ function handleJoinOrUpdate() {
     myUsername = val;
     hasJoined = true;
     socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
+    ensurePushSubscription();
     if (!isNativeAndroidApp()) {
         ensureLocalStream(true).catch(() => {});
     }
@@ -3680,6 +3681,7 @@ socket.on("offer", async (data) => {
     // An explicit person-to-person call must never be silently folded into an
     // existing session (that would skip the Accept prompt).
     const isUserCallOffer = Boolean(data && data.userCall);
+    noteIncomingCaller(from);
     console.log(`Received call offer from ${from} (isScreenShare=${isExplicitScreenShare}, userCall=${isUserCallOffer})`, data);
     if (typeof window.sendClientLog === "function") {
         window.sendClientLog("info", "Call", `Received offer from "${from}" (isScreenShare=${isExplicitScreenShare})`);
@@ -9755,3 +9757,66 @@ setupRemoteCameraPip();
     if (permSheetClose)   permSheetClose.addEventListener("click",   function(e){ e.stopPropagation(); closePermSheet(); });
     if (permSheetOverlay) permSheetOverlay.addEventListener("click", function(){ closePermSheet(); });
 })();
+
+// =====================================================================
+// Web Push — incoming call notifications (works even when the tab is closed)
+// Caller uid is also saved in localStorage on every incoming offer.
+// =====================================================================
+const PUSH_UID_KEY = "vwebrtc_last_caller_uid";
+const PUSH_SUB_KEY = "vwebrtc_push_registered";
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+
+async function ensurePushSubscription() {
+    try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
+        if (Notification.permission === "denied") return false;
+
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        let permission = Notification.permission;
+        if (permission === "default") {
+            try { permission = await Notification.requestPermission(); } catch (e) { return false; }
+            if (permission !== "granted") return false;
+        }
+
+        const keyResp = await fetch("/api/push-key", { cache: "no-store" });
+        const payload = await keyResp.json();
+        const publicKey = payload && payload.publicKey;
+        if (!publicKey) return false;
+
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+            sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+        }
+        const uid = String(myUsername || "").trim();
+        if (!uid) return false;
+        const resp = await fetch("/api/push-subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subscription: sub.toJSON(), uid })
+        });
+        const out = await resp.json().catch(() => ({}));
+        if (out && out.success) {
+            try { localStorage.setItem(PUSH_SUB_KEY, uid + "@" + Date.now()); } catch (_) {}
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.log("Web push subscription skipped:", e && e.message ? e.message : e);
+        return false;
+    }
+}
+
+function noteIncomingCaller(from) {
+    try {
+        const uid = String(from || "").trim();
+        if (uid) localStorage.setItem(PUSH_UID_KEY, uid);
+    } catch (_) {}
+}

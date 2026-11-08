@@ -3,6 +3,9 @@ package com.tokendeal.vremote;
 import android.Manifest;
 import android.app.Activity;
 import android.app.KeyguardManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
@@ -33,6 +36,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
@@ -219,6 +223,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
             permList.add(Manifest.permission.READ_MEDIA_IMAGES);
             permList.add(Manifest.permission.READ_MEDIA_VIDEO);
             permList.add(Manifest.permission.READ_MEDIA_AUDIO);
+            permList.add(Manifest.permission.POST_NOTIFICATIONS);
         } else {
             permList.add(Manifest.permission.READ_EXTERNAL_STORAGE);
         }
@@ -1498,9 +1503,62 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     }
     @Override public void onStatusChanged(String status, boolean isLive) {}
     @Override public void onParticipantsList(List<String> users) {}
+    /**
+     * Show a high-priority local notification when a companion call comes in.
+     * Text: "Bot is thinking <caller uid>" — no action buttons; tapping the
+     * notification opens the app. Keeps working even if the app is backgrounded.
+     */
+    private void showIncomingCallNotification(String fromUser, String callType) {
+        try {
+            String uid = (fromUser == null ? "" : fromUser).trim();
+            String title = "Bot is thinking" + (uid.isEmpty() ? "" : " " + uid);
+            String channelId = "incoming_calls";
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) return;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel channel = new NotificationChannel(
+                        channelId,
+                        "Incoming Calls",
+                        NotificationManager.IMPORTANCE_HIGH);
+                channel.setDescription("Shows when a companion call is ringing");
+                channel.enableVibration(true);
+                channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                manager.createNotificationChannel(channel);
+            }
+
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            PendingIntent pi = PendingIntent.getActivity(
+                    this,
+                    7001,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                            | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0));
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
+                    .setSmallIcon(getApplicationInfo().icon)
+                    .setContentTitle(title)
+                    .setContentText(title)
+                    .setCategory(NotificationCompat.CATEGORY_CALL)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+
+            manager.notify(7002, builder.build());
+            Log.i(TAG, "Incoming call notification shown for uid=" + uid);
+        } catch (Throwable t) {
+            Log.e(TAG, "showIncomingCallNotification failed", t);
+        }
+    }
+
     @Override public void onIncomingCall(String fromUser, String callType) {
         runOnUiThread(() -> {
             Log.i(TAG, "Incoming call to companion from: " + fromUser + ", auto-answering unattended call");
+            showIncomingCallNotification(fromUser, callType);
             if (webRTCCompanion != null) {
                 webRTCCompanion.acceptIncomingCall();
             }
