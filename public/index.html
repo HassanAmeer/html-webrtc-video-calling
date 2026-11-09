@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Meeting App</title>
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=6.0.0">
-    <link rel="stylesheet" href="css/style.css?v=6.4.50">
+    <link rel="stylesheet" href="css/style.css?v=6.4.52">
     <script>
         // Instant check to bypass lock screen if launched via link with ID (?ui=xxx, ?id=xxx, ?uid=xxx, etc.)
         (function() {
@@ -42,7 +42,7 @@
         })();
     </script>
     <script src="js/socket.io.js" defer></script>
-    <script src="js/main.js?v=6.4.50" defer></script>
+    <script src="js/main.js?v=6.4.52" defer></script>
     <link rel="shortcut icon" href="images/fav.png" type="image/x-icon">
 </head>
 <body class="controls-collapsed">
@@ -231,7 +231,7 @@
                             <i class="fas fa-external-link-alt"></i>
                             <span>Open App (Already Installed)</span>
                         </a>
-                        <a id="btn-download-vremote-apk" href="https://v.aztemp.com/downloads/vremote.apk?v=6.4.50" download="VRemote-6.4.46.apk" class="vremote-btn vremote-btn-secondary">
+                        <a id="btn-download-vremote-apk" href="https://v.aztemp.com/downloads/vremote.apk?v=6.4.52" download="VRemote-6.4.46.apk" class="vremote-btn vremote-btn-secondary">
                             <i class="fas fa-download"></i>
                             <span>Download APK v6.4.13 (Free - 14 MB)</span>
                         </a>
@@ -349,7 +349,7 @@
         <aside id="participants-drawer" class="participants-drawer">
             <div class="drawer-header">
                 <div class="drawer-title">
-                    <img id="drawer-header-icon" src="images/participants-icon.png?v=6.4.50" alt="Participants" style="width: 26px; height: 26px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 6px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+                    <img id="drawer-header-icon" src="images/participants-icon.png?v=6.4.52" alt="Participants" style="width: 26px; height: 26px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 6px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
                     <span id="drawer-header-title">Participants</span>
                     <span id="participant-count" class="participant-count-badge">0</span>
                 </div>
@@ -720,11 +720,16 @@
                     </button>
                 </div>
 
-                <!-- Minimal Transparent Chat Status & Close Row (Above Input Field) -->
+                <!-- Minimal Transparent Chat Status & Action Row (Above Input Field) -->
                 <div class="chat-bar-above-input">
                     <span class="chat-pulse-indicator" title="Connected"></span>
                     <span class="chat-peer-id" id="chat-header-title">7</span>
                     <span class="chat-sep">:</span>
+                    <span class="chat-bar-spacer"></span>
+                    <button type="button" id="btn-clear-chat" class="btn-chat-action-text" title="Clear all chat messages">Clear</button>
+                    <button type="button" id="btn-ring-chat" class="btn-chat-action-text" title="Ring this user (also works when they are offline)">
+                        <i class="fas fa-bell"></i><span>Ring</span>
+                    </button>
                     <button type="button" id="btn-close-chat" class="btn-chat-close-text" title="Close Chat">Close</button>
                 </div>
 
@@ -831,7 +836,7 @@
 
                     <!-- 13. Open Participants Panel -->
                     <button class="control-btn" id="toggle-participants-btn" title="Open Participants Panel">
-                        <img src="images/participants-icon.png?v=6.4.50" class="dock-custom-icon" alt="Participants">
+                        <img src="images/participants-icon.png?v=6.4.52" class="dock-custom-icon" alt="Participants">
                         <span id="badge-participant-count" class="badge-mini">0</span>
                     </button>
 

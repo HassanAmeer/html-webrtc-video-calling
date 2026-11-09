@@ -150,6 +150,9 @@ let mediaFailureNotified = false;
 let activeSessionDevices = new Set();
 let cachedDevices = [];
 let pendingRegisteredDeviceCall = null;
+// Last person we actually had a call/chat with. Ring uses it so the button
+// still works right after a call ends (activePeer is cleared on hang-up).
+let lastChatPeer = "";
 
 // Helper to normalize device IDs across screen shares and mobile remote names
 function normalizeDeviceId(id) {
@@ -2566,6 +2569,10 @@ function initPeerConnection(targetUser) {
     // checks ("ice: new") and the call connected with no audio/video.
     // flushPendingCandidates() drops entries from any other peer.
     activePeer = targetUser;
+    try {
+        lastChatPeer = String(targetUser || "");
+        localStorage.setItem("webrtc_last_chat_peer", lastChatPeer);
+    } catch (_) {}
 
     const pc = new RTCPeerConnection(rtcConfig);
 
@@ -5790,6 +5797,7 @@ const chatUnreadBadge = document.getElementById("chat-unread-badge");
 const chatOverlayContainer = document.getElementById("chat-overlay-container");
 const btnCloseChat = document.getElementById("btn-close-chat");
 const btnClearChat = document.getElementById("btn-clear-chat");
+const btnRingChat = document.getElementById("btn-ring-chat");
 const chatHeaderTitle = document.getElementById("chat-header-title");
 const chatMessagesScroll = document.getElementById("chat-messages-scroll");
 
@@ -6512,13 +6520,124 @@ if (btnCloseChat) {
 }
 
 if (btnClearChat) {
-    btnClearChat.addEventListener("click", () => {
-        if (confirm("Clear all chat messages?")) {
-            if (chatMessagesScroll) chatMessagesScroll.innerHTML = "";
-            showToast("Chat cleared");
+    btnClearChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!chatMessagesScroll) return;
+        if (!chatMessagesScroll.children.length) {
+            showToast("Chat is already empty");
+            return;
         }
+        if (!confirm("Clear all chat messages?")) return;
+        chatMessagesScroll.innerHTML = "";
+        unreadChatCount = 0;
+        if (chatUnreadBadge) {
+            chatUnreadBadge.textContent = "0";
+            chatUnreadBadge.style.display = "none";
+        }
+        hideChatPopovers();
+        if (typeof dismissChatToast === "function") dismissChatToast();
+        showToast("Chat cleared");
     });
 }
+
+// ==============================================================
+// RING — ping a user (works while they are online or offline)
+// ==============================================================
+let lastRingSentAt = 0;
+let ringBurstInterval = null;
+let ringBurstTimeout = null;
+
+function stopRingBurst() {
+    if (ringBurstInterval) {
+        clearInterval(ringBurstInterval);
+        ringBurstInterval = null;
+    }
+    if (ringBurstTimeout) {
+        clearTimeout(ringBurstTimeout);
+        ringBurstTimeout = null;
+    }
+}
+
+// Two-tone chime that repeats for `durationMs` (default 5s).
+function startRingBurst(durationMs = 5000) {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!ringAudioCtx) ringAudioCtx = new AudioCtx();
+        if (ringAudioCtx.state === "suspended") {
+            ringAudioCtx.resume().catch(() => {});
+        }
+        const beep = () => {
+            if (!ringAudioCtx) return;
+            const now = ringAudioCtx.currentTime;
+            [0, 0.18].forEach((offset, i) => {
+                const osc = ringAudioCtx.createOscillator();
+                const gain = ringAudioCtx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(i === 0 ? 880 : 1046, now + offset);
+                gain.gain.setValueAtTime(0, now + offset);
+                gain.gain.linearRampToValueAtTime(0.09, now + offset + 0.02);
+                gain.gain.linearRampToValueAtTime(0.09, now + offset + 0.12);
+                gain.gain.linearRampToValueAtTime(0, now + offset + 0.16);
+                osc.connect(gain);
+                gain.connect(ringAudioCtx.destination);
+                osc.start(now + offset);
+                osc.stop(now + offset + 0.18);
+            });
+        };
+        stopRingBurst();
+        beep();
+        ringBurstInterval = setInterval(beep, 900);
+        ringBurstTimeout = setTimeout(stopRingBurst, durationMs);
+    } catch (err) {
+        console.warn("Ring burst error:", err);
+    }
+}
+
+function sendRingToPeer() {
+    let peer = (activePeer || "").trim();
+    if (!peer || peer === "all") {
+        try { peer = localStorage.getItem("webrtc_last_chat_peer") || ""; } catch (_) { peer = ""; }
+    }
+    if (!peer || peer === "all") peer = lastChatPeer || "";
+    if (!peer || peer === "all") {
+        showToast("Open a chat with a user first");
+        return;
+    }
+    const now = Date.now();
+    if (now - lastRingSentAt < 8000) {
+        showToast("Please wait a few seconds before ringing again");
+        return;
+    }
+    lastRingSentAt = now;
+    socket.emit("ring-user", { from: myUsername, to: peer });
+    try { showToast(`🔔 Ring sent to ${peer}`); } catch (_) {}
+}
+
+if (btnRingChat) {
+    btnRingChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendRingToPeer();
+    });
+}
+
+socket.on("ring-incoming", ({ from, durationMs } = {}) => {
+    const who = String(from || "").trim() || "Someone";
+    startRingBurst(durationMs || 5000);
+    if (navigator.vibrate) {
+        try { navigator.vibrate([400, 200, 400, 200, 400, 200, 400, 200, 400]); } catch (_) {}
+    }
+    try { showToast(`🔔 ${who} is ringing`); } catch (_) {}
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Ring", `Ring received from "${who}"`);
+    }
+});
+
+socket.on("ring-sent", ({ to, online } = {}) => {
+    if (!online) {
+        try { showToast(`🔔 ${to || "User"} is offline — notification sent`); } catch (_) {}
+    }
+});
 
 if (chatForm) {
     chatForm.addEventListener("submit", (e) => {

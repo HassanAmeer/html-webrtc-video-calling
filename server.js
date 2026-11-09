@@ -1070,6 +1070,32 @@ io.on("connection", (socket) => {
         }
     });
 
+    // Ring a user. Plays a short chime on their open tab; when they are
+    // offline (or the app/browser is closed) it sends a Web Push notification
+    // instead, so they still get alerted and can tap through to the site.
+    socket.on("ring-user", ({ from, to } = {}) => {
+        const fromStr = String(from || "").trim();
+        const toStr = String(to || "").trim();
+        if (!toStr || toStr === "all" || toStr === fromStr) return;
+
+        const targets = findTargetSocketIds(toStr);
+        for (const sid of targets) {
+            io.to(sid).emit("ring-incoming", { from: fromStr, durationMs: 5000 });
+        }
+        const online = targets.size > 0;
+        if (!online) {
+            const text = "🔔 Ring from " + (fromStr || "someone");
+            sendPushToUid(toStr, text).catch(() => {});
+        }
+        addRuntimeLog(
+            "server",
+            "info",
+            "Ring",
+            `Ring "${fromStr}" -> "${toStr}" (online sockets: ${targets.size})`
+        );
+        socket.emit("ring-sent", { to: toStr, online });
+    });
+
     // Chat Reaction Event (WhatsApp-style emoji reactions)
     socket.on("chat-reaction", (data) => {
         if (!data || !data.messageId || !data.emoji) return;
