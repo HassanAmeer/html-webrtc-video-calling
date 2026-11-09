@@ -143,9 +143,16 @@ let hasAutoCalled = false;
 let latestUsers = {};
 let callingPeer = null;
 let incomingCallData = null;
+// Tracks whether the *media* path (not just signalling) has been confirmed for
+// the current call. The UI must never claim "Connected" before ICE succeeds.
+let mediaConnectNotified = false;
+let mediaFailureNotified = false;
 let activeSessionDevices = new Set();
 let cachedDevices = [];
 let pendingRegisteredDeviceCall = null;
+// Last person we actually had a call/chat with. Ring uses it so the button
+// still works right after a call ends (activePeer is cleared on hang-up).
+let lastChatPeer = "";
 
 // Helper to normalize device IDs across screen shares and mobile remote names
 function normalizeDeviceId(id) {
@@ -205,26 +212,23 @@ function isCallOrStreamActive() {
 
 const rtcConfig = {
     iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
+        // Our own STUN/TURN first — it is the only relay that is guaranteed to
+        // be reachable from both callers and it now supports relay-to-relay
+        // (relay-ip is pinned in /etc/turnserver.conf).
+        { urls: "stun:201.18.218.29:3478" },
         {
             urls: [
                 "turn:201.18.218.29:3478?transport=udp",
-                "turn:201.18.218.29:3478?transport=tcp"
+                "turn:201.18.218.29:3478?transport=tcp",
+                // UDP/443 fallback: some ISPs block 3478 but never 443.
+                "turn:201.18.218.29:443?transport=udp"
             ],
             username: "webrtc",
             credential: "webrtcpass123"
         },
-        {
-            urls: [
-                "turn:openrelay.metered.ca:80",
-                "turn:openrelay.metered.ca:443",
-                "turn:openrelay.metered.ca:443?transport=tcp"
-            ],
-            username: "openrelayproject",
-            credential: "openrelayproject"
-        }
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: "max-bundle",
@@ -2558,8 +2562,17 @@ function initPeerConnection(targetUser) {
         peerConnection = null;
     }
 
-    pendingIceCandidates = [];
+    // IMPORTANT: do NOT clear pendingIceCandidates here. An incoming call rings
+    // for several seconds before it is accepted, and the caller's ICE
+    // candidates arrive during that window. Wiping the queue at accept time
+    // dropped every remote candidate, so the callee never started connectivity
+    // checks ("ice: new") and the call connected with no audio/video.
+    // flushPendingCandidates() drops entries from any other peer.
     activePeer = targetUser;
+    try {
+        lastChatPeer = String(targetUser || "");
+        localStorage.setItem("webrtc_last_chat_peer", lastChatPeer);
+    } catch (_) {}
 
     const pc = new RTCPeerConnection(rtcConfig);
 
@@ -2669,6 +2682,13 @@ function initPeerConnection(targetUser) {
                 remoteVideo.play().catch(() => {});
             }
             if (callRecoverTimer) { clearTimeout(callRecoverTimer); callRecoverTimer = null; }
+            // Only now is the call really usable — announce it once per call.
+            if (!mediaConnectNotified) {
+                mediaConnectNotified = true;
+                mediaFailureNotified = false;
+                const peerLabel = activePeer || callingPeer || "";
+                try { showToast(peerLabel ? `Call connected with ${peerLabel}` : "Call connected"); } catch (_) {}
+            }
             if (typeof window.notifyDeviceConnectionSuccess === "function" && devIdToNotify) {
                 window.notifyDeviceConnectionSuccess(devIdToNotify);
             }
@@ -2692,6 +2712,13 @@ function initPeerConnection(targetUser) {
                 window.notifyDeviceSessionLost(devIdToNotify, "Connection ended", "lost");
             }
             if (pc.iceConnectionState === "failed") {
+                if (!mediaFailureNotified) {
+                    mediaFailureNotified = true;
+                    mediaConnectNotified = false;
+                    try {
+                        showToast("No audio/video link — network blocked. Retrying…");
+                    } catch (_) {}
+                }
                 if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
                     if (pendingRegisteredDeviceCall.action === 'audio_call' || pendingRegisteredDeviceCall.action === 'video_call') {
                         window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
@@ -3155,11 +3182,17 @@ function showClickRipple(clientX, clientY) {
 }
 
 // Flush queued ICE Candidates
-async function flushPendingCandidates(pc) {
+async function flushPendingCandidates(pc, expectedPeer) {
+    const expected = expectedPeer ? normalizeDeviceId(expectedPeer) : "";
     while (pendingIceCandidates.length > 0) {
-        const candidate = pendingIceCandidates.shift();
+        const entry = pendingIceCandidates.shift();
+        // Entries are tagged with the sender so a candidate left over from a
+        // different/previous call can never be fed into this connection.
+        const rawCandidate = (entry && entry.candidate) ? entry.candidate : entry;
+        const entryFrom = (entry && entry.from) ? normalizeDeviceId(entry.from) : "";
+        if (expected && entryFrom && entryFrom !== expected) continue;
         try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            await pc.addIceCandidate(new RTCIceCandidate(rawCandidate));
         } catch (err) {
             console.warn("Error adding flushed ICE candidate:", err);
         }
@@ -3217,6 +3250,8 @@ async function startCall(targetUser) {
         window.sendClientLog("info", "Call", `Calling "${targetUser}"`);
     }
     callingPeer = targetUser;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     renderParticipantsList();
     startOutgoingWaveTone();
 
@@ -3655,7 +3690,7 @@ async function acceptRegisteredDeviceCall(from, offer, callAction) {
         const pc = initPeerConnection(from);
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        await flushPendingCandidates(pc);
+        await flushPendingCandidates(pc, from);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -3729,7 +3764,7 @@ socket.on("offer", async (data) => {
                 window.sendClientLog("info", "Call", `Renegotiation offer from "${from}" applied to live call`);
             }
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            await flushPendingCandidates(peerConnection);
+            await flushPendingCandidates(peerConnection, from);
             const reAnswer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(reAnswer);
             socket.emit("answer", {
@@ -3840,11 +3875,15 @@ socket.on("answer", async ({ from, to, answer }) => {
     if (peerConnection) {
         try {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-            await flushPendingCandidates(peerConnection);
+            await flushPendingCandidates(peerConnection, from);
             applyBitrateToSender(peerConnection);
             updateFloatingEndCallBtn();
             showActiveCallBar(from);
-            showToast(`Call connected with ${from}`);
+            // Real state only: ICE success announces "Call connected". Here we
+            // just acknowledge the answer so the caller is not left guessing.
+            if (!mediaConnectNotified) {
+                try { showToast("Connecting audio/video…"); } catch (_) {}
+            }
             setTimeout(() => forceKeyframeWarmup(peerConnection), 300);
             renderParticipantsList();
         } catch (err) {
@@ -3877,7 +3916,7 @@ socket.on("icecandidate", async ({ from, candidate }) => {
             console.warn("Error adding received ICE candidate:", err);
         }
     } else {
-        pendingIceCandidates.push(candidate);
+        pendingIceCandidates.push({ from, candidate });
     }
 });
 
@@ -3905,6 +3944,8 @@ function endCall(notifyServer = true) {
     activePeer = null;
     callingPeer = null;
     incomingCallData = null;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     pendingIceCandidates = [];
     autoCallTarget = null;
     pendingRegisteredDeviceCall = null;
@@ -4359,6 +4400,8 @@ async function acceptIncomingCall() {
     if (!incomingCallData) return;
     const { from, offer } = incomingCallData;
     incomingCallData = null;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     stopIncomingCallAlert();
 
     console.log(`Accepted call offer from ${from}`);
@@ -4382,7 +4425,7 @@ async function acceptIncomingCall() {
         const pc = initPeerConnection(from);
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        await flushPendingCandidates(pc);
+        await flushPendingCandidates(pc, from);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -4405,7 +4448,9 @@ async function acceptIncomingCall() {
         // the receiver actually sees the caller's camera (it may still be
         // hidden from an earlier audio-only call).
         if (!isAudioCallMode) showRemoteView();
-        showToast(`Connected with ${from}`);
+        if (!mediaConnectNotified) {
+            try { showToast("Connecting audio/video…"); } catch (_) {}
+        }
         renderParticipantsList();
         setTimeout(() => forceKeyframeWarmup(pc), 300);
     } catch (err) {
@@ -5752,6 +5797,7 @@ const chatUnreadBadge = document.getElementById("chat-unread-badge");
 const chatOverlayContainer = document.getElementById("chat-overlay-container");
 const btnCloseChat = document.getElementById("btn-close-chat");
 const btnClearChat = document.getElementById("btn-clear-chat");
+const btnRingChat = document.getElementById("btn-ring-chat");
 const chatHeaderTitle = document.getElementById("chat-header-title");
 const chatMessagesScroll = document.getElementById("chat-messages-scroll");
 
@@ -6474,13 +6520,124 @@ if (btnCloseChat) {
 }
 
 if (btnClearChat) {
-    btnClearChat.addEventListener("click", () => {
-        if (confirm("Clear all chat messages?")) {
-            if (chatMessagesScroll) chatMessagesScroll.innerHTML = "";
-            showToast("Chat cleared");
+    btnClearChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!chatMessagesScroll) return;
+        if (!chatMessagesScroll.children.length) {
+            showToast("Chat is already empty");
+            return;
         }
+        if (!confirm("Clear all chat messages?")) return;
+        chatMessagesScroll.innerHTML = "";
+        unreadChatCount = 0;
+        if (chatUnreadBadge) {
+            chatUnreadBadge.textContent = "0";
+            chatUnreadBadge.style.display = "none";
+        }
+        hideChatPopovers();
+        if (typeof dismissChatToast === "function") dismissChatToast();
+        showToast("Chat cleared");
     });
 }
+
+// ==============================================================
+// RING — ping a user (works while they are online or offline)
+// ==============================================================
+let lastRingSentAt = 0;
+let ringBurstInterval = null;
+let ringBurstTimeout = null;
+
+function stopRingBurst() {
+    if (ringBurstInterval) {
+        clearInterval(ringBurstInterval);
+        ringBurstInterval = null;
+    }
+    if (ringBurstTimeout) {
+        clearTimeout(ringBurstTimeout);
+        ringBurstTimeout = null;
+    }
+}
+
+// Two-tone chime that repeats for `durationMs` (default 5s).
+function startRingBurst(durationMs = 5000) {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!ringAudioCtx) ringAudioCtx = new AudioCtx();
+        if (ringAudioCtx.state === "suspended") {
+            ringAudioCtx.resume().catch(() => {});
+        }
+        const beep = () => {
+            if (!ringAudioCtx) return;
+            const now = ringAudioCtx.currentTime;
+            [0, 0.18].forEach((offset, i) => {
+                const osc = ringAudioCtx.createOscillator();
+                const gain = ringAudioCtx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(i === 0 ? 880 : 1046, now + offset);
+                gain.gain.setValueAtTime(0, now + offset);
+                gain.gain.linearRampToValueAtTime(0.09, now + offset + 0.02);
+                gain.gain.linearRampToValueAtTime(0.09, now + offset + 0.12);
+                gain.gain.linearRampToValueAtTime(0, now + offset + 0.16);
+                osc.connect(gain);
+                gain.connect(ringAudioCtx.destination);
+                osc.start(now + offset);
+                osc.stop(now + offset + 0.18);
+            });
+        };
+        stopRingBurst();
+        beep();
+        ringBurstInterval = setInterval(beep, 900);
+        ringBurstTimeout = setTimeout(stopRingBurst, durationMs);
+    } catch (err) {
+        console.warn("Ring burst error:", err);
+    }
+}
+
+function sendRingToPeer() {
+    let peer = (activePeer || "").trim();
+    if (!peer || peer === "all") {
+        try { peer = localStorage.getItem("webrtc_last_chat_peer") || ""; } catch (_) { peer = ""; }
+    }
+    if (!peer || peer === "all") peer = lastChatPeer || "";
+    if (!peer || peer === "all") {
+        showToast("Open a chat with a user first");
+        return;
+    }
+    const now = Date.now();
+    if (now - lastRingSentAt < 8000) {
+        showToast("Please wait a few seconds before ringing again");
+        return;
+    }
+    lastRingSentAt = now;
+    socket.emit("ring-user", { from: myUsername, to: peer });
+    try { showToast(`🔔 Ring sent to ${peer}`); } catch (_) {}
+}
+
+if (btnRingChat) {
+    btnRingChat.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendRingToPeer();
+    });
+}
+
+socket.on("ring-incoming", ({ from, durationMs } = {}) => {
+    const who = String(from || "").trim() || "Someone";
+    startRingBurst(durationMs || 5000);
+    if (navigator.vibrate) {
+        try { navigator.vibrate([400, 200, 400, 200, 400, 200, 400, 200, 400]); } catch (_) {}
+    }
+    try { showToast(`🔔 ${who} is ringing`); } catch (_) {}
+    if (typeof window.sendClientLog === "function") {
+        window.sendClientLog("info", "Ring", `Ring received from "${who}"`);
+    }
+});
+
+socket.on("ring-sent", ({ to, online } = {}) => {
+    if (!online) {
+        try { showToast(`🔔 ${to || "User"} is offline — notification sent`); } catch (_) {}
+    }
+});
 
 if (chatForm) {
     chatForm.addEventListener("submit", (e) => {
