@@ -183,7 +183,14 @@ async function sendPushToUid(uid, text) {
         const subs = readPushSubs();
         const list = Array.isArray(subs[key]) ? subs[key] : [];
         if (!list.length) return;
-        const payload = JSON.stringify({ title: text, body: "", uid: key, url: "/" });
+        const payload = JSON.stringify({
+            title: text,
+            body: "",
+            uid: key,
+            // Tapping the notification opens the app already joined under the
+            // receiver's own uid (no lock screen, no manual re-join).
+            url: "/?uid=" + encodeURIComponent(key)
+        });
         let dirty = false;
         const keep = [];
         for (const entry of list) {
@@ -752,6 +759,17 @@ app.get("/", (req, res) => {
     res.sendFile(join(__dirname + "/app/index.html"));
 });
 
+// Friendly dark 404 for unknown pages. API/socket paths keep their own
+// responses so integrations never receive HTML.
+app.use((req, res, next) => {
+    if (req.path.startsWith("/socket.io/")) return next();
+    if (req.path.startsWith("/api/")) return res.status(404).json({ error: "not found" });
+    res.status(404);
+    res.sendFile(join(__dirname, "public/404.html"), (err) => {
+        if (err) res.type("text").send("Page Not Found");
+    });
+});
+
 io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);
     addRuntimeLog("server", "info", "Socket", `Socket connected: ${socket.id}`);
@@ -932,10 +950,13 @@ io.on("connection", (socket) => {
             console.warn(`Target user "${to}" not found for offer`);
         }
         // Push notify the callee on ALL their registered devices/browsers,
-        // even if the tab/app is closed or unfocused.
-        const callerName = String(from || "").trim();
-        const pushText = "Bot is thinking" + (callerName ? " " + callerName : "");
-        sendPushToUid(to, pushText).catch(() => {});
+        // even if the tab/app is closed or unfocused. Skip screen-share
+        // renegotiations — those are not a call ringing for the callee.
+        if (!isScreenShare) {
+            const callerName = String(from || "").trim();
+            const pushText = "Bot is thinking" + (callerName ? " " + callerName : "");
+            sendPushToUid(to, pushText).catch(() => {});
+        }
     });
 
     // Remote Control Gesture Relay (DataChannel Fallback)

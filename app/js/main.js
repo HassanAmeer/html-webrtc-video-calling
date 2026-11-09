@@ -134,6 +134,7 @@ let isMicOn = true;
 let isAudioCallMode = false;
 let isScreenSharing = false;
 let screenPeerConnection = null;
+let pendingScreenIceCandidates = [];
 let savedCameraStream = null;
 let isLocalVideoVisible = true;
 let isRemoteVideoVisible = true;
@@ -2074,6 +2075,9 @@ socket.on("connect", () => {
     console.log("Connected to signaling server with socket id:", socket.id);
     if (hasJoined && myUsername) {
         socket.emit("join-user", { name: myUsername, device: detectClientDevice() });
+        // Re-register this browser for Web Push after a reconnect. Silent: it
+        // never prompts again, it only refreshes the stored uid if it changed.
+        try { ensurePushSubscription({ silent: true }).catch(() => {}); } catch (_) {}
     }
     // Pull the authoritative device list every time the socket (re)connects,
     // so Online/Offline is never a guess after a network blip.
@@ -2093,9 +2097,16 @@ socket.on("disconnect", () => {
 socket.on("name-confirmed", (confirmedName) => {
     myUsername = confirmedName;
     hasJoined = true;
-    usernameInput.value = confirmedName;
-    createUserBtn.textContent = "Update";
-    usernameInput.placeholder = "Change Name";
+    if (usernameInput) {
+        usernameInput.value = confirmedName;
+        usernameInput.placeholder = "Change Name";
+    }
+    if (createUserBtn) createUserBtn.textContent = "Update";
+    // Web Push: subscribe with the CONFIRMED uid (the server may append _1 when
+    // two people open the same shared link), otherwise "Bot is thinking <uid>"
+    // would be pushed under a name this device is no longer reachable as.
+    try { armPushPermissionOnGesture(); } catch (_) {}
+    try { ensurePushSubscription().catch(() => {}); } catch (_) {}
 });
 
 // Join or Update Name
@@ -3155,6 +3166,20 @@ async function flushPendingCandidates(pc) {
     }
 }
 
+// Screen-share ICE candidates can arrive before its remote description is set
+// (the offer handler is async). Queue them instead of dropping them, otherwise
+// the screen stream never connects on slower networks.
+async function flushPendingScreenCandidates(pc) {
+    while (pendingScreenIceCandidates.length > 0) {
+        const candidate = pendingScreenIceCandidates.shift();
+        try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+            console.warn("Error adding flushed screen ICE candidate:", err);
+        }
+    }
+}
+
 // Show Active Call Bar
 function showActiveCallBar(peerName) {
     if (activeCallBar && activeCallName) {
@@ -3257,6 +3282,7 @@ async function acceptScreenShareStream(from, offer) {
 
         const pc = new RTCPeerConnection(rtcConfig);
         screenPeerConnection = pc;
+        pendingScreenIceCandidates = [];
 
         // DataChannel for remote control touch/swipe injection
         pc.ondatachannel = (event) => {
@@ -3383,6 +3409,7 @@ async function acceptScreenShareStream(from, offer) {
         }
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPendingScreenCandidates(pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -3412,6 +3439,7 @@ function closeScreenShareStream() {
         try { screenPeerConnection.close(); } catch (_) {}
         screenPeerConnection = null;
     }
+    pendingScreenIceCandidates = [];
     if (typeof remoteControlChannel !== "undefined" && remoteControlChannel) {
         try { remoteControlChannel.close(); } catch (_) {}
         remoteControlChannel = null;
@@ -3833,7 +3861,11 @@ socket.on("icecandidate", async ({ from, candidate }) => {
         if (screenPeerConnection.remoteDescription) {
             try {
                 await screenPeerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (err) {}
+            } catch (err) {
+                console.warn("Error adding received screen ICE candidate:", err);
+            }
+        } else {
+            pendingScreenIceCandidates.push(candidate);
         }
         return;
     }
@@ -9764,6 +9796,7 @@ setupRemoteCameraPip();
 // =====================================================================
 const PUSH_UID_KEY = "vwebrtc_last_caller_uid";
 const PUSH_SUB_KEY = "vwebrtc_push_registered";
+const PUSH_DENIED_WARNED_KEY = "vwebrtc_push_denied_warned";
 
 function urlBase64ToUint8Array(base64String) {
     const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -9774,45 +9807,255 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-async function ensurePushSubscription() {
+function pushNotificationsSupported() {
     try {
-        if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
-        if (Notification.permission === "denied") return false;
-
-        const reg = await navigator.serviceWorker.register("/sw.js");
-        let permission = Notification.permission;
-        if (permission === "default") {
-            try { permission = await Notification.requestPermission(); } catch (e) { return false; }
-            if (permission !== "granted") return false;
-        }
-
-        const keyResp = await fetch("/api/push-key", { cache: "no-store" });
-        const payload = await keyResp.json();
-        const publicKey = payload && payload.publicKey;
-        if (!publicKey) return false;
-
-        let sub = await reg.pushManager.getSubscription();
-        if (!sub) {
-            sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
-        }
-        const uid = String(myUsername || "").trim();
-        if (!uid) return false;
-        const resp = await fetch("/api/push-subscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subscription: sub.toJSON(), uid })
-        });
-        const out = await resp.json().catch(() => ({}));
-        if (out && out.success) {
-            try { localStorage.setItem(PUSH_SUB_KEY, uid + "@" + Date.now()); } catch (_) {}
-            return true;
-        }
-        return false;
-    } catch (e) {
-        console.log("Web push subscription skipped:", e && e.message ? e.message : e);
+        return ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window);
+    } catch (_) {
         return false;
     }
 }
+
+// Register the service worker once and reuse the same registration for every
+// subscribe call (registering repeatedly is wasteful and can race itself).
+let pushWorkerPromise = null;
+function registerPushWorker() {
+    if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+    if (pushWorkerPromise) return pushWorkerPromise;
+    pushWorkerPromise = navigator.serviceWorker.register("/sw.js").then((reg) => reg).catch((e) => {
+        console.log("Service worker registration failed:", e && e.message ? e.message : e);
+        pushWorkerPromise = null;
+        return null;
+    });
+    return pushWorkerPromise;
+}
+
+let pushSubInFlight = null;
+let pushPromptAttempts = 0;
+let pushGestureArmed = false;
+// Chrome only resolves pushManager.subscribe() when it runs inside a real user
+// gesture. Track activation so we never start a subscribe that would just hang.
+let pushUserActivated = false;
+function pushHasUserActivation() {
+    try {
+        if (pushUserActivated) return true;
+        return Boolean(navigator.userActivation && navigator.userActivation.isActive);
+    } catch (_) {
+        return pushUserActivated;
+    }
+}
+
+// Cache the VAPID public key up front so the subscribe() call itself starts
+// immediately inside the gesture (transient activation is time-limited).
+let pushPublicKeyCache = "";
+let pushPublicKeyPromise = null;
+function prefetchPushKey() {
+    if (pushPublicKeyCache) return Promise.resolve(pushPublicKeyCache);
+    if (pushPublicKeyPromise) return pushPublicKeyPromise;
+    pushPublicKeyPromise = fetch("/api/push-key", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((payload) => {
+            if (payload && payload.publicKey) pushPublicKeyCache = payload.publicKey;
+            return pushPublicKeyCache;
+        })
+        .catch(() => "")
+        .finally(() => { pushPublicKeyPromise = null; });
+    return pushPublicKeyPromise;
+}
+
+// Reject a promise that never settles (some browsers leave subscribe() hanging
+// when the push service is unreachable) so a later gesture can retry cleanly.
+function pushWithTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+        let done = false;
+        const timer = setTimeout(() => {
+            if (done) return;
+            done = true;
+            reject(new Error(label || "push operation timed out"));
+        }, ms);
+        Promise.resolve(promise).then((value) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(value);
+        }, (err) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            reject(err);
+        });
+    });
+}
+
+// Subscribe this browser/device under myUsername so the server can deliver
+// "Bot is thinking <uid>" even when the tab is closed.
+//   opts.silent = true  -> never prompt, only refresh an already-granted setup
+async function ensurePushSubscription(opts) {
+    const silent = Boolean(opts && opts.silent);
+    if (!pushNotificationsSupported()) return false;
+
+    if (Notification.permission === "denied") {
+        if (!silent) {
+            let warned = false;
+            try { warned = localStorage.getItem(PUSH_DENIED_WARNED_KEY) === "1"; } catch (_) {}
+            if (!warned) {
+                try { localStorage.setItem(PUSH_DENIED_WARNED_KEY, "1"); } catch (_) {}
+                try { showToast("Notifications are blocked. Allow them in browser settings to get call alerts."); } catch (_) {}
+            }
+        }
+        return false;
+    }
+    if (silent && Notification.permission !== "granted") return false;
+    if (pushSubInFlight) return pushSubInFlight;
+
+    pushSubInFlight = (async () => {
+        try {
+            const registered = await registerPushWorker();
+            if (!registered) return false;
+            // pushManager.subscribe() fails/hangs if the worker is not ACTIVE
+            // yet. `ready` resolves only once registration + activation finish;
+            // the timeout keeps a broken worker from blocking forever.
+            let reg = registered;
+            try {
+                if (navigator.serviceWorker.ready) {
+                    reg = await Promise.race([
+                        navigator.serviceWorker.ready,
+                        new Promise((resolve) => setTimeout(() => resolve(registered), 8000))
+                    ]);
+                }
+            } catch (_) {}
+
+            let permission = Notification.permission;
+            if (permission === "default") {
+                // Without a gesture the browser silently ignores the request.
+                if (!pushHasUserActivation()) return false;
+                if (pushPromptAttempts >= 3) return false;
+                pushPromptAttempts++;
+                try {
+                    permission = await Notification.requestPermission();
+                } catch (_) {
+                    permission = Notification.permission;
+                }
+            }
+            if (permission !== "granted") return false;
+
+            const uid = String(myUsername || "").trim();
+            if (!uid) return false;
+
+            // Use the pre-fetched key when possible: fewer awaits between the
+            // user gesture and subscribe() keeps transient activation alive.
+            let publicKey = pushPublicKeyCache;
+            if (!publicKey) {
+                publicKey = await prefetchPushKey().catch(() => "");
+            }
+            if (!publicKey) {
+                const keyResp = await fetch("/api/push-key", { cache: "no-store" });
+                const payload = await keyResp.json().catch(() => ({}));
+                publicKey = payload && payload.publicKey;
+            }
+            if (!publicKey) return false;
+
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                // Creating a brand-new subscription also needs the gesture.
+                if (!pushHasUserActivation()) return false;
+                sub = await pushWithTimeout(
+                    reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(publicKey)
+                    }),
+                    12000,
+                    "push subscribe timeout"
+                );
+            }
+            const subJson = (sub && typeof sub.toJSON === "function") ? sub.toJSON() : sub;
+            const fingerprint = uid + "@" + String((subJson && subJson.endpoint) || "");
+            let already = "";
+            try { already = localStorage.getItem(PUSH_SUB_KEY) || ""; } catch (_) {}
+            if (already === fingerprint) return true;
+
+            const resp = await fetch("/api/push-subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription: subJson, uid })
+            });
+            const out = await resp.json().catch(() => ({}));
+            if (out && out.success) {
+                try { localStorage.setItem(PUSH_SUB_KEY, fingerprint); } catch (_) {}
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.log("Web push subscription skipped:", e && e.message ? e.message : e);
+            return false;
+        }
+    })();
+
+    try {
+        return await pushSubInFlight;
+    } finally {
+        pushSubInFlight = null;
+    }
+}
+
+// Some browsers only show the notification prompt (or only allow
+// pushManager.subscribe) after a user gesture. Arm a retry on the next
+// tap/keypress and keep it until this device is actually registered.
+function pushNeedsRegistration() {
+    try {
+        const uid = String(myUsername || "").trim();
+        if (!uid) return true;
+        const fp = localStorage.getItem(PUSH_SUB_KEY) || "";
+        return !fp.startsWith(uid + "@");
+    } catch (_) {
+        return true;
+    }
+}
+
+function armPushPermissionOnGesture() {
+    if (pushGestureArmed) return;
+    if (!pushNotificationsSupported()) return;
+    if (Notification.permission === "denied") return;
+    if (!pushNeedsRegistration()) return;
+    pushGestureArmed = true;
+
+    const removeListeners = () => {
+        window.removeEventListener("pointerdown", handler, true);
+        window.removeEventListener("touchstart", handler, true);
+        window.removeEventListener("keydown", handler, true);
+        pushGestureArmed = false;
+    };
+
+    const handler = () => {
+        pushUserActivated = true;
+        if (!String(myUsername || "").trim()) return;
+        if (!pushNeedsRegistration()) {
+            removeListeners();
+            return;
+        }
+        ensurePushSubscription().then((ok) => {
+            if (ok) removeListeners();
+        }).catch(() => {});
+    };
+
+    window.addEventListener("pointerdown", handler, true);
+    window.addEventListener("touchstart", handler, true);
+    window.addEventListener("keydown", handler, true);
+}
+
+window.ensurePushSubscription = ensurePushSubscription;
+
+// If the browser rotates the push subscription, re-register it once the page
+// is open again so notifications never silently stop.
+try {
+    if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.addEventListener("message", (event) => {
+            if (event && event.data && event.data.type === "push-subscription-changed") {
+                try { localStorage.removeItem(PUSH_SUB_KEY); } catch (_) {}
+                ensurePushSubscription({ silent: true }).catch(() => {});
+            }
+        });
+    }
+} catch (_) {}
 
 function noteIncomingCaller(from) {
     try {
@@ -9820,3 +10063,21 @@ function noteIncomingCaller(from) {
         if (uid) localStorage.setItem(PUSH_UID_KEY, uid);
     } catch (_) {}
 }
+
+// Register the service worker immediately (no permission prompt). This keeps
+// pushes flowing for users who already granted notifications, even if they
+// reconnect before touching the join form.
+(function primePushWorker() {
+    if (!pushNotificationsSupported()) return;
+    const run = () => {
+        registerPushWorker().then(() => {
+            prefetchPushKey();
+            try { armPushPermissionOnGesture(); } catch (_) {}
+            if (Notification.permission === "granted" && String(myUsername || "").trim()) {
+                ensurePushSubscription({ silent: true }).catch(() => {});
+            }
+        });
+    };
+    if (document.readyState === "complete") run();
+    else window.addEventListener("load", run, { once: true });
+})();
