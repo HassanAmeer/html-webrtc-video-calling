@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">VRemote</string>
+    <string name="app_name">Brand Name</string>
     <string name="ghost_app_name">&#8203;</string>
     <string name="accessibility_service_description">Enables real-time remote touch control and gesture navigation from the connected desktop caller during WebRTC screen sharing.</string>
 </resources>
