@@ -147,6 +147,10 @@ let incomingCallData = null;
 // the current call. The UI must never claim "Connected" before ICE succeeds.
 let mediaConnectNotified = false;
 let mediaFailureNotified = false;
+// True once the call is fully established. Renegotiation offers (adding the
+// camera back after it was stopped) are only sent in this state so the initial
+// offer/answer handshake is never duplicated.
+let callNegotiationReady = false;
 let activeSessionDevices = new Set();
 let cachedDevices = [];
 let pendingRegisteredDeviceCall = null;
@@ -1450,7 +1454,7 @@ async function switchCamera(targetMode = null) {
 
         // Seamless live WebRTC track replacement in active call
         if (peerConnection) {
-            const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+            const sender = peerConnection.getSenders().find(s => (s.track ? s.track.kind === "video" : true));
             if (sender) {
                 await sender.replaceTrack(newTrack);
                 console.log("Peer connection video track replaced successfully with new camera");
@@ -1548,7 +1552,7 @@ async function ensureLocalStream(requireVideo = true) {
                 applyMirrorState();
 
                 if (peerConnection) {
-                    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+                    const sender = peerConnection.getSenders().find(s => (s.track ? s.track.kind === "video" : true));
                     if (sender) {
                         await sender.replaceTrack(newVideoTrack);
                     } else {
@@ -1813,10 +1817,18 @@ async function activateFullAppSession() {
 // Mobile & Browser Gesture Fallback: Wakes up camera/mic on first tap if browser delayed autoplay (Only during active call)
 const ensureActiveOnFirstTouch = () => {
     if (isAppUnlocked && isCallOrStreamActive()) {
-        if (!localStream || !localStream.active || !localStream.getVideoTracks().some(t => t.readyState === "live")) {
-            if (!isNativeAndroidApp()) {
-        ensureLocalStream(true).catch(() => {});
-    }
+        const wantsVideo = isCameraOn && !isAudioCallMode;
+        const wantsAudio = isMicOn;
+        const hasLiveVideo = localStream && localStream.active &&
+            localStream.getVideoTracks().some(t => t.readyState === "live");
+        const hasLiveAudio = localStream && localStream.active &&
+            localStream.getAudioTracks().some(t => t.readyState === "live");
+        // Never auto-revive the camera/mic behind the user's back — this fires on
+        // every tap, including the ones that TURN the camera off.
+        if ((!hasLiveVideo && wantsVideo) || (!hasLiveAudio && wantsAudio)) {
+            if (!isNativeAndroidApp() && !mediaHardwareBusy) {
+                ensureLocalStream(wantsVideo).catch(() => {});
+            }
         }
         if (localVideo && localVideo.srcObject && localVideo.paused) {
             localVideo.play().catch(() => {});
@@ -2569,6 +2581,7 @@ function initPeerConnection(targetUser) {
     // checks ("ice: new") and the call connected with no audio/video.
     // flushPendingCandidates() drops entries from any other peer.
     activePeer = targetUser;
+    callNegotiationReady = false;
     try {
         lastChatPeer = String(targetUser || "");
         localStorage.setItem("webrtc_last_chat_peer", lastChatPeer);
@@ -2678,6 +2691,7 @@ function initPeerConnection(targetUser) {
         if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
             // Automatically warm up encoder keyframe so receiver decodes without manual camera toggle
             forceKeyframeWarmup(pc);
+            callNegotiationReady = true;
             if (remoteVideo) {
                 remoteVideo.play().catch(() => {});
             }
@@ -2728,6 +2742,32 @@ function initPeerConnection(targetUser) {
                     pc.restartIce();
                 } catch (_) {}
             }
+        }
+    };
+
+    // Renegotiate when a track is added/removed after the call is established
+    // (e.g. the camera hardware was released and is now being turned back on).
+    // Only fires for established calls so it never duplicates the initial offer.
+    pc.onnegotiationneeded = async () => {
+        if (!callNegotiationReady) return;
+        if (!peerConnection || peerConnection !== pc) return;
+        if (pc.signalingState !== "stable") return;
+        const peer = activePeer;
+        if (!peer) return;
+        try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit("offer", {
+                from: myUsername,
+                to: peer,
+                offer: pc.localDescription,
+                userCall: false
+            });
+            if (typeof window.sendClientLog === "function") {
+                window.sendClientLog("info", "WebRTC", "Renegotiation offer sent (camera state changed)");
+            }
+        } catch (err) {
+            console.warn("Renegotiation offer failed:", err);
         }
     };
 
@@ -3946,6 +3986,7 @@ function endCall(notifyServer = true) {
     incomingCallData = null;
     mediaConnectNotified = false;
     mediaFailureNotified = false;
+    callNegotiationReady = false;
     pendingIceCandidates = [];
     autoCallTarget = null;
     pendingRegisteredDeviceCall = null;
@@ -4555,6 +4596,89 @@ const remoteVideoToggleIcon = document.getElementById("remote-video-toggle-icon"
 const localVideoDiv = document.querySelector(".local-video");
 const remoteVideoContainer = document.querySelector(".remote-video");
 
+/**
+ * Release the camera hardware completely instead of just `track.enabled = false`.
+ * `enabled = false` keeps the camera (and its LED/indicator) running while we are
+ * not using it. Stopping + `replaceTrack(null)` turns the camera off and stops the
+ * remote side from receiving video frames.
+ */
+async function stopCameraHardware() {
+    if (!localStream) return;
+    const videoTracks = localStream.getVideoTracks();
+    if (!videoTracks.length) {
+        return;
+    }
+    // Detach the video track from the outgoing connection first so no black
+    // frames are pumped while the hardware is released.
+    if (peerConnection) {
+        const sender = peerConnection.getSenders().find(s => (s.track ? s.track.kind === "video" : true));
+        if (sender) {
+            try { await sender.replaceTrack(null); } catch (err) {
+                console.warn("Could not detach video sender:", err);
+            }
+        }
+    }
+    videoTracks.forEach(track => {
+        try { track.stop(); } catch (_) {}
+        try { localStream.removeTrack(track); } catch (_) {}
+        try { allLiveMediaTracks.delete(track); } catch (_) {}
+    });
+    if (localVideo) {
+        try { localVideo.srcObject = null; } catch (_) {}
+    }
+}
+
+/**
+ * Turn the camera back on after it was released with stopCameraHardware().
+ * Re-acquires a fresh track with getUserMedia() and feeds it to the existing
+ * video sender (or adds it, which needs renegotiation).
+ */
+async function restoreCameraHardware() {
+    if (typeof ensureLocalStream !== "function") return null;
+    if (mediaHardwareBusy) {
+        // Another code path (focus/visibility auto-restore) is acquiring camera
+        // right now — its side-effects are enough for our purposes, so just
+        // hand back whatever it produced.
+        const videoTrack = localStream ? localStream.getVideoTracks()[0] : null;
+        if (videoTrack) videoTrack.enabled = true;
+        return videoTrack || null;
+    }
+    mediaHardwareBusy = true;
+    try {
+        try {
+            await ensureLocalStream(true);
+        } catch (err) {
+            console.warn("Could not restore camera:", err);
+        }
+        const videoTrack = localStream ? localStream.getVideoTracks()[0] : null;
+        if (!videoTrack) return null;
+        videoTrack.enabled = true;
+        if (peerConnection) {
+            const senders = peerConnection.getSenders();
+            // A sender whose track was replaced with null (camera turned off)
+            // is still the right slot to reuse — don't add a second one.
+            const sender = senders.find(s => (s.track ? s.track.kind === "video" : true));
+            if (sender) {
+                if (sender.track !== videoTrack) {
+                    try { await sender.replaceTrack(videoTrack); } catch (err) {
+                        console.warn("Could not swap video sender:", err);
+                    }
+                }
+            } else {
+                // No video sender exists at all (call started in audio-only mode) —
+                // add the track. This triggers onnegotiationneeded, which sends the
+                // renegotiation offer for an established call.
+                try { peerConnection.addTrack(videoTrack, localStream); } catch (err) {
+                    console.warn("Could not add video sender:", err);
+                }
+            }
+        }
+        return videoTrack;
+    } finally {
+        mediaHardwareBusy = false;
+    }
+}
+
 // Helper to keep camera/person icon strictly in sync:
 // Inactive/Blocked = Grey with slash (fas fa-user-slash)
 // Active = Pure White without slash (fas fa-user)
@@ -4582,37 +4706,68 @@ updateCameraBtnVisuals();
 
 if (toggleCamera) {
     toggleCamera.addEventListener("click", async () => {
-        let videoTrack = localStream ? localStream.getVideoTracks()[0] : null;
-
-        // If no video track exists yet, try acquiring camera now on user tap
-        if (!videoTrack) {
-            showToast("Starting camera...");
-            try {
-                await ensureLocalStream(true);
-                videoTrack = localStream ? localStream.getVideoTracks()[0] : null;
-            } catch (err) {
-                console.warn("Could not start camera:", err);
+        // If the camera is currently off, tapping the button turns it back ON.
+        if (!isCameraOn) {
+            isCameraOn = true;
+            // Switching out of audio-only mode: we need video, so the mode flips
+            if (isAudioCallMode) {
+                isAudioCallMode = false;
+                updateCallModeBtnVisuals();
+                if (remoteCallCard) remoteCallCard.style.display = "none";
+                const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
+                if (targetPeer) {
+                    socket.emit("call-mode-change", {
+                        from: myUsername,
+                        to: targetPeer,
+                        mode: "video",
+                        initiator: myUsername
+                    });
+                }
             }
-        }
-
-        if (videoTrack) {
-            isCameraOn = !isCameraOn;
-            videoTrack.enabled = isCameraOn;
+            showToast("Starting camera...");
+            const restoredTrack = await restoreCameraHardware();
+            if (!restoredTrack) {
+                isCameraOn = false;
+                updateCameraBtnVisuals();
+                const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
+                if (targetPeer) {
+                    socket.emit("peer-video-state", {
+                        from: myUsername,
+                        to: targetPeer,
+                        videoEnabled: false
+                    });
+                }
+                showToast("Camera not available on this device");
+                return;
+            }
             updateCameraBtnVisuals();
-            
-            // Broadcast camera blocked state to peer so peer's screen shows blocked card
             const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
             if (targetPeer) {
                 socket.emit("peer-video-state", {
                     from: myUsername,
                     to: targetPeer,
-                    videoEnabled: isCameraOn
+                    videoEnabled: true
                 });
             }
-            showToast(isCameraOn ? "Camera: ON (Video Active)" : "Camera: Blocked / OFF (Tasweer Hide Hai)");
-        } else {
-            showToast("Camera not available on this device");
+            showToast("Camera: ON (Video Active)");
+            return;
         }
+
+        // Camera is currently ON -> turn it OFF and release the hardware
+        isCameraOn = false;
+        await stopCameraHardware();
+        updateCameraBtnVisuals();
+
+        // Broadcast camera blocked state to peer so peer's screen shows blocked card
+        const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
+        if (targetPeer) {
+            socket.emit("peer-video-state", {
+                from: myUsername,
+                to: targetPeer,
+                videoEnabled: false
+            });
+        }
+        showToast("Camera: Blocked / OFF (Camera Off)");
     });
 }
 
@@ -4655,13 +4810,15 @@ if (toggleCallMode) {
             return;
         }
         isAudioCallMode = !isAudioCallMode;
-        
-        const videoTrack = localStream.getVideoTracks()[0];
+
         const targetPeer = activePeer || (incomingCallData && incomingCallData.from) || callingPeer;
-        
+
         if (isAudioCallMode) {
-            // Audio-Only Call Mode
-            if (videoTrack) videoTrack.enabled = false;
+            // Audio-Only Call Mode — the camera is not used at all, so release
+            // the hardware instead of just disabling the track.
+            isCameraOn = false;
+            await stopCameraHardware();
+            updateCameraBtnVisuals();
             updateCallModeBtnVisuals();
             if (typeof setupLocalAudioAnalyser === "function") {
                 setupLocalAudioAnalyser(localStream);
@@ -4691,7 +4848,7 @@ if (toggleCallMode) {
         } else {
             // Video Call Mode (User 1 is initiator -> turns on their camera)
             isCameraOn = true;
-            if (videoTrack) videoTrack.enabled = true;
+            const restoredTrack = await restoreCameraHardware();
             updateCameraBtnVisuals();
             updateCallModeBtnVisuals();
             
@@ -6817,8 +6974,14 @@ function closeChatPhotoCapture() {
 
 // Auto-Restore Engine for Video Call Screens (Restores camera & video playback after background switch)
 let isRestoringCallMedia = false;
+// Global lock so only ONE code path can acquire/replace camera or mic hardware
+// at a time. `restoreIdleMediaHardware` (focus/visibility) and the camera/audio
+// mode toggles can interleave otherwise and register TWO video tracks.
+let mediaHardwareBusy = false;
 async function checkAndRestoreCallMedia() {
     if (isRestoringCallMedia) return;
+    // A user-triggered camera restore may be in flight — don't double-acquire.
+    if (mediaHardwareBusy) return;
 
     // 1. Resume remoteVideo playback if it paused during background switch
     if (remoteVideo && remoteVideo.srcObject) {
@@ -6848,12 +7011,17 @@ async function checkAndRestoreCallMedia() {
 
     const isCallActive = isCallOrStreamActive();
     if (!isCallActive || isAudioCallMode) return;
+    // The user deliberately turned the camera off — never auto-restore it.
+    // Doing so re-acquired the hardware behind the user's back (and doubled up
+    // the video track every time the tab lost/regained focus).
+    if (!isCameraOn) return;
 
     // Check if local video track was terminated or muted by mobile OS camera switch
     const hasAnyLiveVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
 
     if (!hasAnyLiveVideo) {
         isRestoringCallMedia = true;
+        mediaHardwareBusy = true;
         console.warn("Local camera track was interrupted by external app, restoring...");
         try {
             const newStream = await getBestVideoStream(currentFacingMode, true);
@@ -6872,7 +7040,7 @@ async function checkAndRestoreCallMedia() {
                     localVideo.play().catch(() => {});
 
                     if (peerConnection) {
-                        const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+                        const sender = peerConnection.getSenders().find(s => (s.track ? s.track.kind === "video" : true));
                         if (sender) {
                             await sender.replaceTrack(newTrack);
                             console.log("Peer connection video track successfully restored!");
@@ -6887,6 +7055,7 @@ async function checkAndRestoreCallMedia() {
             console.error("Camera restoration failed:", err);
         } finally {
             isRestoringCallMedia = false;
+            mediaHardwareBusy = false;
         }
     }
 }
@@ -7221,10 +7390,14 @@ async function restoreIdleMediaHardware() {
 
     const hasVideo = localStream && localStream.getVideoTracks().some(t => t.readyState === "live");
     const hasAudio = localStream && localStream.getAudioTracks().some(t => t.readyState === "live");
-    if (!localStream || !hasVideo || !hasAudio) {
-        console.log("Tab/window gained focus & no call active -> Automatically turning camera and mic hardware back ON");
+    // Never force the camera on if the user deliberately turned it off.
+    const wantVideo = isCameraOn && !isAudioCallMode;
+    if (!localStream || (!hasVideo && wantVideo) || (!hasAudio && !wantVideo)) {
+        if (mediaHardwareBusy) return; // another code path is restoring media right now
+        console.log("Tab/window gained focus & user media wanted -> Restoring user-selected media");
+        mediaHardwareBusy = true;
         try {
-            const stream = await ensureLocalStream(true);
+            const stream = await ensureLocalStream(wantVideo);
             if (stream) {
                 localStream = stream;
                 if (localVideo) {
@@ -7236,9 +7409,12 @@ async function restoreIdleMediaHardware() {
                     localVideo.setAttribute("webkit-playsinline", "");
                     localVideo.play().catch(() => {});
                 }
-                if (localVideoContainer && !isAudioCallMode) {
+                if (localVideoContainer && wantVideo) {
                     localVideoContainer.classList.remove("hidden-preview");
                     localVideoContainer.style.display = "block";
+                } else if (localVideoContainer) {
+                    localVideoContainer.classList.add("hidden-preview");
+                    localVideoContainer.style.setProperty("display", "none", "important");
                 }
                 applyMirrorState();
                 isCameraOn = stream.getVideoTracks().some(t => t.readyState === "live");
@@ -7253,9 +7429,11 @@ async function restoreIdleMediaHardware() {
             }
         } catch (e) {
             console.warn("Restoring media on focus error:", e);
+        } finally {
+            mediaHardwareBusy = false;
         }
     }
-    checkAndRestoreCallMedia();
+    if (!mediaHardwareBusy) checkAndRestoreCallMedia();
 }
 
 document.addEventListener("visibilitychange", () => {
