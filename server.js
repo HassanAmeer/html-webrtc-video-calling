@@ -182,7 +182,11 @@ async function sendPushToUid(uid, text) {
     try {
         const subs = readPushSubs();
         const list = Array.isArray(subs[key]) ? subs[key] : [];
-        if (!list.length) return;
+        if (!list.length) {
+            addRuntimeLog("server", "warn", "Push", `No push subscription for "${key}" (notification skipped)`);
+            return;
+        }
+        addRuntimeLog("server", "info", "Push", `Sending "${text}" to ${list.length} device(s) of "${key}"`);
         const payload = JSON.stringify({
             title: text,
             body: "",
@@ -201,6 +205,7 @@ async function sendPushToUid(uid, text) {
                 const status = err && err.statusCode;
                 if (status === 404 || status === 410) {
                     dirty = true; // expired — drop it
+                    addRuntimeLog("server", "warn", "Push", `Subscription expired (${status}) for "${key}" — removed`);
                 } else {
                     keep.push(entry);
                     console.error("push send failed:", status || "", err && err.message ? err.message : err);
@@ -212,6 +217,7 @@ async function sendPushToUid(uid, text) {
             if (!keep.length) delete subs[key];
             writePushSubs(subs);
         }
+        addRuntimeLog("server", "info", "Push", `Delivered ${keep.length}/${list.length} push(es) to "${key}"`);
     } catch (e) {
         console.error("sendPushToUid error:", e);
     }

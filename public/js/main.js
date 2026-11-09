@@ -143,6 +143,10 @@ let hasAutoCalled = false;
 let latestUsers = {};
 let callingPeer = null;
 let incomingCallData = null;
+// Tracks whether the *media* path (not just signalling) has been confirmed for
+// the current call. The UI must never claim "Connected" before ICE succeeds.
+let mediaConnectNotified = false;
+let mediaFailureNotified = false;
 let activeSessionDevices = new Set();
 let cachedDevices = [];
 let pendingRegisteredDeviceCall = null;
@@ -205,9 +209,10 @@ function isCallOrStreamActive() {
 
 const rtcConfig = {
     iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
+        // Our own STUN/TURN first — it is the only relay that is guaranteed to
+        // be reachable from both callers and it now supports relay-to-relay
+        // (relay-ip is pinned in /etc/turnserver.conf).
+        { urls: "stun:201.18.218.29:3478" },
         {
             urls: [
                 "turn:201.18.218.29:3478?transport=udp",
@@ -216,15 +221,9 @@ const rtcConfig = {
             username: "webrtc",
             credential: "webrtcpass123"
         },
-        {
-            urls: [
-                "turn:openrelay.metered.ca:80",
-                "turn:openrelay.metered.ca:443",
-                "turn:openrelay.metered.ca:443?transport=tcp"
-            ],
-            username: "openrelayproject",
-            credential: "openrelayproject"
-        }
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: "max-bundle",
@@ -2558,7 +2557,12 @@ function initPeerConnection(targetUser) {
         peerConnection = null;
     }
 
-    pendingIceCandidates = [];
+    // IMPORTANT: do NOT clear pendingIceCandidates here. An incoming call rings
+    // for several seconds before it is accepted, and the caller's ICE
+    // candidates arrive during that window. Wiping the queue at accept time
+    // dropped every remote candidate, so the callee never started connectivity
+    // checks ("ice: new") and the call connected with no audio/video.
+    // flushPendingCandidates() drops entries from any other peer.
     activePeer = targetUser;
 
     const pc = new RTCPeerConnection(rtcConfig);
@@ -2669,6 +2673,13 @@ function initPeerConnection(targetUser) {
                 remoteVideo.play().catch(() => {});
             }
             if (callRecoverTimer) { clearTimeout(callRecoverTimer); callRecoverTimer = null; }
+            // Only now is the call really usable — announce it once per call.
+            if (!mediaConnectNotified) {
+                mediaConnectNotified = true;
+                mediaFailureNotified = false;
+                const peerLabel = activePeer || callingPeer || "";
+                try { showToast(peerLabel ? `Call connected with ${peerLabel}` : "Call connected"); } catch (_) {}
+            }
             if (typeof window.notifyDeviceConnectionSuccess === "function" && devIdToNotify) {
                 window.notifyDeviceConnectionSuccess(devIdToNotify);
             }
@@ -2692,6 +2703,13 @@ function initPeerConnection(targetUser) {
                 window.notifyDeviceSessionLost(devIdToNotify, "Connection ended", "lost");
             }
             if (pc.iceConnectionState === "failed") {
+                if (!mediaFailureNotified) {
+                    mediaFailureNotified = true;
+                    mediaConnectNotified = false;
+                    try {
+                        showToast("No audio/video link — network blocked. Retrying…");
+                    } catch (_) {}
+                }
                 if (typeof window.notifyDeviceConnectionFailure === "function" && pendingRegisteredDeviceCall) {
                     if (pendingRegisteredDeviceCall.action === 'audio_call' || pendingRegisteredDeviceCall.action === 'video_call') {
                         window.notifyDeviceConnectionFailure(pendingRegisteredDeviceCall.deviceId, "WebRTC ICE connection failed (Network/Firewall error)");
@@ -3155,11 +3173,17 @@ function showClickRipple(clientX, clientY) {
 }
 
 // Flush queued ICE Candidates
-async function flushPendingCandidates(pc) {
+async function flushPendingCandidates(pc, expectedPeer) {
+    const expected = expectedPeer ? normalizeDeviceId(expectedPeer) : "";
     while (pendingIceCandidates.length > 0) {
-        const candidate = pendingIceCandidates.shift();
+        const entry = pendingIceCandidates.shift();
+        // Entries are tagged with the sender so a candidate left over from a
+        // different/previous call can never be fed into this connection.
+        const rawCandidate = (entry && entry.candidate) ? entry.candidate : entry;
+        const entryFrom = (entry && entry.from) ? normalizeDeviceId(entry.from) : "";
+        if (expected && entryFrom && entryFrom !== expected) continue;
         try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            await pc.addIceCandidate(new RTCIceCandidate(rawCandidate));
         } catch (err) {
             console.warn("Error adding flushed ICE candidate:", err);
         }
@@ -3217,6 +3241,8 @@ async function startCall(targetUser) {
         window.sendClientLog("info", "Call", `Calling "${targetUser}"`);
     }
     callingPeer = targetUser;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     renderParticipantsList();
     startOutgoingWaveTone();
 
@@ -3655,7 +3681,7 @@ async function acceptRegisteredDeviceCall(from, offer, callAction) {
         const pc = initPeerConnection(from);
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        await flushPendingCandidates(pc);
+        await flushPendingCandidates(pc, from);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -3729,7 +3755,7 @@ socket.on("offer", async (data) => {
                 window.sendClientLog("info", "Call", `Renegotiation offer from "${from}" applied to live call`);
             }
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-            await flushPendingCandidates(peerConnection);
+            await flushPendingCandidates(peerConnection, from);
             const reAnswer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(reAnswer);
             socket.emit("answer", {
@@ -3840,11 +3866,15 @@ socket.on("answer", async ({ from, to, answer }) => {
     if (peerConnection) {
         try {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-            await flushPendingCandidates(peerConnection);
+            await flushPendingCandidates(peerConnection, from);
             applyBitrateToSender(peerConnection);
             updateFloatingEndCallBtn();
             showActiveCallBar(from);
-            showToast(`Call connected with ${from}`);
+            // Real state only: ICE success announces "Call connected". Here we
+            // just acknowledge the answer so the caller is not left guessing.
+            if (!mediaConnectNotified) {
+                try { showToast("Connecting audio/video…"); } catch (_) {}
+            }
             setTimeout(() => forceKeyframeWarmup(peerConnection), 300);
             renderParticipantsList();
         } catch (err) {
@@ -3877,7 +3907,7 @@ socket.on("icecandidate", async ({ from, candidate }) => {
             console.warn("Error adding received ICE candidate:", err);
         }
     } else {
-        pendingIceCandidates.push(candidate);
+        pendingIceCandidates.push({ from, candidate });
     }
 });
 
@@ -3905,6 +3935,8 @@ function endCall(notifyServer = true) {
     activePeer = null;
     callingPeer = null;
     incomingCallData = null;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     pendingIceCandidates = [];
     autoCallTarget = null;
     pendingRegisteredDeviceCall = null;
@@ -4359,6 +4391,8 @@ async function acceptIncomingCall() {
     if (!incomingCallData) return;
     const { from, offer } = incomingCallData;
     incomingCallData = null;
+    mediaConnectNotified = false;
+    mediaFailureNotified = false;
     stopIncomingCallAlert();
 
     console.log(`Accepted call offer from ${from}`);
@@ -4382,7 +4416,7 @@ async function acceptIncomingCall() {
         const pc = initPeerConnection(from);
 
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        await flushPendingCandidates(pc);
+        await flushPendingCandidates(pc, from);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -4405,7 +4439,9 @@ async function acceptIncomingCall() {
         // the receiver actually sees the caller's camera (it may still be
         // hidden from an earlier audio-only call).
         if (!isAudioCallMode) showRemoteView();
-        showToast(`Connected with ${from}`);
+        if (!mediaConnectNotified) {
+            try { showToast("Connecting audio/video…"); } catch (_) {}
+        }
         renderParticipantsList();
         setTimeout(() => forceKeyframeWarmup(pc), 300);
     } catch (err) {

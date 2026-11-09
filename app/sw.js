@@ -51,6 +51,19 @@ self.addEventListener("notificationclick", function (event) {
         var c = all[i];
         if (c && "focus" in c) {
           try {
+            // Deep-link an already-open tab to the caller's uid so tapping the
+            // notification always lands on the right call screen.
+            var sameOrigin = false;
+            try { sameOrigin = (new URL(c.url)).origin === self.location.origin; } catch (e2) { sameOrigin = false; }
+            if (sameOrigin && target && target !== "/" && typeof c.navigate === "function") {
+              var already = false;
+              try { already = new URL(c.url).search === new URL(target, self.location.origin).search; } catch (e3) { already = false; }
+              if (!already) {
+                return c.navigate(target).then(function (cl) {
+                  return (cl && cl.focus) ? cl.focus() : cl;
+                }).catch(function () { return c.focus(); });
+              }
+            }
             return c.focus();
           } catch (e) { /* fall through */ }
         }
