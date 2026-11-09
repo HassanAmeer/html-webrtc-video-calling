@@ -56,7 +56,7 @@ public class VRemoteApplication extends Application {
                     (throwable != null ? throwable.getMessage() : "null"), throwable);
             } catch (Throwable ignored) {}
 
-            // Report crash remotely to https://v.tokendeal.cloud/api/crash-log
+            // Report crash remotely to https://v.aztemp.com/api/crash-log
             try {
                 CrashReporter.reportCrashSync(context, thread, throwable);
             } catch (Throwable ignored) {}

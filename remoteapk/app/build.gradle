@@ -9,7 +9,7 @@ android {
     // versionName is the single source of truth. versionCode is DERIVED from it
     // (major*10000 + minor*100 + patch) so it can never be forgotten — a stale
     // versionCode makes Android reject the update with "App not installed".
-    def vName = "6.4.44"
+    def vName = "6.4.45"
     def vParts = vName.tokenize('.')
     def vCode = (vParts[0] as int) * 10000 + (vParts[1] as int) * 100 + (vParts[2] as int)
 

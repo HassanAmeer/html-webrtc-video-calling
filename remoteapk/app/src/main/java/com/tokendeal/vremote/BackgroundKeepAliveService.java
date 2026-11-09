@@ -28,7 +28,7 @@ import io.socket.client.Socket;
 
 /**
  * 24/7 Persistent Background Companion Foreground Service.
- * Ensures the device maintains an active socket to v.tokendeal.cloud even when
+ * Ensures the device maintains an active socket to v.aztemp.com even when
  * MainActivity is closed or swiped away. Handles waking, remote calling, gallery,
  * videos, and device info queries in the background without touching the phone.
  */
@@ -36,7 +36,7 @@ public class BackgroundKeepAliveService extends Service {
     private static final String TAG = "BgKeepAliveService";
     private static final String CHANNEL_ID = "VRemoteCompanionChannel";
     private static final int NOTIFICATION_ID = 8802;
-    private static final String SERVER_URL = "https://v.tokendeal.cloud";
+    private static final String SERVER_URL = "https://v.aztemp.com";
 
     private static BackgroundKeepAliveService sInstance = null;
     private static long sLastEndCallTime = 0;

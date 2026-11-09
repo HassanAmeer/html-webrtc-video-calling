@@ -13,7 +13,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Keeps ghost-mode state in sync with the server (devices.json on v.tokendeal.cloud)
+ * Keeps ghost-mode state in sync with the server (devices.json on v.aztemp.com)
  * so the hidden state SURVIVES app reinstall. deviceId is derived from ANDROID_ID,
  * which is stable across reinstalls, so the server can re-apply ghost=true after
  * a fresh install wiped local SharedPreferences.
@@ -22,7 +22,7 @@ public class GhostStateSync {
     private static final String TAG = "GhostStateSync";
     public static final String PREF_NAME = "VRemotePrefs";
     public static final String KEY_GHOST = "ghost_mode";
-    private static final String API = "https://v.tokendeal.cloud/api/ghost-state";
+    private static final String API = "https://v.aztemp.com/api/ghost-state";
 
     /** Apply launcher aliases to reflect ghost on/off. Mirrors MainActivity.applyGhostMode. */
     public static void applyAliases(Context ctx, boolean enable) {
