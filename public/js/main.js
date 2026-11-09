@@ -216,7 +216,9 @@ const rtcConfig = {
         {
             urls: [
                 "turn:201.18.218.29:3478?transport=udp",
-                "turn:201.18.218.29:3478?transport=tcp"
+                "turn:201.18.218.29:3478?transport=tcp",
+                // UDP/443 fallback: some ISPs block 3478 but never 443.
+                "turn:201.18.218.29:443?transport=udp"
             ],
             username: "webrtc",
             credential: "webrtcpass123"

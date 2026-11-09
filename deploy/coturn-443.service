@@ -1,0 +1,18 @@
+[Unit]
+Description=coTURN STUN/TURN Server (UDP/443 fallback)
+After=network.target
+
+[Service]
+User=turnserver
+Group=turnserver
+Type=notify
+# Port 443 is privileged; the turnserver user needs this capability to bind it.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+ExecStart=/usr/bin/turnserver -c /etc/turnserver-443.conf --pidfile=
+Restart=on-failure
+InaccessibleDirectories=/home
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
