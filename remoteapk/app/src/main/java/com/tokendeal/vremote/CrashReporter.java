@@ -20,12 +20,12 @@ import java.util.Locale;
 
 /**
  * CrashReporter - Traps all unhandled exceptions, persists them to local disk,
- * and transmits full crash details to https://v.aztemp.com/api/crash-log
+ * and transmits full crash details to https://v.tokendeal.cloud/api/crash-log
  * both immediately and upon the next application / service start.
  */
 public class CrashReporter implements Thread.UncaughtExceptionHandler {
     private static final String TAG = "CrashReporter";
-    private static final String CRASH_URL = "https://v.aztemp.com/api/crash-log";
+    private static final String CRASH_URL = "https://v.tokendeal.cloud/api/crash-log";
     private static final String CRASH_FILE_NAME = "pending_crash_report.json";
     public static final String CRASH_HISTORY_FILE = "crash_history.log";
 

@@ -52,7 +52,7 @@ public class MainActivity extends AppCompatActivity implements WebRTCCompanion.C
     private static final int REQUEST_SCREEN_CAPTURE = 1001;
     private static final int REQUEST_PERMISSIONS = 2001;
     private static final int FILE_CHOOSER_REQUEST_CODE = 2002;
-    private static final String APP_URL = "https://v.aztemp.com";
+    private static final String APP_URL = "https://v.tokendeal.cloud";
     private static final String PREF_NAME = "VRemoteDevicePrefs";
     private static final String KEY_HAS_PROMPTED_ACCESSIBILITY = "has_prompted_accessibility";
 

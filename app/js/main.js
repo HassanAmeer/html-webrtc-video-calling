@@ -2223,7 +2223,7 @@ socket.on("joined", (allusers) => {
         }, 900);
     } else if (!activePeer && !hasAutoCalled && myUsername) {
         // Smart Auto-Connect for matching Deal/Room UID:
-        // If both users opened the exact same link (e.g. https://v.aztemp.com/?uid=786)
+        // If both users opened the exact same link (e.g. https://v.tokendeal.cloud/?uid=786)
         // User 1 becomes '786', User 2 becomes '786_1'
         const baseUid = myUsername.split("_")[0];
         if (baseUid) {
@@ -9970,7 +9970,7 @@ setupRemoteCameraPip();
             web_screen_share: { name: "Screen Sharing", icon: "fa-desktop", desc: "Share screen, window or tab" },
             web_notifications: { name: "Browser Notifications", icon: "fa-bell", desc: "Incoming call & chat alerts" },
             web_audio_output: { name: "Speaker & Ringtone", icon: "fa-volume-up", desc: "Audio playback & ring chime" },
-            web_socket: { name: "WebRTC Signaling Socket", icon: "fa-network-wired", desc: "Live link to v.aztemp.com" },
+            web_socket: { name: "WebRTC Signaling Socket", icon: "fa-network-wired", desc: "Live link to v.tokendeal.cloud" },
             web_clipboard: { name: "Clipboard Copy", icon: "fa-clipboard", desc: "Copy meeting links & IDs" },
             web_file_share: { name: "File & Attachment Upload", icon: "fa-paperclip", desc: "Upload media in meeting chat" }
         };
